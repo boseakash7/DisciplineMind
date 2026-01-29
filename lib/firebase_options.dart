@@ -63,18 +63,18 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyApiG01yyveXL2Gyp73wGa4cxIBSet47wA',
-    appId: '1:967355636898:ios:4877d0542ff878278a8bfb',
-    messagingSenderId: '967355636898',
-    projectId: 'point-of-sale-e3480',
+    apiKey: 'AIzaSyBtHYqn5Y7h2dS-E3e0x0oDd3Jdb121Mxs',
+    appId: '1:827424636921:ios:ec097b17e5c278d498c728',
+    messagingSenderId: '827424636921',
+    projectId: 'displinemind-fcb4e',
     databaseURL:
         'https://flutterfire-e2e-tests-default-rtdb.europe-west1.firebasedatabase.app',
-    storageBucket: 'point-of-sale-e3480.firebasestorage.app',
+    storageBucket: 'displinemind-fcb4e.firebasestorage.app',
     androidClientId:
         '406099696497-tvtvuiqogct1gs1s6lh114jeps7hpjm5.apps.googleusercontent.com',
     iosClientId:
         '406099696497-taeapvle10rf355ljcvq5dt134mkghmp.apps.googleusercontent.com',
-    iosBundleId: 'com.fosshati.sa',
+    iosBundleId: 'com.discipline.mind',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
