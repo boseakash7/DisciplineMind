@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../services/ios_screen_time.dart';
+import '../../services/ios_screen_time.dart';
 
 class AppBlockIOSPage extends StatefulWidget {
   const AppBlockIOSPage({super.key});

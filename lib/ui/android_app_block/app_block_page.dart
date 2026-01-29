@@ -73,7 +73,7 @@ class _AppBlockPageState extends State<AppBlockPage> {
               // subtitle: const Text(YOUTUBE_PACKAGE),
               trailing: Switch(
                 value: isBlocked,
-                activeColor: Colors.red,
+                activeThumbColor: Colors.red,
                 onChanged: (_) => _toggle(),
               ),
             ),

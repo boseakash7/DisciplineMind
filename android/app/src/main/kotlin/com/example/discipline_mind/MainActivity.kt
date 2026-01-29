@@ -1,4 +1,4 @@
-package com.example.discipline_mind
+package com.discipline.mind
 
 import io.flutter.embedding.android.FlutterActivity
 

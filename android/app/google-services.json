@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "827424636921",
+    "project_id": "displinemind-fcb4e",
+    "storage_bucket": "displinemind-fcb4e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:827424636921:android:dcdae8d116b15dc498c728",
+        "android_client_info": {
+          "package_name": "com.discipline.mind"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDT61thAEW85hjEwsYGO7cFE-lt4-KouG4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
