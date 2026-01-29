@@ -28,7 +28,10 @@
 	<string>LaunchScreen</string>
 	<key>NSFamilyControlsUsageDescription</key>
 <string>This app helps users stay focused by blocking apps</string>
-
+<key>com.apple.developer.device-activity-monitoring</key>
+<true/>
+<key>com.apple.developer.family-controls</key>
+<true/>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
 	<key>UISupportedInterfaceOrientations</key>

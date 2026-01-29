@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:app_limiter/app_limiter.dart';
 import 'package:block_app/block_app.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/services/api/api_reponse.dart';
@@ -79,18 +82,39 @@ class AlertController extends GetxController {
   }) async {
     try {
       isSavingAlert.value = true;
-
+      final AppLimiter limiter = AppLimiter();
+      // ---------------- API CALL ----------------
       final response = await apiService.postFormData(ApiUrl.createAlertUrl, {
         'user_id': Common.userData.value!.payload!.id.toString(),
         'instrument': instrument,
         'price': price,
         'current_price': currentPrice.toString(),
       });
-      final success = await _blockApp.blockApp(BINANCE_PACKAGE);
+
       if (response.isSuccess) {
         AppToast.showToast("Alert created successfully");
 
-        final success = await _blockApp.blockApp(BINANCE_PACKAGE);
+        // ---------------- BLOCK BINANCE APP ----------------
+        bool success = false;
+
+        if (Platform.isAndroid) {
+          success = await _blockApp.blockApp(BINANCE_PACKAGE);
+        } else if (Platform.isIOS) {
+          // ✅ iOS Block Flow
+
+          // 1. Request ScreenTime Permission
+          final permissionGranted = await limiter.requestIosPermission();
+
+          if (!permissionGranted) {
+            AppToast.showToast("iOS permission required to block apps");
+            return;
+          }
+
+          // 2. Block App (ScreenTime Restriction)
+          await limiter.blockAndUnblockIOSApp();
+
+          success = true;
+        }
         if (success) {
           AppToast.showToast("Binance app has been blocked");
         } else {
@@ -106,6 +130,41 @@ class AlertController extends GetxController {
       isSavingAlert.value = false;
     }
   }
+
+  // Future<void> createAlert({
+  //   required String instrument,
+  //   required String price,
+  //   required double currentPrice,
+  // }) async {
+  //   try {
+  //     isSavingAlert.value = true;
+
+  //     final response = await apiService.postFormData(ApiUrl.createAlertUrl, {
+  //       'user_id': Common.userData.value!.payload!.id.toString(),
+  //       'instrument': instrument,
+  //       'price': price,
+  //       'current_price': currentPrice.toString(),
+  //     });
+  //     final success = await _blockApp.blockApp(BINANCE_PACKAGE);
+  //     if (response.isSuccess) {
+  //       AppToast.showToast("Alert created successfully");
+
+  //       final success = await _blockApp.blockApp(BINANCE_PACKAGE);
+  //       if (success) {
+  //         AppToast.showToast("Binance app has been blocked");
+  //       } else {
+  //         AppToast.showToast("Failed to block Binance app");
+  //       }
+  //       fetchUserAlerts(Common.userData.value!.payload!.id!);
+  //     } else {
+  //       AppToast.showToast(response.errorMessage ?? "Failed to create alert");
+  //     }
+  //   } catch (e) {
+  //     AppToast.showToast("Error: ${e.toString()}");
+  //   } finally {
+  //     isSavingAlert.value = false;
+  //   }
+  // }
 
   // Future<void> createAlert({
   //   required String instrument,
@@ -137,23 +196,56 @@ class AlertController extends GetxController {
   //     AppToast.showToast("Error: ${e.toString()}");
   //   }
   // }
-
   Future<bool> checkBlockAppPermissions() async {
+    // ✅ iOS Permission Flow
+    if (Platform.isIOS) {
+      final AppLimiter limiter = AppLimiter();
+      final granted = await limiter.requestIosPermission();
+
+      if (!granted) {
+        AppToast.showToast("iOS ScreenTime permission required");
+        return false;
+      }
+
+      return true;
+    }
+
+    // ✅ Android Permission Flow (Same as before)
     final permissions = await _blockApp.checkPermissions();
+
     final overlayGranted = permissions['hasOverlayPermission'] ?? false;
     final usageGranted = permissions['hasUsageStatsPermission'] ?? false;
 
     if (!overlayGranted) {
       await _blockApp.requestOverlayPermission();
     }
+
     if (!usageGranted) {
       await _blockApp.requestUsageStatsPermission();
     }
 
     final updatedPermissions = await _blockApp.checkPermissions();
+
     return (updatedPermissions['hasOverlayPermission'] ?? false) &&
         (updatedPermissions['hasUsageStatsPermission'] ?? false);
   }
+
+  // Future<bool> checkBlockAppPermissions() async {
+  //   final permissions = await _blockApp.checkPermissions();
+  //   final overlayGranted = permissions['hasOverlayPermission'] ?? false;
+  //   final usageGranted = permissions['hasUsageStatsPermission'] ?? false;
+
+  //   if (!overlayGranted) {
+  //     await _blockApp.requestOverlayPermission();
+  //   }
+  //   if (!usageGranted) {
+  //     await _blockApp.requestUsageStatsPermission();
+  //   }
+
+  //   final updatedPermissions = await _blockApp.checkPermissions();
+  //   return (updatedPermissions['hasOverlayPermission'] ?? false) &&
+  //       (updatedPermissions['hasUsageStatsPermission'] ?? false);
+  // }
 
   Future<void> deleteAlert(String alertId) async {
     try {
@@ -165,16 +257,21 @@ class AlertController extends GetxController {
 
       if (response.isSuccess) {
         AppToast.showToast("Alert deleted");
+        if (Platform.isAndroid) {
+          final BlockApp blockApp = BlockApp();
 
-        final BlockApp blockApp = BlockApp();
+          final success = await blockApp.unblockApp(BINANCE_PACKAGE);
 
-        final success = await blockApp.unblockApp(BINANCE_PACKAGE);
-
-        if (success) {
-          AppToast.showToast("Binance unblocked");
+          if (success) {
+            AppToast.showToast("Binance unblocked");
+          } else {
+            AppToast.showToast("Failed to unblock Binance");
+          }
         } else {
-          AppToast.showToast("Failed to unblock Binance");
+          final AppLimiter limiter = AppLimiter();
+          await limiter.blockAndUnblockIOSApp();
         }
+
         fetchUserAlerts(Common.userData.value!.payload!.id!);
       } else {
         AppToast.showToast("Failed to delete alert");
