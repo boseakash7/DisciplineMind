@@ -242,7 +242,7 @@ Future<void> showGenericPopup({
   await showDialog(
     barrierDismissible: false,
     context: context,
-    builder: (BuildContext context) {
+    builder: (BuildContext dialogContext) {
       return StatefulBuilder(
         builder: (context, setState) {
           return GestureDetector(
@@ -254,7 +254,7 @@ Future<void> showGenericPopup({
                   width: MediaQuery.of(context).size.width * 0.85,
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white, // White background
+                    color: Colors.white,
                     borderRadius: BorderRadius.circular(12),
                     boxShadow: [
                       BoxShadow(
@@ -267,39 +267,42 @@ Future<void> showGenericPopup({
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Heading
                       Text(
                         heading,
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFF232323), // Dark text
+                          color: Color(0xFF232323),
                         ),
                       ),
                       const SizedBox(height: 12),
 
-                      // Subtitle
                       Text(
                         subtitle,
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w400,
-                          color: Color(0xFF616161), // Medium gray
+                          color: Color(0xFF616161),
                         ),
                       ),
                       const SizedBox(height: 20),
 
-                      // Yes Button (Green gradient)
+                      /// ✅ YES BUTTON
                       GestureDetector(
                         onTap: isLoading
                             ? null
                             : () async {
                                 setState(() => isLoading = true);
-                                await onYesPress();
-                                setState(() => isLoading = false);
+
+                                // ✅ Close dialog first
                                 Navigator.of(context).pop();
+
+                                // ✅ Run async logic after dialog is removed
+                                Future.microtask(() async {
+                                  await onYesPress();
+                                });
                               },
                         child: Container(
                           height: 50,
@@ -308,19 +311,12 @@ Future<void> showGenericPopup({
                             borderRadius: BorderRadius.circular(10),
                             gradient: const LinearGradient(
                               colors: [Color(0xFF4CAF50), Color(0xFF66BB6A)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
                             ),
                           ),
                           child: Center(
                             child: isLoading
-                                ? const SizedBox(
-                                    height: 20,
-                                    width: 20,
-                                    child: CircularProgressIndicator(
-                                      color: Colors.white,
-                                      strokeWidth: 2,
-                                    ),
+                                ? const CircularProgressIndicator(
+                                    color: Colors.white,
                                   )
                                 : Text(
                                     yesButtonTitle,
@@ -336,10 +332,16 @@ Future<void> showGenericPopup({
 
                       const SizedBox(height: 10),
 
-                      // No Button (Red border)
+                      /// ✅ NO BUTTON
                       if (noButtonTitle != null)
                         GestureDetector(
-                          onTap: onNoPress,
+                          onTap: () {
+                            onNoPress();
+
+                            if (Navigator.canPop(dialogContext)) {
+                              Navigator.of(dialogContext).pop();
+                            }
+                          },
                           child: Container(
                             height: 50,
                             width: double.infinity,

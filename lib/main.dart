@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:block_app/block_app.dart' show BlockApp, AppBlockConfig;
 import 'package:discipline_mind/firebase_options.dart';
+import 'package:discipline_mind/ui/android_app_block/blocked_app_overlay.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
@@ -23,12 +24,15 @@ Future<void> main() async {
   final BlockApp blockApp = BlockApp();
 
   await blockApp.initialize(
-    config: const AppBlockConfig(
+    config: AppBlockConfig(
       defaultMessage: 'This app has been blocked for productivity',
       overlayBackgroundColor: Colors.black87,
       overlayTextColor: Colors.white,
       actionButtonText: 'Close',
-      autoStartService: true, // starts overlay service immediately
+      autoStartService: true,
+      // When user opens a blocked app (Zerodha, Upstox, Groww), show this custom page instead of app home
+      customOverlayBuilder: (context, packageName) =>
+          BlockedAppOverlay(packageName: packageName),
     ),
   );
   await GetStorage.init();

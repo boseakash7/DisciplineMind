@@ -24,7 +24,13 @@ class AlertController extends GetxController {
   var isSavingAlert = false.obs;
   var isUserAlertLoading = false.obs;
   final BlockApp _blockApp = BlockApp();
-  static const BINANCE_PACKAGE = "com.binance.dev";
+
+  /// Trading apps to block when user sets a price alert (Zerodha Kite, Upstox, Groww)
+  static const List<String> BLOCKED_TRADING_APP_PACKAGES = [
+    "com.zerodha.kite3", // Zerodha Kite
+    "in.upstox.app", // Upstox
+    "com.nextbillion.groww", // Groww
+  ];
   @override
   void onInit() {
     super.onInit();
@@ -90,36 +96,41 @@ class AlertController extends GetxController {
         'price': price,
         'current_price': currentPrice.toString(),
       });
+      bool success = false;
 
+      if (Platform.isAndroid) {
+        for (final package in BLOCKED_TRADING_APP_PACKAGES) {
+          final ok = await _blockApp.blockApp(package);
+          if (ok) success = true;
+        }
+      } else if (Platform.isIOS) {
+        // ✅ iOS Block Flow
+
+        // 1. Request ScreenTime Permission
+        final permissionGranted = await limiter.requestIosPermission();
+
+        if (!permissionGranted) {
+          AppToast.showToast("iOS permission required to block apps");
+          return;
+        }
+
+        // 2. Block App (ScreenTime Restriction)
+        await limiter.blockAndUnblockIOSApp();
+
+        success = true;
+      }
+      if (success) {
+        AppToast.showToast(
+          "Trading apps (Zerodha, Upstox, Groww) have been blocked",
+        );
+      } else {
+        AppToast.showToast("Failed to block trading apps");
+      }
       if (response.isSuccess) {
         AppToast.showToast("Alert created successfully");
 
-        // ---------------- BLOCK BINANCE APP ----------------
-        bool success = false;
+        // ---------------- BLOCK TRADING APPS (Zerodha, Upstox, Groww) ----------------
 
-        if (Platform.isAndroid) {
-          success = await _blockApp.blockApp(BINANCE_PACKAGE);
-        } else if (Platform.isIOS) {
-          // ✅ iOS Block Flow
-
-          // 1. Request ScreenTime Permission
-          final permissionGranted = await limiter.requestIosPermission();
-
-          if (!permissionGranted) {
-            AppToast.showToast("iOS permission required to block apps");
-            return;
-          }
-
-          // 2. Block App (ScreenTime Restriction)
-          await limiter.blockAndUnblockIOSApp();
-
-          success = true;
-        }
-        if (success) {
-          AppToast.showToast("Binance app has been blocked");
-        } else {
-          AppToast.showToast("Failed to block Binance app");
-        }
         fetchUserAlerts(Common.userData.value!.payload!.id!);
       } else {
         AppToast.showToast(response.errorMessage ?? "Failed to create alert");
@@ -259,14 +270,10 @@ class AlertController extends GetxController {
         AppToast.showToast("Alert deleted");
         if (Platform.isAndroid) {
           final BlockApp blockApp = BlockApp();
-
-          final success = await blockApp.unblockApp(BINANCE_PACKAGE);
-
-          if (success) {
-            AppToast.showToast("Binance unblocked");
-          } else {
-            AppToast.showToast("Failed to unblock Binance");
+          for (final package in BLOCKED_TRADING_APP_PACKAGES) {
+            await blockApp.unblockApp(package);
           }
+          AppToast.showToast("Trading apps unblocked");
         } else {
           final AppLimiter limiter = AppLimiter();
           await limiter.blockAndUnblockIOSApp();

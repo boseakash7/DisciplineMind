@@ -255,7 +255,9 @@ class _SetAlertDetailScreenState extends State<SetAlertDetailScreen> {
                   .checkBlockAppPermissions();
 
               if (!hasPermissions) {
-                AppToast.showToast("Permissions required to block Binance app");
+                AppToast.showToast(
+                  "Permissions required to block trading apps",
+                );
                 return;
               }
 
