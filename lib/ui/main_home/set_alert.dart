@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:shimmer/shimmer.dart';
 
+import '../../common/common.dart';
 import '../../controller/alert_controller.dart';
 import '../../model/instrument_api_model.dart';
 import '../main_home/main_home.dart';
@@ -30,6 +31,21 @@ class _SetAlertDetailScreenState extends State<SetAlertDetailScreen> {
     super.initState();
     instrumentKey = "${widget.stock.exchange}:${widget.stock.tradingsymbol}";
     alertController.fetchInstrumentQuote(instrumentKey);
+    _checkExistingActiveAlert();
+  }
+
+  /// Fetch alerts so we know if user already has an active alert (to show message / disable save).
+  void _checkExistingActiveAlert() {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final userId = Common.userData.value?.payload?.id?.toString();
+      if (userId == null) return;
+      await alertController.fetchUserAlerts(userId);
+      if (alertController.savedAlerts.isNotEmpty) {
+        AppToast.showToast(
+          "You can only have one active alert. Delete the existing one to add a new one.",
+        );
+      }
+    });
   }
 
   @override
@@ -59,6 +75,10 @@ class _SetAlertDetailScreenState extends State<SetAlertDetailScreen> {
           children: [
             _stockHeader(currentPrice),
             const Divider(height: 1),
+            Obx(() {
+              if (alertController.savedAlerts.isEmpty) return const SizedBox.shrink();
+              return _activeAlertMessage();
+            }),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(20),
@@ -231,16 +251,48 @@ class _SetAlertDetailScreenState extends State<SetAlertDetailScreen> {
     );
   }
 
+  Widget _activeAlertMessage() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.orange.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline, color: Colors.orange.shade700, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              "You already have one active alert. Delete it from your alerts to add a new one.",
+              style: TextStyle(
+                color: Colors.orange.shade900,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _saveButton() {
     return Obx(() {
+      final hasActiveAlert = alertController.savedAlerts.isNotEmpty;
       return PrimaryButton(
         isLoading: alertController.isSavingAlert.value,
         text: "Save Alert",
         color: Colors.green,
-        onPressed: () async {
-          if (priceController.text.isEmpty) return;
+        onPressed: hasActiveAlert
+            ? null
+            : () async {
+                if (priceController.text.isEmpty) return;
 
-          // Show confirmation popup first
+                // Show confirmation popup first
           showGenericPopup(
             context: Get.context!,
             heading: "Save Alert",

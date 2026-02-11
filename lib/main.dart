@@ -1,8 +1,12 @@
 import 'dart:io';
 
 import 'package:block_app/block_app.dart' show BlockApp, AppBlockConfig;
+import 'package:discipline_mind/common/common.dart';
+import 'package:discipline_mind/controller/alert_controller.dart';
 import 'package:discipline_mind/firebase_options.dart';
+import 'package:discipline_mind/services/notification/notification_handler.dart';
 import 'package:discipline_mind/ui/android_app_block/blocked_app_overlay.dart';
+import 'package:discipline_mind/ui/android_app_block/blocked_app_overlay_page.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
@@ -11,6 +15,16 @@ import 'package:get_storage/get_storage.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'ui/splash_screen.dart';
+
+void _refreshUserAlertsOnNotification() {
+  final userId = Common.userData.value?.payload?.id?.toString();
+  if (userId == null) return;
+  if (Get.isRegistered<AlertController>()) {
+    Get.find<AlertController>().fetchUserAlerts(userId);
+  }
+}
+
+bool _initialMessageCheckDone = false;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,12 +44,16 @@ Future<void> main() async {
       overlayTextColor: Colors.white,
       actionButtonText: 'Close',
       autoStartService: true,
-      // When user opens a blocked app (Zerodha, Upstox, Groww), show this custom page instead of app home
+      customOverlayRoute: '/appBlockingOverlay',
       customOverlayBuilder: (context, packageName) =>
           BlockedAppOverlay(packageName: packageName),
     ),
   );
   await GetStorage.init();
+
+  NotificationHandler.onNotificationReceived = _refreshUserAlertsOnNotification;
+  await NotificationHandler.initialize();
+
   runApp(const MyApp());
 }
 
@@ -74,11 +92,23 @@ class MyApp extends StatelessWidget {
       ),
       builder: (context, child) {
         fToast = FToast();
-        // if you want to use context from globally instead of content we need to pass navigatorKey.currentContext!
         fToast.init(context);
+        if (!_initialMessageCheckDone) {
+          _initialMessageCheckDone = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            NotificationHandler.onAppReady();
+          });
+        }
         return child!;
       },
       home: SplashScreen(),
+      // Route used by block_app plugin overlay engine when user opens a blocked app
+      getPages: [
+        GetPage(
+          name: '/appBlockingOverlay',
+          page: () => const BlockedAppOverlayPage(),
+        ),
+      ],
     );
   }
 }

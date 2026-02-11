@@ -29,6 +29,29 @@ class ApiService extends GetxService {
     }
   }
 
+  /// POST request with multipart/form-data (matches Postman --form).
+  /// Use for endpoints that expect multipart (e.g. FCM sync).
+  Future<ApiResponse<dynamic>> postMultipartForm(
+    String endpoint,
+    Map<String, String> fields, {
+    Map<String, String>? headers,
+  }) async {
+    try {
+      final uri = Uri.parse("${ApiConfig.baseUrl}$endpoint");
+      final request = http.MultipartRequest('POST', uri);
+      if (headers != null) request.headers.addAll(headers);
+      for (final e in fields.entries) {
+        request.fields[e.key] = e.value;
+      }
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+      print("API Response: ${response.body}");
+      return _processResponse(response);
+    } catch (e) {
+      return ApiResponse.error(e.toString());
+    }
+  }
+
   /// POST request with form-data (x-www-form-urlencoded)
   Future<ApiResponse<dynamic>> postFormData(
     String endpoint,

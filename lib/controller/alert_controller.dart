@@ -64,12 +64,22 @@ class AlertController extends GetxController {
 
   Future<void> syncFcmToken() async {
     try {
+      await Common.getFcmToken();
+      final userId = Common.userData.value?.payload?.id?.toString();
+      final token = Common.fcmToken;
+      if (userId == null || userId.isEmpty || token.isEmpty) {
+        return;
+      }
       final deviceId = DeviceUtils.getDeviceId();
-      ApiResponse response = await apiService.postFormData(ApiUrl.fcmSync, {
-        "user_id": Common.userData.value!.payload!.id!.toString(),
-        "device_id": deviceId,
-        "token": Common.fcmToken.toString(),
-      });
+      // Use multipart/form-data to match Postman --form so backend saves FCM in DB
+      ApiResponse response = await apiService.postMultipartForm(
+        ApiUrl.fcmSync,
+        {
+          "user_id": userId,
+          "device_id": deviceId,
+          "token": token,
+        },
+      );
 
       if (response.isSuccess) {
         // AppToast.showToast("FCM Token Synced Successfully ✅");
@@ -88,6 +98,19 @@ class AlertController extends GetxController {
   }) async {
     try {
       isSavingAlert.value = true;
+      final userId = Common.userData.value?.payload?.id;
+      if (userId == null) {
+        AppToast.showToast("Please log in to create an alert");
+        return;
+      }
+      // Only one alert per user: check existing alerts first
+      await fetchUserAlerts(userId.toString());
+      if (savedAlerts.isNotEmpty) {
+        AppToast.showToast(
+          "You can only have one alert. Delete the existing one to add a new one.",
+        );
+        return;
+      }
       final AppLimiter limiter = AppLimiter();
       // ---------------- API CALL ----------------
       final response = await apiService.postFormData(ApiUrl.createAlertUrl, {
@@ -99,9 +122,18 @@ class AlertController extends GetxController {
       bool success = false;
 
       if (Platform.isAndroid) {
+        // Block each app and ensure service is running
         for (final package in BLOCKED_TRADING_APP_PACKAGES) {
           final ok = await _blockApp.blockApp(package);
           if (ok) success = true;
+          print('[AlertController] Blocked $package: $ok');
+        }
+        // Ensure blocking service is started
+        try {
+          await _blockApp.startBlockingService();
+          print('[AlertController] Blocking service started');
+        } catch (e) {
+          print('[AlertController] Failed to start blocking service: $e');
         }
       } else if (Platform.isIOS) {
         // ✅ iOS Block Flow
@@ -291,7 +323,7 @@ class AlertController extends GetxController {
     }
   }
 
-  void fetchUserAlerts(String userId) async {
+  Future<void> fetchUserAlerts(String userId) async {
     try {
       isUserAlertLoading.value = true;
 

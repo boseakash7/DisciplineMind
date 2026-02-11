@@ -2,8 +2,10 @@ import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/ui/main_home/main_home.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
 
 import '../common/common.dart';
+import '../common/device_utils.dart';
 import '../model/login_reponse_model.dart';
 import '../services/api/api_reponse.dart';
 import '../services/api/api_services.dart';
@@ -31,6 +33,20 @@ class AuthController extends GetxController {
         Common.userData.value = userModel;
         if (!isAutoLogin) {
           storage.saveLogin(email, password);
+        }
+        // Store user_id for overlay to check alerts
+        if (userModel.payload?.id != null) {
+          GetStorage().write('user_id', userModel.payload!.id.toString());
+        }
+
+        // Sync FCM token with multipart (same as Postman) so backend saves to DB
+        await Common.getFcmToken();
+        if (Common.fcmToken.isNotEmpty) {
+          await apiService.postMultipartForm(ApiUrl.fcmSync, {
+            "user_id": userModel.payload!.id.toString(),
+            "device_id": DeviceUtils.getDeviceId(),
+            "token": Common.fcmToken,
+          });
         }
 
         Get.offAll(() => MainHomeScreen());
