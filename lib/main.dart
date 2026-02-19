@@ -1,12 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:block_app/block_app.dart' show BlockApp, AppBlockConfig;
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/controller/alert_controller.dart';
 import 'package:discipline_mind/firebase_options.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
-import 'package:discipline_mind/ui/android_app_block/blocked_app_overlay.dart';
+import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/ui/android_app_block/blocked_app_overlay_page.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
@@ -79,20 +78,15 @@ Future<void> main() async {
   );
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  final BlockApp blockApp = BlockApp();
-  await blockApp.initialize(
-    config: AppBlockConfig(
-      defaultMessage: 'This app has been blocked for productivity',
-      overlayBackgroundColor: Colors.black87,
-      overlayTextColor: Colors.white,
-      actionButtonText: 'Close',
-      autoStartService: true,
-      customOverlayRoute: '/appBlockingOverlay',
-      customOverlayBuilder: (context, packageName) =>
-          BlockedAppOverlay(packageName: packageName),
-    ),
-  );
   await GetStorage.init();
+
+  if (Platform.isAndroid) {
+    final blockService = NativeAppBlockService();
+    final blocked = await blockService.getBlockedApps();
+    if (blocked.isNotEmpty) {
+      await blockService.startBlockingService();
+    }
+  }
 
   runApp(const MyApp());
 
@@ -180,7 +174,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         return child!;
       },
       home: SplashScreen(),
-      // Route used by block_app plugin overlay engine when user opens a blocked app
+      // Route for native overlay when user opens a blocked app
       getPages: [
         GetPage(
           name: '/appBlockingOverlay',

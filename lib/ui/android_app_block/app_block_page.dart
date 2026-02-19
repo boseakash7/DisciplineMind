@@ -1,4 +1,4 @@
-import 'package:block_app/block_app.dart';
+import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:flutter/material.dart';
 
 const String YOUTUBE_PACKAGE = "com.google.android.youtube";
@@ -11,7 +11,7 @@ class AppBlockPage extends StatefulWidget {
 }
 
 class _AppBlockPageState extends State<AppBlockPage> {
-  final BlockApp _blockApp = BlockApp();
+  final NativeAppBlockService _blockService = NativeAppBlockService();
   bool isBlocked = false;
   bool loading = true;
 
@@ -22,7 +22,7 @@ class _AppBlockPageState extends State<AppBlockPage> {
   }
 
   Future<void> _init() async {
-    final blockedApps = await _blockApp.getBlockedApps();
+    final blockedApps = await _blockService.getBlockedApps();
 
     setState(() {
       isBlocked = blockedApps.contains(YOUTUBE_PACKAGE);
@@ -35,9 +35,9 @@ class _AppBlockPageState extends State<AppBlockPage> {
 
     bool success;
     if (isBlocked) {
-      success = await _blockApp.unblockApp(YOUTUBE_PACKAGE);
+      success = await _blockService.unblockApp(YOUTUBE_PACKAGE);
     } else {
-      success = await _blockApp.blockApp(YOUTUBE_PACKAGE);
+      success = await _blockService.blockApp(YOUTUBE_PACKAGE);
     }
 
     if (success) {

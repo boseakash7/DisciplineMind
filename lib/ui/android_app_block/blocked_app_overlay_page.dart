@@ -1,18 +1,18 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:block_app/block_app.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:http/http.dart' as http;
 
-import '../../controller/alert_controller.dart';
+import '../../constants/blocked_apps.dart';
 import '../../model/user_alert_model.dart';
 import '../../services/api/api_config.dart';
 import '../../services/api/api_url.dart';
+import '../../services/native_app_block_service.dart';
 
-/// Overlay when user opens a blocked app. Fetches user alerts; if target price >= current price → unblock, else keep blocked.
+/// Overlay when user opens a blocked app. Fetches user alerts; if empty → unblock, else keep blocked with Force Unblock option.
 class BlockedAppOverlayPage extends StatefulWidget {
   const BlockedAppOverlayPage({super.key});
 
@@ -21,14 +21,16 @@ class BlockedAppOverlayPage extends StatefulWidget {
 }
 
 class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
-  static const _channel = MethodChannel('com.block_app/app_blocking_overlay');
+  static const _channel = MethodChannel(
+    'com.discipline_mind/app_blocking_overlay',
+  );
   final _storage = GetStorage();
+  final _blockService = NativeAppBlockService();
 
   String? _blockedPackageName;
   bool _isLoading = true;
   bool _isChecking = false;
   String _statusMessage = 'Checking alerts...';
-
   /// Avoid setState after dispose; overlay can be hidden by native at any time.
   void _safeSetState(VoidCallback fn) {
     if (mounted) setState(fn);
@@ -37,13 +39,20 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
   @override
   void initState() {
     super.initState();
+    // Show blocked UI + Force Unblock immediately; check alerts in background
+    _safeSetState(() {
+      _isLoading = false;
+      _isChecking = false;
+      _blockedPackageName = 'blocked_app';
+      _statusMessage = 'You have an active alert. Stay focused on your goals.';
+    });
     _checkAndUnblockIfNeeded();
   }
 
   /// Get blocked app package from native; retry a few times (engine may not be ready immediately).
   Future<String?> _getCurrentBlockedAppWithRetry() async {
-    const maxAttempts = 5;
-    const delayMs = 150;
+    const maxAttempts = 10;
+    const delayMs = 200;
     for (var i = 0; i < maxAttempts; i++) {
       if (!mounted) return null;
       try {
@@ -65,10 +74,7 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
       return;
     }
 
-    _safeSetState(() {
-      _isChecking = true;
-      _statusMessage = 'Checking alerts...';
-    });
+    // Check runs in background; we already show blocked UI with Force Unblock
 
     // Hard timeout: never stick in loading; show "blocked" after this.
     final timeout = Future<void>.delayed(const Duration(seconds: 10), () {});
@@ -81,7 +87,8 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
       _safeSetState(() {
         _isLoading = false;
         _isChecking = false;
-        _statusMessage = 'Target price not reached yet. Apps remain blocked.';
+        _statusMessage =
+            'You have an active alert. Stay focused on your goals.';
         _blockedPackageName ??= 'blocked_app';
       });
     }
@@ -89,10 +96,6 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
 
   Future<void> _runCheck() async {
     try {
-      final package = await _getCurrentBlockedAppWithRetry();
-      if (!mounted) return;
-      _safeSetState(() => _blockedPackageName = package);
-
       final userId = _storage.read<String>('user_id');
       if (userId == null || userId.isEmpty) {
         _safeSetState(() => _statusMessage = 'No user. Unblocking...');
@@ -100,18 +103,24 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
         return;
       }
 
+      final packageFuture = _getCurrentBlockedAppWithRetry();
       _safeSetState(() => _statusMessage = 'Checking your alert...');
       final keepBlocked = await _shouldKeepBlocked(userId);
       if (!mounted) return;
 
+      final package = await packageFuture;
+      if (!mounted) return;
+      _safeSetState(() => _blockedPackageName = package ?? _blockedPackageName);
+
       if (!keepBlocked) {
-        _safeSetState(() => _statusMessage = 'Target reached. Unblocking...');
+        _safeSetState(() => _statusMessage = 'No active alert. Unblocking...');
         await _unblockAndClose();
       } else {
         _safeSetState(() {
           _isLoading = false;
           _isChecking = false;
-          _statusMessage = 'Target price not reached yet. Apps remain blocked.';
+        _statusMessage =
+            'You have an active alert. Stay focused on your goals.';
         });
       }
     } catch (e) {
@@ -164,9 +173,9 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
           .post(
             Uri.parse('${ApiConfig.baseUrl}${ApiUrl.getAlertsByUser}'),
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: {'user_id': userId},
+            body: 'user_id=${Uri.encodeComponent(userId)}',
           )
-          .timeout(const Duration(seconds: 8));
+          .timeout(const Duration(seconds: 10));
       if (alertsRes.statusCode != 200) return true;
       final alertsJson = json.decode(alertsRes.body);
       final model = UserAlertModel.fromJson(alertsJson);
@@ -176,7 +185,6 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
       // If list is empty → unblock app
       // If list is NOT empty → keep app blocked
       final keepBlocked = alerts.isNotEmpty;
-
       print(
         '[BlockedAppOverlay] alertsCount=${alerts.length} → keepBlocked=$keepBlocked',
       );
@@ -205,20 +213,10 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
   Future<void> _unblockAndClose() async {
     try {
       print('[BlockedAppOverlay] Unblocking apps...');
-      await _channel.invokeMethod<void>('unblockAndClose', {
-        'packages': AlertController.BLOCKED_TRADING_APP_PACKAGES,
-      });
+      await _blockService.unblockAndClose(blockedTradingAppPackages);
       print('[BlockedAppOverlay] Apps unblocked successfully');
     } catch (e) {
       print('[BlockedAppOverlay] unblockAndClose failed: $e');
-      // Fallback: try unblock via BlockApp then close
-      try {
-        final blockApp = BlockApp();
-        for (final package in AlertController.BLOCKED_TRADING_APP_PACKAGES) {
-          await blockApp.unblockApp(package);
-        }
-        await _channel.invokeMethod('closeOverlay');
-      } catch (_) {}
     }
   }
 
@@ -271,6 +269,19 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
                         ),
                         textAlign: TextAlign.center,
                       ),
+                      const SizedBox(height: 24),
+                      ElevatedButton(
+                          onPressed: _unblockAndClose,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: Colors.black87,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 32,
+                              vertical: 14,
+                            ),
+                          ),
+                          child: const Text('Force Unblock'),
+                        ),
                     ],
                   ),
                 ),

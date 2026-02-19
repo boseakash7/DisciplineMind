@@ -1,13 +1,14 @@
 import 'dart:io';
 
 import 'package:app_limiter/app_limiter.dart';
-import 'package:block_app/block_app.dart';
 import 'package:discipline_mind/common/common.dart';
+import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/api/api_reponse.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:get/get.dart';
 
+import '../constants/blocked_apps.dart';
 import '../common/device_utils.dart';
 import '../model/instrument_api_model.dart';
 import '../model/instrument_detail_model.dart';
@@ -23,14 +24,10 @@ class AlertController extends GetxController {
   var isLoading = false.obs;
   var isSavingAlert = false.obs;
   var isUserAlertLoading = false.obs;
-  final BlockApp _blockApp = BlockApp();
+  final NativeAppBlockService _blockService = NativeAppBlockService();
 
   /// Trading apps to block when user sets a price alert (Zerodha Kite, Upstox, Groww)
-  static const List<String> BLOCKED_TRADING_APP_PACKAGES = [
-    "com.zerodha.kite3", // Zerodha Kite
-    "in.upstox.app", // Upstox
-    "com.nextbillion.groww", // Groww
-  ];
+  static const List<String> BLOCKED_TRADING_APP_PACKAGES = blockedTradingAppPackages;
   @override
   void onInit() {
     super.onInit();
@@ -122,15 +119,22 @@ class AlertController extends GetxController {
       bool success = false;
 
       if (Platform.isAndroid) {
-        // Block each app and ensure service is running
+        await _blockService.saveUserIdForOverlay(userId.toString());
+        // Request permissions before blocking (required for overlay + usage stats)
+        final perms = await _blockService.checkPermissions();
+        if (perms['hasOverlayPermission'] != true) {
+          await _blockService.requestOverlayPermission();
+        }
+        if (perms['hasUsageStatsPermission'] != true) {
+          await _blockService.requestUsageStatsPermission();
+        }
         for (final package in BLOCKED_TRADING_APP_PACKAGES) {
-          final ok = await _blockApp.blockApp(package);
+          final ok = await _blockService.blockApp(package);
           if (ok) success = true;
           print('[AlertController] Blocked $package: $ok');
         }
-        // Ensure blocking service is started
         try {
-          await _blockApp.startBlockingService();
+          await _blockService.startBlockingService();
           print('[AlertController] Blocking service started');
         } catch (e) {
           print('[AlertController] Failed to start blocking service: $e');
@@ -253,24 +257,20 @@ class AlertController extends GetxController {
       return true;
     }
 
-    // ✅ Android Permission Flow (Same as before)
-    final permissions = await _blockApp.checkPermissions();
-
+    final permissions = await _blockService.checkPermissions();
     final overlayGranted = permissions['hasOverlayPermission'] ?? false;
     final usageGranted = permissions['hasUsageStatsPermission'] ?? false;
 
     if (!overlayGranted) {
-      await _blockApp.requestOverlayPermission();
+      await _blockService.requestOverlayPermission();
     }
-
     if (!usageGranted) {
-      await _blockApp.requestUsageStatsPermission();
+      await _blockService.requestUsageStatsPermission();
     }
 
-    final updatedPermissions = await _blockApp.checkPermissions();
-
-    return (updatedPermissions['hasOverlayPermission'] ?? false) &&
-        (updatedPermissions['hasUsageStatsPermission'] ?? false);
+    final updated = await _blockService.checkPermissions();
+    return (updated['hasOverlayPermission'] ?? false) &&
+        (updated['hasUsageStatsPermission'] ?? false);
   }
 
   // Future<bool> checkBlockAppPermissions() async {
@@ -301,9 +301,8 @@ class AlertController extends GetxController {
       if (response.isSuccess) {
         AppToast.showToast("Alert deleted");
         if (Platform.isAndroid) {
-          final BlockApp blockApp = BlockApp();
           for (final package in BLOCKED_TRADING_APP_PACKAGES) {
-            await blockApp.unblockApp(package);
+            await _blockService.unblockApp(package);
           }
           AppToast.showToast("Trading apps unblocked");
         } else {

@@ -11,12 +11,17 @@ class MainActivity : FlutterActivity() {
         private const val CHANNEL = "com.discipline_mind/app_lifecycle"
     }
 
+    private var appBlockPlugin: AppBlockPlugin? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        appBlockPlugin = AppBlockPlugin(this)
+        appBlockPlugin!!.attachTo(flutterEngine)
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             if (call.method == "hideBlockOverlay") {
                 val intent = Intent().apply {
-                    setClassName(this@MainActivity, "com.block_app.AppBlockingService")
+                    setClassName(this@MainActivity, "com.discipline.mind.AppBlockingService")
                     action = "HIDE_OVERLAY"
                 }
                 startService(intent)

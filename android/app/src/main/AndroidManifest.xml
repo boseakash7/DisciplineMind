@@ -14,9 +14,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
 
     <application
-        android:name="${applicationName}"
+        android:name=".DisciplineApplication"
         android:label="Discipline Mind"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
 
         <activity
             android:name=".MainActivity"
@@ -37,12 +38,15 @@
             </intent-filter>
         </activity>
 
-        <!-- 🔥 THIS IS THE REAL FIX -->
         <service
-            android:name="com.block_app.AppBlockingService"
+            android:name=".AppBlockingService"
             android:exported="false"
             android:foregroundServiceType="specialUse"
-            android:permission="android.permission.FOREGROUND_SERVICE"/>
+            android:permission="android.permission.FOREGROUND_SERVICE">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Monitors foreground app and displays overlay when user opens blocked trading apps during price alert"/>
+        </service>
 
         <meta-data
             android:name="flutterEmbedding"
