@@ -39,6 +39,11 @@ class NotificationHandler {
     instance._checkInitialMessage();
   }
 
+  /// Request notification permission (FCM + Android 13+). Call from splash screen.
+  static Future<void> requestPermissions() async {
+    await instance._requestPermissions();
+  }
+
   Future<void> _initLocalNotifications() async {
     const android = AndroidInitializationSettings('ic_launcher');
     const darwin = DarwinInitializationSettings(
@@ -123,6 +128,12 @@ class NotificationHandler {
       badge: true,
       sound: true,
     );
+    if (Platform.isAndroid) {
+      await _localNotifications
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.requestNotificationsPermission();
+    }
   }
 
   void _checkInitialMessage() {

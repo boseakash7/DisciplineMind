@@ -76,7 +76,8 @@ class _SetAlertDetailScreenState extends State<SetAlertDetailScreen> {
             _stockHeader(currentPrice),
             const Divider(height: 1),
             Obx(() {
-              if (alertController.savedAlerts.isEmpty) return const SizedBox.shrink();
+              if (alertController.savedAlerts.isEmpty)
+                return const SizedBox.shrink();
               return _activeAlertMessage();
             }),
             Expanded(
@@ -293,46 +294,46 @@ class _SetAlertDetailScreenState extends State<SetAlertDetailScreen> {
                 if (priceController.text.isEmpty) return;
 
                 // Show confirmation popup first
-          showGenericPopup(
-            context: Get.context!,
-            heading: "Save Alert",
-            subtitle: "Are you sure you want to create this price alert?",
-            yesButtonTitle: "Save",
-            noButtonTitle: "Cancel",
-            onYesPress: () async {
-              Get.back();
+                showGenericPopup(
+                  context: Get.context!,
+                  heading: "Save Alert",
+                  subtitle: "Are you sure you want to create this price alert?",
+                  yesButtonTitle: "Save",
+                  noButtonTitle: "Cancel",
+                  onYesPress: () async {
+                    Get.back();
 
-              // ---------------- PERMISSION CHECK ----------------
-              final hasPermissions = await alertController
-                  .checkBlockAppPermissions();
+                    // ---------------- PERMISSION CHECK ----------------
+                    final hasPermissions = await alertController
+                        .checkBlockAppPermissions();
 
-              if (!hasPermissions) {
-                AppToast.showToast(
-                  "Permissions required to block trading apps",
+                    if (!hasPermissions) {
+                      AppToast.showToast(
+                        "Permissions required to block trading apps",
+                      );
+                      return;
+                    }
+
+                    // ---------------- GET ALERT DETAILS ----------------
+                    final instrument =
+                        "${widget.stock.exchange}:${widget.stock.tradingsymbol}";
+                    final targetPriceValue = priceController.text;
+                    final currentPriceValue =
+                        alertController.instrumentData.value?.lastPrice ?? 0;
+
+                    // ---------------- CREATE ALERT ----------------
+                    await alertController.createAlert(
+                      instrument: instrument,
+                      price: targetPriceValue,
+                      currentPrice: currentPriceValue,
+                    );
+
+                    // ---------------- NAVIGATE HOME ----------------
+                    Get.offAll(() => MainHomeScreen());
+                  },
+                  onNoPress: () => Get.back(),
                 );
-                return;
-              }
-
-              // ---------------- GET ALERT DETAILS ----------------
-              final instrument =
-                  "${widget.stock.exchange}:${widget.stock.tradingsymbol}";
-              final targetPriceValue = priceController.text;
-              final currentPriceValue =
-                  alertController.instrumentData.value?.lastPrice ?? 0;
-
-              // ---------------- CREATE ALERT ----------------
-              await alertController.createAlert(
-                instrument: instrument,
-                price: targetPriceValue,
-                currentPrice: currentPriceValue,
-              );
-
-              // ---------------- NAVIGATE HOME ----------------
-              Get.offAll(() => MainHomeScreen());
-            },
-            onNoPress: () => Get.back(),
-          );
-        },
+              },
       );
     });
   }

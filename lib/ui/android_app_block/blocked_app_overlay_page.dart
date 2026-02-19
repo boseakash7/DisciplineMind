@@ -29,64 +29,135 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
   bool _isChecking = false;
   String _statusMessage = 'Checking alerts...';
 
+  /// Avoid setState after dispose; overlay can be hidden by native at any time.
+  void _safeSetState(VoidCallback fn) {
+    if (mounted) setState(fn);
+  }
+
   @override
   void initState() {
     super.initState();
     _checkAndUnblockIfNeeded();
   }
 
+  /// Get blocked app package from native; retry a few times (engine may not be ready immediately).
+  Future<String?> _getCurrentBlockedAppWithRetry() async {
+    const maxAttempts = 5;
+    const delayMs = 150;
+    for (var i = 0; i < maxAttempts; i++) {
+      if (!mounted) return null;
+      try {
+        final pkg = await _channel.invokeMethod<String>('getCurrentBlockedApp');
+        if (pkg != null && pkg.isNotEmpty) return pkg;
+      } catch (_) {}
+      if (i < maxAttempts - 1)
+        await Future<void>.delayed(const Duration(milliseconds: delayMs));
+    }
+    return null;
+  }
+
   Future<void> _checkAndUnblockIfNeeded() async {
     if (!Platform.isAndroid) {
-      setState(() {
+      _safeSetState(() {
         _isLoading = false;
         _blockedPackageName = null;
       });
       return;
     }
 
-    setState(() {
+    _safeSetState(() {
       _isChecking = true;
       _statusMessage = 'Checking alerts...';
     });
 
+    // Hard timeout: never stick in loading; show "blocked" after this.
+    final timeout = Future<void>.delayed(const Duration(seconds: 10), () {});
+    final work = _runCheck();
+
+    await Future.any([timeout, work]);
+    if (!mounted) return;
+    // If still loading after work finished (or timeout), force show blocked state
+    if (_isLoading || _isChecking) {
+      _safeSetState(() {
+        _isLoading = false;
+        _isChecking = false;
+        _statusMessage = 'Target price not reached yet. Apps remain blocked.';
+        _blockedPackageName ??= 'blocked_app';
+      });
+    }
+  }
+
+  Future<void> _runCheck() async {
     try {
-      final package = await _channel.invokeMethod<String>(
-        'getCurrentBlockedApp',
-      );
-      setState(() => _blockedPackageName = package);
+      final package = await _getCurrentBlockedAppWithRetry();
+      if (!mounted) return;
+      _safeSetState(() => _blockedPackageName = package);
 
       final userId = _storage.read<String>('user_id');
       if (userId == null || userId.isEmpty) {
-        setState(() => _statusMessage = 'No user. Unblocking...');
+        _safeSetState(() => _statusMessage = 'No user. Unblocking...');
         await _unblockAndClose();
         return;
       }
 
-      setState(() => _statusMessage = 'Checking your alert...');
+      _safeSetState(() => _statusMessage = 'Checking your alert...');
       final keepBlocked = await _shouldKeepBlocked(userId);
+      if (!mounted) return;
 
       if (!keepBlocked) {
-        setState(() => _statusMessage = 'Target reached. Unblocking...');
+        _safeSetState(() => _statusMessage = 'Target reached. Unblocking...');
         await _unblockAndClose();
       } else {
-        setState(() {
+        _safeSetState(() {
           _isLoading = false;
           _isChecking = false;
           _statusMessage = 'Target price not reached yet. Apps remain blocked.';
         });
       }
     } catch (e) {
+      if (!mounted) return;
       print('[BlockedAppOverlay] Error: $e');
-      setState(() => _statusMessage = 'Error. Keeping blocked.');
-      setState(() {
+      _safeSetState(() => _statusMessage = 'Error. Keeping blocked.');
+      _safeSetState(() {
         _isLoading = false;
         _isChecking = false;
+        _blockedPackageName ??= 'blocked_app';
       });
     }
   }
 
   /// true = keep blocked, false = unblock.
   /// Uses alert's target (price) and currentPrice from getAlertsByUser — no extra quote API.
+  // Future<bool> _shouldKeepBlocked(String userId) async {
+  //   try {
+  //     final alertsRes = await http
+  //         .post(
+  //           Uri.parse('${ApiConfig.baseUrl}${ApiUrl.getAlertsByUser}'),
+  //           headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+  //           body: {'user_id': userId},
+  //         )
+  //         .timeout(const Duration(seconds: 8));
+
+  //     if (alertsRes.statusCode != 200) return true;
+  //     final alertsJson = json.decode(alertsRes.body);
+  //     final model = UserAlertModel.fromJson(alertsJson);
+  //     final alerts = model.payload ?? [];
+  //     if (alerts.isEmpty) return false;
+
+  //     final alert = alerts.first;
+  //     final targetPrice = double.tryParse(alert.price ?? '') ?? 0.0;
+  //     final currentPrice = double.tryParse(alert.currentPrice ?? '') ?? 0.0;
+  //     // Unblock only when current price has reached or passed target (current >= target).
+  //     final shouldUnblock = currentPrice >= targetPrice;
+  //     print(
+  //       '[BlockedAppOverlay] target=$targetPrice current=$currentPrice (from alert) → unblock=$shouldUnblock',
+  //     );
+  //     return !shouldUnblock;
+  //   } catch (e) {
+  //     print('[BlockedAppOverlay] _shouldKeepBlocked failed: $e');
+  //     return true; // keep blocked on error
+  //   }
+  // }
   Future<bool> _shouldKeepBlocked(String userId) async {
     try {
       final alertsRes = await http
@@ -96,22 +167,21 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
             body: {'user_id': userId},
           )
           .timeout(const Duration(seconds: 8));
-
       if (alertsRes.statusCode != 200) return true;
       final alertsJson = json.decode(alertsRes.body);
       final model = UserAlertModel.fromJson(alertsJson);
       final alerts = model.payload ?? [];
-      if (alerts.isEmpty) return false;
 
-      final alert = alerts.first;
-      final targetPrice = double.tryParse(alert.price ?? '') ?? 0.0;
-      final currentPrice = double.tryParse(alert.currentPrice ?? '') ?? 0.0;
-      // Unblock only when current price has reached or passed target (current >= target).
-      final shouldUnblock = currentPrice >= targetPrice;
+      // ✅ Logic:
+      // If list is empty → unblock app
+      // If list is NOT empty → keep app blocked
+      final keepBlocked = alerts.isNotEmpty;
+
       print(
-        '[BlockedAppOverlay] target=$targetPrice current=$currentPrice (from alert) → unblock=$shouldUnblock',
+        '[BlockedAppOverlay] alertsCount=${alerts.length} → keepBlocked=$keepBlocked',
       );
-      return !shouldUnblock;
+
+      return keepBlocked;
     } catch (e) {
       print('[BlockedAppOverlay] _shouldKeepBlocked failed: $e');
       return true; // keep blocked on error

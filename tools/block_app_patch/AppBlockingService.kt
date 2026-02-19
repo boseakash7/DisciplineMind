@@ -32,7 +32,7 @@ class AppBlockingService : Service() {
     companion object {
         private const val CHANNEL_ID = "AppBlockingServiceChannel"
         private const val NOTIFICATION_ID = 1001
-        private const val CHECK_INTERVAL_MS = 500L
+        private const val CHECK_INTERVAL_MS = 250L
         private const val OVERLAY_ROUTE = "appBlockingOverlay"
         private var customOverlayRoute: String? = null
     }
@@ -57,6 +57,10 @@ class AppBlockingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         intent?.let {
+            if (it.action == "HIDE_OVERLAY") {
+                mainHandler.post { hideOverlay() }
+                return START_STICKY
+            }
             if (it.hasExtra("customOverlayRoute")) {
                 customOverlayRoute = it.getStringExtra("customOverlayRoute")
             }
@@ -124,18 +128,35 @@ class AppBlockingService : Service() {
     }
 
     private fun startAppMonitoring() {
+        val ourPackageName = applicationContext.packageName
         executor.scheduleAtFixedRate({
-            // Reload blocked list from storage so we pick up newly blocked apps
-            // (e.g. after user unblocked via Remote Config then sets a new alert)
             AppManager.loadBlockedApps(applicationContext)
             val foregroundApp = getForegroundApp()
-            foregroundApp?.let { packageName ->
-                if (AppManager.blockedApps.contains(packageName) && packageName != currentForegroundApp) {
-                    currentForegroundApp = packageName
-                    mainHandler.post { showOverlay(packageName) }
-                } else if (!AppManager.blockedApps.contains(packageName) && overlayShowing) {
-                    currentForegroundApp = ""
-                    mainHandler.post { hideOverlay() }
+
+            when {
+                foregroundApp == null -> {
+                    if (overlayShowing) {
+                        currentForegroundApp = ""
+                        mainHandler.post { hideOverlay() }
+                    }
+                }
+                foregroundApp == ourPackageName -> {
+                    if (overlayShowing) {
+                        currentForegroundApp = ""
+                        mainHandler.post { hideOverlay() }
+                    }
+                }
+                !AppManager.blockedApps.contains(foregroundApp) -> {
+                    if (overlayShowing) {
+                        currentForegroundApp = ""
+                        mainHandler.post { hideOverlay() }
+                    }
+                }
+                else -> {
+                    if (foregroundApp != currentForegroundApp) {
+                        currentForegroundApp = foregroundApp
+                        mainHandler.post { showOverlay(foregroundApp) }
+                    }
                 }
             }
         }, 0, CHECK_INTERVAL_MS, TimeUnit.MILLISECONDS)
@@ -163,6 +184,10 @@ class AppBlockingService : Service() {
 
     private fun showOverlay(packageName: String) {
         if (overlayShowing) return
+        if (!AppManager.blockedApps.contains(packageName)) return
+        if (packageName == applicationContext.packageName) return
+        // Set immediately so Dart getCurrentBlockedApp returns correct value when overlay builds
+        currentForegroundApp = packageName
         try {
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
@@ -188,18 +213,34 @@ class AppBlockingService : Service() {
             MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.block_app/app_blocking_overlay").invokeMethod("setBlockedApp", packageName)
         } catch (e: Exception) {
             e.printStackTrace()
+            overlayShowing = false
+            currentForegroundApp = ""
         }
     }
 
     private fun hideOverlay() {
         try {
-            overlayView?.let {
-                windowManager.removeView(it)
-                overlayView = null
-                overlayShowing = false
+            // Pop route so next show has a clean stack (avoids stuck/grey overlay after minimize-reopen)
+            try {
+                flutterEngine.navigationChannel.popRoute()
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
+            overlayView?.let {
+                try {
+                    windowManager.removeView(it)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                overlayView = null
+            }
+            overlayShowing = false
+            currentForegroundApp = ""
         } catch (e: Exception) {
             e.printStackTrace()
+            overlayShowing = false
+            overlayView = null
+            currentForegroundApp = ""
         }
     }
 }

@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 
 import '../../common/app_colors.dart';
 import '../../controller/auth_controller.dart';
+import '../../services/notification/notification_handler.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -17,10 +18,16 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-
+    _requestNotificationPermission();
     Future.delayed(const Duration(seconds: 2), () {
       authController.autoLogin();
     });
+  }
+
+  Future<void> _requestNotificationPermission() async {
+    try {
+      await NotificationHandler.requestPermissions();
+    } catch (_) {}
   }
 
   @override
