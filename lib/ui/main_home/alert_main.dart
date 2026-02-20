@@ -103,7 +103,7 @@ class AlertsMainScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                "Times opened, opened when blocked, and total usage time.",
+                "Tracks usage whether the app is blocked or not. Total usage comes from system; usage when blocked = time overlay was shown.",
                 style: TextStyle(
                   fontSize: 12,
                   color: Colors.grey.shade600,
@@ -116,7 +116,9 @@ class AlertsMainScreen extends StatelessWidget {
                 final opens = (s['openCount'] is num) ? (s['openCount'] as num).toInt() : 0;
                 final blocked = (s['openedWhenBlockedCount'] is num) ? (s['openedWhenBlockedCount'] as num).toInt() : 0;
                 final ms = (s['usageTimeMs'] is num) ? (s['usageTimeMs'] as num).toInt() : 0;
+                final totalMs = (s['totalUsageTimeMs'] is num) ? (s['totalUsageTimeMs'] as num).toInt() : 0;
                 final mins = (ms / 60000).toStringAsFixed(1);
+                final totalMins = (totalMs / 60000).toStringAsFixed(1);
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 14),
                   child: Container(
@@ -138,7 +140,8 @@ class AlertsMainScreen extends StatelessWidget {
                         const SizedBox(height: 6),
                         Text("Opened: $opens times"),
                         Text("Opened when blocked: $blocked times"),
-                        Text("Usage time: $mins min"),
+                        Text("Total usage: $totalMins min"),
+                        Text("Usage when blocked: $mins min"),
                       ],
                     ),
                   ),

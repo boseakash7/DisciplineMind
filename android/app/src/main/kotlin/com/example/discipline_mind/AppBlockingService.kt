@@ -262,18 +262,27 @@ class AppBlockingService : Service() {
             gravity = Gravity.CENTER
         }
 
-        // Native overlay - blocks immediately, has Force Unblock button
-        val blockText = TextView(this).apply {
+        // Native overlay - blocks immediately, has proper message and Force Unblock button
+        val appName = getAppDisplayName(packageName)
+        val titleText = TextView(this).apply {
             setTextColor(Color.WHITE)
-            textSize = 18f
-            text = "App Blocked"
+            textSize = 20f
+            text = "$appName is restricted"
             gravity = Gravity.CENTER
-            setPadding(48, 48, 48, 24)
+            setPadding(32, 40, 32, 8)
+        }
+        val msgText = TextView(this).apply {
+            setTextColor(Color.parseColor("#CCCCCC"))
+            textSize = 14f
+            text = "You have an active price alert. Stay focused on your goals.\n\nOpen Discipline Mind to manage your alert, or tap Force Unblock to bypass."
+            gravity = Gravity.CENTER
+            setPadding(32, 8, 32, 24)
         }
         val forceUnblockBtn = Button(this).apply {
             text = "Force Unblock"
             setBackgroundColor(Color.WHITE)
             setTextColor(Color.BLACK)
+            setPadding(0, 24, 0, 24)
             setOnClickListener {
                 performUnblockAndClose()
             }
@@ -282,11 +291,12 @@ class AppBlockingService : Service() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.BLACK)
             gravity = Gravity.CENTER
-            addView(blockText)
+            addView(titleText)
+            addView(msgText)
             addView(forceUnblockBtn, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = 24 })
+            ).apply { topMargin = 8 })
         }
         overlayView = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
@@ -361,6 +371,15 @@ class AppBlockingService : Service() {
             }
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    private fun getAppDisplayName(packageName: String): String {
+        return when (packageName) {
+            "com.zerodha.kite3" -> "Zerodha Kite"
+            "in.upstox.app" -> "Upstox"
+            "com.nextbillion.groww" -> "Groww"
+            else -> "This app"
         }
     }
 

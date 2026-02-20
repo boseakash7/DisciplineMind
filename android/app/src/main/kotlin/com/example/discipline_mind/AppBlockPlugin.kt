@@ -95,7 +95,8 @@ class AppBlockPlugin(private val activity: android.app.Activity) : MethodChannel
                     "packageName" to it["packageName"],
                     "openCount" to it["openCount"],
                     "openedWhenBlockedCount" to it["openedWhenBlockedCount"],
-                    "usageTimeMs" to it["usageTimeMs"]
+                    "usageTimeMs" to it["usageTimeMs"],
+                    "totalUsageTimeMs" to it["totalUsageTimeMs"]
                 ) })
             }
             else -> result.notImplemented()
