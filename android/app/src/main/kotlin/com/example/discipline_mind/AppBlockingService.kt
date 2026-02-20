@@ -44,13 +44,14 @@ class AppBlockingService : Service() {
     companion object {
         private const val CHANNEL_ID = "AppBlockingServiceChannel"
         private const val NOTIFICATION_ID = 1001
-        private const val CHECK_INTERVAL_MS = 100L
-        // Launcher packages - hide overlay when user goes to home
-        private val LAUNCHER_PACKAGES = setOf(
+        private const val CHECK_INTERVAL_MS = 50L  // Fast polling for gesture nav responsiveness
+        // Launcher, recents, system UI - hide overlay when user goes home or app switcher
+        private val HIDE_OVERLAY_PACKAGES = setOf(
             "com.android.launcher", "com.android.launcher2", "com.android.launcher3",
             "com.google.android.apps.nexuslauncher", "com.miui.home", "com.huawei.android.launcher",
             "com.oppo.launcher", "com.vivo.launcher", "com.samsung.android.launcher",
-            "com.sec.android.app.launcher", "org.lineageos.trebuchet"
+            "com.sec.android.app.launcher", "org.lineageos.trebuchet",
+            "com.android.systemui", "com.android.quickstep"  // recents / gesture nav
         )
     }
 
@@ -175,7 +176,7 @@ class AppBlockingService : Service() {
                         mainHandler.post { hideOverlay() }
                     }
                 }
-                foregroundApp != null && (LAUNCHER_PACKAGES.any { foregroundApp.startsWith(it) } || foregroundApp.contains("launcher")) -> {
+                foregroundApp != null && HIDE_OVERLAY_PACKAGES.any { foregroundApp.startsWith(it) || foregroundApp == it } -> {
                     if (overlayShowing) {
                         currentForegroundApp = ""
                         mainHandler.post { hideOverlay() }
@@ -204,29 +205,32 @@ class AppBlockingService : Service() {
     }
 
     /**
-     * Get current foreground app. Uses queryEvents first (15s) for real-time
-     * switches (e.g. home button), then queryUsageStats fallback.
+     * Get current foreground app. Uses queryEvents - only ACTIVITY_RESUMED / MOVE_TO_FOREGROUND
+     * (ignore PAUSED) so minimize gestures are detected correctly. When overlay is showing,
+     * use shorter window and faster polling to avoid overlay getting stuck.
      */
     private fun getForegroundApp(): String? {
         return try {
             val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
             val time = System.currentTimeMillis()
-
-            // Primary: queryEvents with 15s - catches home/minimize quickly
-            val events = usm.queryEvents(time - 15_000, time)
+            // When overlay is up, use shorter window (5s) to avoid stale PAUSED events
+            val windowMs = if (overlayShowing) 5_000L else 15_000L
+            val events = usm.queryEvents(time - windowMs, time)
             val usageEvent = UsageEvents.Event()
-            var lastPackage: String? = null
+            var lastResumedPackage: String? = null
             while (events.hasNextEvent()) {
                 events.getNextEvent(usageEvent)
+                // Only consider RESUMED - PAUSED means app left foreground; with rapid gestures
+                // we can get PAUSED for blocked app before launcher RESUMED, causing stuck overlay
                 if (usageEvent.eventType == UsageEvents.Event.ACTIVITY_RESUMED ||
-                    usageEvent.eventType == UsageEvents.Event.ACTIVITY_PAUSED
+                    usageEvent.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND
                 ) {
-                    lastPackage = usageEvent.packageName
+                    lastResumedPackage = usageEvent.packageName
                 }
             }
-            if (lastPackage != null) return lastPackage
+            if (lastResumedPackage != null) return lastResumedPackage
 
-            // Fallback: queryUsageStats when no recent events
+            // Fallback: queryUsageStats when no recent RESUMED events
             val stats = usm.queryUsageStats(
                 UsageStatsManager.INTERVAL_DAILY,
                 time - 60_000,
