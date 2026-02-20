@@ -21,8 +21,8 @@ class SetAlertDetailScreen extends StatefulWidget {
 class _SetAlertDetailScreenState extends State<SetAlertDetailScreen> {
   final AlertController alertController = Get.find();
 
-  final TextEditingController priceController = TextEditingController();
-  final RxDouble targetPrice = 0.0.obs;
+  final TextEditingController upperPriceController = TextEditingController();
+  final TextEditingController lowerPriceController = TextEditingController();
 
   late String instrumentKey;
 
@@ -42,7 +42,7 @@ class _SetAlertDetailScreenState extends State<SetAlertDetailScreen> {
       await alertController.fetchUserAlerts(userId);
       if (alertController.savedAlerts.isNotEmpty) {
         AppToast.showToast(
-          "You can only have one active alert. Delete the existing one to add a new one.",
+          "You already have active alerts. Delete them to add new ones.",
         );
       }
     });
@@ -63,13 +63,12 @@ class _SetAlertDetailScreenState extends State<SetAlertDetailScreen> {
           return const Center(child: Text("No data found"));
         }
 
-        // Initialize price controller
-        if (priceController.text.isEmpty) {
-          priceController.text = (data.lastPrice ?? 0).toStringAsFixed(2);
-          targetPrice.value = data.lastPrice ?? 0;
-        }
-
         final currentPrice = data.lastPrice ?? 0;
+        if (upperPriceController.text.isEmpty) {
+          upperPriceController.text = (currentPrice + 0.01).toStringAsFixed(2);
+          final lower = currentPrice > 0.01 ? currentPrice - 0.01 : 0.01;
+          lowerPriceController.text = lower.toStringAsFixed(2);
+        }
 
         return Column(
           children: [
@@ -87,19 +86,6 @@ class _SetAlertDetailScreenState extends State<SetAlertDetailScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _targetPriceSection(currentPrice),
-                    const SizedBox(height: 14),
-                    Obx(() {
-                      final bool isAbove = targetPrice.value >= currentPrice;
-                      return Text(
-                        isAbove
-                            ? "🔔 Alert when price goes ABOVE ₹${targetPrice.value.toStringAsFixed(2)}"
-                            : "🔔 Alert when price goes BELOW ₹${targetPrice.value.toStringAsFixed(2)}",
-                        style: TextStyle(
-                          color: isAbove ? Colors.green : Colors.red,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      );
-                    }),
                     const Spacer(),
                     _saveButton(),
                   ],
@@ -115,7 +101,6 @@ class _SetAlertDetailScreenState extends State<SetAlertDetailScreen> {
   // ================= HEADER =================
   // ================= HEADER =================
   Widget _stockHeader(double currentPrice) {
-    final data = alertController.instrumentData.value!;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
       child: Column(
@@ -209,46 +194,39 @@ class _SetAlertDetailScreenState extends State<SetAlertDetailScreen> {
 
   // ================= TARGET PRICE =================
   Widget _targetPriceSection(double currentPrice) {
-    return Container(
-      height: 54,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300),
-      ),
-      child: Row(
-        children: [
-          _adjustButton(Icons.remove, -1),
-          Expanded(
-            child: TextField(
-              controller: priceController,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-              onChanged: (value) {
-                targetPrice.value = double.tryParse(value) ?? currentPrice;
-              },
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                hintText: "Enter price",
-              ),
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          "Upper target (price above current)",
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: upperPriceController,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(
+            hintText: "Must be > ₹${currentPrice.toStringAsFixed(2)}",
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            prefixText: "₹ ",
           ),
-          _adjustButton(Icons.add, 1),
-        ],
-      ),
-    );
-  }
-
-  Widget _adjustButton(IconData icon, int step) {
-    return IconButton(
-      icon: Icon(icon),
-      onPressed: () {
-        final value = targetPrice.value + step;
-        targetPrice.value = value;
-        priceController.text = value.toStringAsFixed(2);
-      },
+        ),
+        const SizedBox(height: 16),
+        Text(
+          "Lower target (price below current)",
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: lowerPriceController,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(
+            hintText: "Must be < ₹${currentPrice.toStringAsFixed(2)}",
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            prefixText: "₹ ",
+          ),
+        ),
+      ],
     );
   }
 
@@ -268,7 +246,7 @@ class _SetAlertDetailScreenState extends State<SetAlertDetailScreen> {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              "You already have one active alert. Delete it from your alerts to add a new one.",
+              "You already have active alerts. Delete them to add new ones.",
               style: TextStyle(
                 color: Colors.orange.shade900,
                 fontSize: 13,
@@ -286,49 +264,51 @@ class _SetAlertDetailScreenState extends State<SetAlertDetailScreen> {
       final hasActiveAlert = alertController.savedAlerts.isNotEmpty;
       return PrimaryButton(
         isLoading: alertController.isSavingAlert.value,
-        text: "Save Alert",
+        text: "Create Alert",
         color: Colors.green,
         onPressed: hasActiveAlert
             ? null
             : () async {
-                if (priceController.text.isEmpty) return;
+                final upper = upperPriceController.text.trim();
+                final lower = lowerPriceController.text.trim();
+                if (upper.isEmpty || lower.isEmpty) {
+                  AppToast.showToast("Enter both upper and lower prices");
+                  return;
+                }
+                final upperVal = double.tryParse(upper) ?? 0;
+                final lowerVal = double.tryParse(lower) ?? 0;
+                final currentPriceValue =
+                    alertController.instrumentData.value?.lastPrice ?? 0;
+                if (upperVal <= currentPriceValue) {
+                  AppToast.showToast("Upper price must be greater than current price");
+                  return;
+                }
+                if (lowerVal >= currentPriceValue) {
+                  AppToast.showToast("Lower price must be less than current price");
+                  return;
+                }
 
-                // Show confirmation popup first
                 showGenericPopup(
                   context: Get.context!,
-                  heading: "Save Alert",
-                  subtitle: "Are you sure you want to create this price alert?",
-                  yesButtonTitle: "Save",
+                  heading: "Create Alert",
+                  subtitle: "Create alerts for upper ₹${upper} and lower ₹${lower}?",
+                  yesButtonTitle: "Create",
                   noButtonTitle: "Cancel",
                   onYesPress: () async {
                     Get.back();
-
-                    // ---------------- PERMISSION CHECK ----------------
-                    final hasPermissions = await alertController
-                        .checkBlockAppPermissions();
-
+                    final hasPermissions = await alertController.checkBlockAppPermissions();
                     if (!hasPermissions) {
-                      AppToast.showToast(
-                        "Permissions required to block trading apps",
-                      );
+                      AppToast.showToast("Permissions required to block trading apps");
                       return;
                     }
-
-                    // ---------------- GET ALERT DETAILS ----------------
                     final instrument =
                         "${widget.stock.exchange}:${widget.stock.tradingsymbol}";
-                    final targetPriceValue = priceController.text;
-                    final currentPriceValue =
-                        alertController.instrumentData.value?.lastPrice ?? 0;
-
-                    // ---------------- CREATE ALERT ----------------
-                    await alertController.createAlert(
+                    await alertController.createAlertPair(
                       instrument: instrument,
-                      price: targetPriceValue,
+                      upperPrice: upper,
+                      lowerPrice: lower,
                       currentPrice: currentPriceValue,
                     );
-
-                    // ---------------- NAVIGATE HOME ----------------
                     Get.offAll(() => MainHomeScreen());
                   },
                   onNoPress: () => Get.back(),

@@ -12,7 +12,6 @@ import '../../services/api/api_config.dart';
 import '../../services/api/api_url.dart';
 import '../../services/native_app_block_service.dart';
 
-/// Overlay when user opens a blocked app. Fetches user alerts; if empty → unblock, else keep blocked with Force Unblock option.
 class BlockedAppOverlayPage extends StatefulWidget {
   const BlockedAppOverlayPage({super.key});
 
@@ -31,7 +30,6 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
   bool _isLoading = true;
   bool _isChecking = false;
   String _statusMessage = 'Checking alerts...';
-  /// Avoid setState after dispose; overlay can be hidden by native at any time.
   void _safeSetState(VoidCallback fn) {
     if (mounted) setState(fn);
   }
@@ -39,7 +37,6 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
   @override
   void initState() {
     super.initState();
-    // Show blocked UI + Force Unblock immediately; check alerts in background
     _safeSetState(() {
       _isLoading = false;
       _isChecking = false;
@@ -119,8 +116,8 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
         _safeSetState(() {
           _isLoading = false;
           _isChecking = false;
-        _statusMessage =
-            'You have an active alert. Stay focused on your goals.';
+          _statusMessage =
+              'You have an active alert. Stay focused on your goals.';
         });
       }
     } catch (e) {
@@ -271,17 +268,17 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
                       ),
                       const SizedBox(height: 24),
                       ElevatedButton(
-                          onPressed: _unblockAndClose,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: Colors.black87,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 32,
-                              vertical: 14,
-                            ),
+                        onPressed: _unblockAndClose,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Colors.black87,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 32,
+                            vertical: 14,
                           ),
-                          child: const Text('Force Unblock'),
                         ),
+                        child: const Text('Force Unblock'),
+                      ),
                     ],
                   ),
                 ),

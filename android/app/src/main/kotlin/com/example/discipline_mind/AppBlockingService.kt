@@ -61,6 +61,8 @@ class AppBlockingService : Service() {
     private var overlayView: FrameLayout? = null
     private var currentForegroundApp: String = ""
     private var overlayShowing: Boolean = false
+    private var overlayShowTimeMs: Long = 0
+    private var overlayPackage: String = ""
 
     override fun onCreate() {
         super.onCreate()
@@ -296,6 +298,10 @@ class AppBlockingService : Service() {
         try {
             windowManager.addView(overlayView, params)
             overlayShowing = true
+            overlayShowTimeMs = System.currentTimeMillis()
+            overlayPackage = packageName
+            AppUsageTracker.recordAppOpened(applicationContext, packageName)
+            AppUsageTracker.recordOpenedWhenBlocked(applicationContext, packageName)
         } catch (e: Exception) {
             e.printStackTrace()
             overlayShowing = false
@@ -369,6 +375,12 @@ class AppBlockingService : Service() {
 
     private fun hideOverlay() {
         try {
+            if (overlayPackage.isNotEmpty() && overlayShowTimeMs > 0) {
+                val duration = System.currentTimeMillis() - overlayShowTimeMs
+                AppUsageTracker.addUsageTime(applicationContext, overlayPackage, duration)
+            }
+            overlayPackage = ""
+            overlayShowTimeMs = 0
             overlayView?.let {
                 try {
                     windowManager.removeView(it)

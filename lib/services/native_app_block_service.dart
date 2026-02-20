@@ -112,6 +112,21 @@ class NativeAppBlockService {
     }
   }
 
+  /// Get usage stats for blocked apps (opens, opens when blocked, usage time).
+  Future<List<Map<String, dynamic>>> getBlockedAppUsageStats() async {
+    if (!Platform.isAndroid) return [];
+    try {
+      final result = await _channel.invokeMethod<List<dynamic>>('getBlockedAppUsageStats');
+      return result
+              ?.map((e) => Map<String, dynamic>.from(e as Map))
+              .toList() ??
+          [];
+    } catch (e) {
+      print('[NativeAppBlock] getBlockedAppUsageStats failed: $e');
+      return [];
+    }
+  }
+
   /// Save userId for native overlay (used for alert check / auto-unblock).
   Future<void> saveUserIdForOverlay(String userId) async {
     if (!Platform.isAndroid) return;

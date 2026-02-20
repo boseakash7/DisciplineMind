@@ -84,6 +84,20 @@ class AppBlockPlugin(private val activity: android.app.Activity) : MethodChannel
                     result.error("ERROR", "userId required", null)
                 }
             }
+            "getBlockedAppUsageStats" -> {
+                val packages = listOf(
+                    "com.zerodha.kite3",
+                    "in.upstox.app",
+                    "com.nextbillion.groww"
+                )
+                val list = AppUsageTracker.getAllUsage(ctx, packages)
+                result.success(list.map { mapOf(
+                    "packageName" to it["packageName"],
+                    "openCount" to it["openCount"],
+                    "openedWhenBlockedCount" to it["openedWhenBlockedCount"],
+                    "usageTimeMs" to it["usageTimeMs"]
+                ) })
+            }
             else -> result.notImplemented()
         }
     }

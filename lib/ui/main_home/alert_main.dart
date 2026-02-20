@@ -1,14 +1,19 @@
+import 'dart:io';
+
 import 'package:discipline_mind/common/common.dart';
+import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../controller/alert_controller.dart';
+import '../../model/user_alert_model.dart';
 import '../widgets/common_widgets.dart';
 import 'search_alert.dart';
 
 class AlertsMainScreen extends StatelessWidget {
   final AlertController controller = Get.put(AlertController());
+  final NativeAppBlockService _blockService = NativeAppBlockService();
 
   AlertsMainScreen({super.key});
 
@@ -26,6 +31,12 @@ class AlertsMainScreen extends StatelessWidget {
         elevation: 0,
         centerTitle: false,
         actions: [
+          if (Platform.isAndroid)
+            IconButton(
+              icon: const Icon(Icons.analytics_outlined),
+              tooltip: "App usage stats",
+              onPressed: () => _showUsageStatsDialog(context),
+            ),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: "Logout",
@@ -59,23 +70,135 @@ class AlertsMainScreen extends StatelessWidget {
 
         if (controller.savedAlerts.isEmpty) return _emptyState();
 
+        final merged = _mergeAlerts(controller.savedAlerts);
         return ListView.separated(
           padding: const EdgeInsets.all(16),
-          itemCount: controller.savedAlerts.length,
+          itemCount: merged.length,
           separatorBuilder: (_, __) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
-            final alert = controller.savedAlerts[index];
-            return _alertCard(alert, isDark);
+            final item = merged[index];
+            return _alertCard(item['alerts'] as List<UserAlerts>, isDark);
           },
         );
       }),
     );
   }
 
-  Widget _alertCard(alert, bool isDark) {
+  Future<void> _showUsageStatsDialog(BuildContext context) async {
+    final stats = await _blockService.getBlockedAppUsageStats();
+    if (!context.mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.analytics, color: Colors.blue),
+            SizedBox(width: 8),
+            Text("Blocked App Usage"),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Times opened, opened when blocked, and total usage time.",
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ...stats.map((s) {
+                final pkg = s['packageName'];
+                final name = _appDisplayName(pkg is String ? pkg : pkg?.toString());
+                final opens = (s['openCount'] is num) ? (s['openCount'] as num).toInt() : 0;
+                final blocked = (s['openedWhenBlockedCount'] is num) ? (s['openedWhenBlockedCount'] as num).toInt() : 0;
+                final ms = (s['usageTimeMs'] is num) ? (s['usageTimeMs'] as num).toInt() : 0;
+                final mins = (ms / 60000).toStringAsFixed(1);
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text("Opened: $opens times"),
+                        Text("Opened when blocked: $blocked times"),
+                        Text("Usage time: $mins min"),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+              if (stats.isEmpty)
+                const Text("No usage data yet."),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("OK"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _appDisplayName(String? package) {
+    switch (package) {
+      case 'com.zerodha.kite3':
+        return 'Zerodha Kite';
+      case 'in.upstox.app':
+        return 'Upstox';
+      case 'com.nextbillion.groww':
+        return 'Groww';
+      default:
+        return package ?? 'Unknown';
+    }
+  }
+
+  /// Merge alerts by instrument: 2 alerts (upper+lower) become 1 card.
+  List<Map<String, dynamic>> _mergeAlerts(List<UserAlerts> alerts) {
+    final byInstrument = <String, List<UserAlerts>>{};
+    for (final a in alerts) {
+      final key = "${a.exchange}:${a.tradingsymbol}";
+      byInstrument.putIfAbsent(key, () => []).add(a);
+    }
+    return byInstrument.entries.map((e) => {'alerts': e.value}).toList();
+  }
+
+  Widget _alertCard(List<UserAlerts> alerts, bool isDark) {
+    final alert = alerts.first;
     final current = double.tryParse(alert.currentPrice ?? "0") ?? 0;
-    final target = double.tryParse(alert.price ?? "0") ?? 0;
-    final bool isBullish = target >= current;
+    UserAlerts? upperAlert;
+    UserAlerts? lowerAlert;
+    for (final a in alerts) {
+      final p = double.tryParse(a.price ?? "0") ?? 0;
+      if (p >= current) upperAlert = a;
+      if (p < current) lowerAlert = a;
+    }
+    final upperPrice = upperAlert != null
+        ? (double.tryParse(upperAlert.price ?? "0") ?? 0)
+        : null;
+    final lowerPrice = lowerAlert != null
+        ? (double.tryParse(lowerAlert.price ?? "0") ?? 0)
+        : null;
+    final ids = alerts.map((a) => a.id).whereType<String>().toList();
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -92,23 +215,18 @@ class AlertsMainScreen extends StatelessWidget {
       ),
       child: Row(
         children: [
-          /// Symbol Avatar
           CircleAvatar(
             radius: 24,
-            backgroundColor: isBullish
-                ? Colors.green.withOpacity(0.15)
-                : Colors.red.withOpacity(0.15),
+            backgroundColor: Colors.blue.withOpacity(0.15),
             child: Text(
-              alert.tradingsymbol!.substring(0, 1),
-              style: TextStyle(
+              (alert.tradingsymbol ?? "?")[0],
+              style: const TextStyle(
                 fontWeight: FontWeight.bold,
-                color: isBullish ? Colors.green : Colors.red,
+                color: Colors.blue,
               ),
             ),
           ),
           const SizedBox(width: 14),
-
-          /// Stock Info
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -125,60 +243,60 @@ class AlertsMainScreen extends StatelessWidget {
                   alert.exchange ?? "",
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 6),
                 Text(
-                  "Current Price: ₹${alert.currentPrice ?? '0'}",
-                  style: TextStyle(fontSize: 12, color: Colors.blue),
+                  "Current: ₹${current.toStringAsFixed(2)}",
+                  style: const TextStyle(fontSize: 13, color: Colors.blue),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  "Status: ${alert.status ?? "N/A"}",
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: alert.status == "active" ? Colors.green : Colors.red,
+                if (upperPrice != null)
+                  Text(
+                    "Upper: ₹${upperPrice.toStringAsFixed(2)}",
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.green,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-                ),
+                if (lowerPrice != null)
+                  Text(
+                    "Lower: ₹${lowerPrice.toStringAsFixed(2)}",
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.red,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                if (upperPrice == null && lowerPrice == null)
+                  Text(
+                    "Target: ₹${alert.price}",
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: (double.tryParse(alert.price ?? "0") ?? 0) >= current
+                          ? Colors.green
+                          : Colors.red,
+                    ),
+                  ),
               ],
             ),
           ),
-
-          /// Target Price + Actions
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
-                "Target: ₹${alert.price}",
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                  color: isBullish ? Colors.green : Colors.red,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.edit, color: Colors.blue),
-                    onPressed: () => _showEditDialog(alert),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red),
-                    onPressed: () {
-                      showGenericPopup(
-                        context: Get.context!,
-                        heading: "Delete Alert?",
-                        subtitle: "Are you sure you want to delete this alert?",
-                        yesButtonTitle: "Delete",
-                        noButtonTitle: "Cancel",
-                        onYesPress: () async {
-                          await controller.deleteAlert(alert.id!);
-                        },
-                        onNoPress: () => Get.back(),
-                      );
+              IconButton(
+                icon: const Icon(Icons.delete, color: Colors.red),
+                onPressed: () {
+                  showGenericPopup(
+                    context: Get.context!,
+                    heading: "Delete Alert?",
+                    subtitle: "Are you sure you want to delete this alert?",
+                    yesButtonTitle: "Delete",
+                    noButtonTitle: "Cancel",
+                    onYesPress: () async {
+                      await controller.deleteAlerts(ids);
                     },
-                  ),
-                ],
+                    onNoPress: () => Get.back(),
+                  );
+                },
               ),
             ],
           ),
@@ -235,28 +353,4 @@ class AlertsMainScreen extends StatelessWidget {
     );
   }
 
-  /// ====================================
-  /// EDIT ALERT DIALOG
-  /// ====================================
-  void _showEditDialog(alert) {
-    final TextEditingController controllerText = TextEditingController(
-      text: alert.price,
-    );
-
-    Get.defaultDialog(
-      title: "Edit Target Price",
-      content: TextField(
-        controller: controllerText,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        decoration: const InputDecoration(hintText: "Enter new price"),
-      ),
-      textConfirm: "Save",
-      textCancel: "Cancel",
-      onConfirm: () {
-        final newPrice = controllerText.text;
-        // controller.updateAlert(alert.id!, newPrice);
-        Get.back();
-      },
-    );
-  }
 }
