@@ -17,8 +17,10 @@ import android.os.IBinder
 import android.os.Looper
 import android.view.Gravity
 import android.view.WindowManager
-import android.widget.Button
+import android.graphics.PorterDuff
+import android.graphics.drawable.GradientDrawable
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
@@ -288,44 +290,67 @@ class AppBlockingService : Service() {
             gravity = Gravity.CENTER
         }
 
-        // Native overlay - blocks immediately, has proper message and Force Unblock button
+        // Native overlay — matches BlockedAppOverlayPage Flutter design
         val appName = getAppDisplayName(packageName)
+        val dp = resources.displayMetrics.density
+
+        val lockIcon = ImageView(this).apply {
+            setImageResource(android.R.drawable.ic_lock_lock)
+            setColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
+        }
+        val iconSize = (80 * dp).toInt()
+
         val titleText = TextView(this).apply {
             setTextColor(Color.WHITE)
-            textSize = 20f
-            text = "$appName is restricted"
+            textSize = 22f
+            text = "$appName is blocked"
             gravity = Gravity.CENTER
-            setPadding(32, 40, 32, 8)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
         }
+
         val msgText = TextView(this).apply {
-            setTextColor(Color.parseColor("#CCCCCC"))
+            setTextColor(Color.argb(230, 255, 255, 255)) // white ~90%
             textSize = 14f
-            text = "You have an active price alert. Stay focused on your goals.\n\nOpen Discipline Mind to manage your alert, or tap Force Unblock to bypass."
+            text = "You have an active price alert. Stay focused on your goals."
             gravity = Gravity.CENTER
-            setPadding(32, 8, 32, 24)
         }
-        val forceUnblockBtn = Button(this).apply {
-            text = "Force Unblock (one time only)"
-            setBackgroundColor(Color.WHITE)
-            setTextColor(Color.BLACK)
-            setPadding(0, 24, 0, 24)
-            setOnClickListener {
-                performUnblockAndClose()
-            }
+
+        val btnBackground = GradientDrawable().apply {
+            setColor(Color.WHITE)
+            cornerRadius = (8 * dp)
         }
+        val forceUnblockBtn = TextView(this).apply {
+            text = "Force Unblock"
+            setTextColor(Color.parseColor("#DD000000")) // black87
+            textSize = 15f
+            gravity = Gravity.CENTER
+            background = btnBackground
+            setPadding((32 * dp).toInt(), (14 * dp).toInt(), (32 * dp).toInt(), (14 * dp).toInt())
+            setOnClickListener { performUnblockAndClose() }
+        }
+
         val nativeContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.BLACK)
+            setBackgroundColor(Color.parseColor("#DD000000")) // black87 — matches Flutter Material color
             gravity = Gravity.CENTER
-            addView(titleText)
-            addView(msgText)
+            setPadding((32 * dp).toInt(), 0, (32 * dp).toInt(), 0)
+
+            addView(lockIcon, LinearLayout.LayoutParams(iconSize, iconSize))
+            addView(titleText, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (24 * dp).toInt() })
+            addView(msgText, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (12 * dp).toInt() })
             addView(forceUnblockBtn, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = 8 })
+            ).apply { topMargin = (24 * dp).toInt() })
         }
         overlayView = FrameLayout(this).apply {
-            setBackgroundColor(Color.BLACK)
+            setBackgroundColor(Color.parseColor("#DD000000")) // black87
             addView(nativeContent, FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
