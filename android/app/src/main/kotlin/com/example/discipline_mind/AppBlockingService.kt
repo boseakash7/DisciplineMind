@@ -64,6 +64,9 @@ class AppBlockingService : Service() {
     private var overlayShowing: Boolean = false
     private var overlayShowTimeMs: Long = 0
     private var overlayPackage: String = ""
+    /** Force Unblock = one-time bypass only. Cleared when user switches away. */
+    private val temporaryUnblocked = mutableSetOf<String>()
+    private var lastAllowedApp: String = ""  // blocked app we're currently allowing (no overlay)
 
     override fun onCreate() {
         super.onCreate()
@@ -174,21 +177,40 @@ class AppBlockingService : Service() {
                     if (overlayShowing) {
                         currentForegroundApp = ""
                         mainHandler.post { hideOverlay() }
+                    } else if (lastAllowedApp.isNotEmpty()) {
+                        temporaryUnblocked.remove(lastAllowedApp)
+                        lastAllowedApp = ""
                     }
                 }
                 foregroundApp != null && HIDE_OVERLAY_PACKAGES.any { foregroundApp.startsWith(it) || foregroundApp == it } -> {
                     if (overlayShowing) {
                         currentForegroundApp = ""
                         mainHandler.post { hideOverlay() }
+                    } else if (lastAllowedApp.isNotEmpty()) {
+                        temporaryUnblocked.remove(lastAllowedApp)
+                        lastAllowedApp = ""
                     }
                 }
                 foregroundApp == ourPackageName -> {
                     if (overlayShowing) {
                         currentForegroundApp = ""
                         mainHandler.post { hideOverlay() }
+                    } else if (lastAllowedApp.isNotEmpty()) {
+                        temporaryUnblocked.remove(lastAllowedApp)
+                        lastAllowedApp = ""
                     }
                 }
                 !AppManager.blockedApps.contains(foregroundApp) -> {
+                    if (overlayShowing) {
+                        currentForegroundApp = ""
+                        mainHandler.post { hideOverlay() }
+                    } else if (lastAllowedApp.isNotEmpty()) {
+                        temporaryUnblocked.remove(lastAllowedApp)
+                        lastAllowedApp = ""
+                    }
+                }
+                foregroundApp in temporaryUnblocked -> {
+                    lastAllowedApp = foregroundApp
                     if (overlayShowing) {
                         currentForegroundApp = ""
                         mainHandler.post { hideOverlay() }
@@ -283,7 +305,7 @@ class AppBlockingService : Service() {
             setPadding(32, 8, 32, 24)
         }
         val forceUnblockBtn = Button(this).apply {
-            text = "Force Unblock"
+            text = "Force Unblock (one time only)"
             setBackgroundColor(Color.WHITE)
             setTextColor(Color.BLACK)
             setPadding(0, 24, 0, 24)
@@ -387,13 +409,14 @@ class AppBlockingService : Service() {
         }
     }
 
+    /** Force Unblock: one-time bypass for this app only. Next open (if alerts exist) will block again. */
     private fun performUnblockAndClose() {
-        AppManager.getBlockedAppsList().toList().forEach { pkg ->
-            AppManager.removeBlockedApp(applicationContext, pkg)
+        if (overlayPackage.isNotEmpty()) {
+            temporaryUnblocked.add(overlayPackage)
+            lastAllowedApp = overlayPackage
         }
-        AppManager.loadBlockedApps(applicationContext)
         hideOverlay()
-        stopSelf()
+        // Do NOT remove from blocked list or stop service - keep blocking for next open
     }
 
     private fun hideOverlay() {
