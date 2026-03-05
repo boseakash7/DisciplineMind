@@ -326,7 +326,7 @@ class AppBlockingService : Service() {
             gravity = Gravity.CENTER
             background = btnBackground
             setPadding((32 * dp).toInt(), (14 * dp).toInt(), (32 * dp).toInt(), (14 * dp).toInt())
-            setOnClickListener { performUnblockAndClose() }
+            setOnClickListener { performForceUnblock() }
         }
 
         val nativeContent = LinearLayout(this).apply {
@@ -418,7 +418,9 @@ class AppBlockingService : Service() {
             val json = JSONObject(response)
             val payload = json.optJSONArray("payload") ?: return
             if (payload.length() == 0) {
-                mainHandler.post { performUnblockAndClose() }
+                // No active alerts — permanently clear blocked list so overlay never shows again
+                // until the user creates a new alert.
+                mainHandler.post { performAutoUnblock() }
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -434,14 +436,27 @@ class AppBlockingService : Service() {
         }
     }
 
+    /**
+     * Auto-unblock: called when the alerts API returns empty.
+     * Permanently removes all apps from the blocked list and stops the service
+     * so the overlay never flashes again on next open.
+     */
+    private fun performAutoUnblock() {
+        AppManager.getBlockedAppsList().toList().forEach { pkg ->
+            AppManager.removeBlockedApp(applicationContext, pkg)
+        }
+        AppManager.loadBlockedApps(applicationContext)
+        hideOverlay()
+        stopSelf()
+    }
+
     /** Force Unblock: one-time bypass for this app only. Next open (if alerts exist) will block again. */
-    private fun performUnblockAndClose() {
+    private fun performForceUnblock() {
         if (overlayPackage.isNotEmpty()) {
             temporaryUnblocked.add(overlayPackage)
             lastAllowedApp = overlayPackage
         }
         hideOverlay()
-        // Do NOT remove from blocked list or stop service - keep blocking for next open
     }
 
     private fun hideOverlay() {
