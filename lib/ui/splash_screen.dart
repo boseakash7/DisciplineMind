@@ -40,7 +40,7 @@ class _SplashScreenState extends State<SplashScreen> {
           children: [
             const CircleAvatar(
               radius: 55,
-              backgroundColor: AppColors.primaryGreen,
+              backgroundColor: AppColors.primary,
               child: Icon(Icons.psychology, size: 65, color: AppColors.white),
             ),
             const SizedBox(height: 20),
@@ -63,7 +63,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
             const SizedBox(height: 40),
 
-            const CircularProgressIndicator(color: AppColors.primaryGreen),
+            const CircularProgressIndicator(color: AppColors.primary),
           ],
         ),
       ),

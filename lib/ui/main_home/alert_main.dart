@@ -51,9 +51,8 @@ class AlertsMainScreen extends StatelessWidget {
                 noButtonTitle: "Cancel",
                 onYesPress: () async {
                   Get.back();
-                  Future.delayed(const Duration(milliseconds: 200), () {
-                    Common.logout();
-                  });
+                  await Future.delayed(const Duration(milliseconds: 200));
+                  Common.logout();
                 },
 
                 onNoPress: () => Get.back(),

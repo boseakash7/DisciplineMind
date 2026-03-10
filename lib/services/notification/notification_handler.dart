@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
@@ -142,5 +143,25 @@ class NotificationHandler {
         onNotificationReceived?.call();
       }
     });
+  }
+
+  static const String tradeAlertsTopic = 'trade_alerts';
+
+  /// Subscribe to trade_alerts topic. Call on login.
+  static Future<void> subscribeToTradeAlerts() async {
+    try {
+      await FirebaseMessaging.instance.subscribeToTopic(tradeAlertsTopic);
+    } catch (e) {
+      if (kDebugMode) debugPrint('Subscribe to trade_alerts failed: $e');
+    }
+  }
+
+  /// Unsubscribe from trade_alerts topic. Call on logout.
+  static Future<void> unsubscribeFromTradeAlerts() async {
+    try {
+      await FirebaseMessaging.instance.unsubscribeFromTopic(tradeAlertsTopic);
+    } catch (e) {
+      if (kDebugMode) debugPrint('Unsubscribe from trade_alerts failed: $e');
+    }
   }
 }

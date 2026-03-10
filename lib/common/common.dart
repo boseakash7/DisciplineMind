@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 
 import '../model/login_reponse_model.dart';
 import '../services/local_db.dart';
+import '../services/notification/notification_handler.dart';
 import '../ui/auth/login_screen.dart';
 
 class Common {
@@ -26,7 +27,8 @@ class Common {
     }
   }
 
-  static void logout() {
+  static void logout() async {
+    await NotificationHandler.unsubscribeFromTradeAlerts();
     storage.clearLogin();
     Get.offAll(() => LoginScreen());
   }

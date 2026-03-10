@@ -2,7 +2,9 @@ import 'package:discipline_mind/common/app_colors.dart';
 import 'package:flutter/material.dart';
 
 class TradesScreen extends StatelessWidget {
-  const TradesScreen({super.key});
+  const TradesScreen({super.key, this.onMonkkTap});
+
+  final VoidCallback? onMonkkTap;
 
   Widget tradeCard(bool profit) {
     return Container(
@@ -166,12 +168,15 @@ class TradesScreen extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  "Monkk",
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primary,
+                GestureDetector(
+                  onTap: onMonkkTap,
+                  child: const Text(
+                    "Monkk",
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primary,
+                    ),
                   ),
                 ),
 

@@ -29,7 +29,7 @@ class LoginScreen extends StatelessWidget {
               const SizedBox(height: 80),
               const CircleAvatar(
                 radius: 45,
-                backgroundColor: AppColors.primaryGreen,
+                backgroundColor: AppColors.primary,
                 child: Icon(Icons.psychology, size: 55, color: AppColors.white),
               ),
               const SizedBox(height: 16),
@@ -91,6 +91,7 @@ class LoginScreen extends StatelessWidget {
               Obx(
                 () => PrimaryButton(
                   text: "DM LOGIN",
+                  color: AppColors.primary,
                   isLoading: authController.isLoading.value,
                   onPressed: () {
                     if (_formKey.currentState!.validate()) {
@@ -114,7 +115,7 @@ class LoginScreen extends StatelessWidget {
                       TextSpan(
                         text: "CREATE ACCOUNT",
                         style: TextStyle(
-                          color: AppColors.primaryGreen,
+                          color: AppColors.primary,
                           fontWeight: FontWeight.bold,
                         ),
                       ),

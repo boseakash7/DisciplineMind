@@ -1,4 +1,5 @@
 import 'package:discipline_mind/services/api/api_url.dart';
+import 'package:discipline_mind/services/notification/notification_handler.dart';
 import 'package:discipline_mind/ui/main_home/main_home.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:get/get.dart';
@@ -48,6 +49,9 @@ class AuthController extends GetxController {
             "token": Common.fcmToken,
           });
         }
+
+        // Subscribe to trade_alerts notifications topic
+        await NotificationHandler.subscribeToTradeAlerts();
 
         Get.offAll(() => MainHomeScreen());
       } else {
@@ -101,5 +105,11 @@ class AuthController extends GetxController {
 
   void resetPassword() {
     Get.snackbar("Email Sent", "Check your inbox for the reset link.");
+  }
+
+  void logout() {
+    storage.clearLogin();
+    GetStorage().remove('user_id');
+    Get.offAll(() => LoginScreen());
   }
 }

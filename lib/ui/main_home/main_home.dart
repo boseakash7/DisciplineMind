@@ -1,6 +1,10 @@
 import 'package:discipline_mind/common/app_colors.dart';
+import 'package:discipline_mind/common/common.dart';
+import 'package:discipline_mind/ui/main_home/alert_main.dart';
+import 'package:discipline_mind/ui/main_home/chat_screen.dart';
 import 'package:discipline_mind/ui/main_home/trade_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
 
 import 'bm_screen.dart';
 
@@ -12,35 +16,92 @@ class MainHomeScreen extends StatefulWidget {
 }
 
 class _MainHomeScreenState extends State<MainHomeScreen> {
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
   int currentIndex = 0;
 
-  final screens = [
-    const BmScreen(),
-    const TradesScreen(),
-    const Center(child: Text("Action")),
-    const Center(child: Text("Analysis")),
-    const Center(child: Text("More")),
-  ];
+  void _openDrawer() => _scaffoldKey.currentState?.openDrawer();
 
   @override
   Widget build(BuildContext context) {
     const navBarHeight = 70.0;
     const fabSize = 56.0;
 
+    final screens = [
+      BmScreen(onMonkkTap: _openDrawer),
+      TradesScreen(onMonkkTap: _openDrawer),
+      ChatScreen(onMonkkTap: _openDrawer),
+      const Center(child: Text("Analysis")),
+      const Center(child: Text("More")),
+    ];
+
     return Scaffold(
+      key: _scaffoldKey,
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: const BoxDecoration(
+                color: AppColors.primary,
+              ),
+              child: Obx(() {
+                final name = Common.userData.value?.payload?.fullName ??
+                    Common.userData.value?.payload?.email ??
+                    'User';
+                return Text(
+                  name,
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                );
+              }),
+            ),
+            ListTile(
+              leading: const Icon(Icons.notifications_outlined),
+              title: const Text('Price Alerts'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => AlertsMainScreen(),
+                  ),
+                );
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.logout),
+              title: const Text('Logout'),
+              onTap: () {
+                Navigator.pop(context);
+                Common.logout();
+              },
+            ),
+          ],
+        ),
+      ),
       body: screens[currentIndex],
 
-      bottomNavigationBar: Stack(
-        clipBehavior: Clip.none,
-        alignment: Alignment.bottomCenter,
-        children: [
-          Container(
-            height: navBarHeight,
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              boxShadow: [BoxShadow(blurRadius: 10, color: Colors.black12)],
-            ),
-            child: BottomNavigationBar(
+      bottomNavigationBar: SizedBox(
+        height: navBarHeight + fabSize / 2,
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.bottomCenter,
+          children: [
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                height: navBarHeight,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [BoxShadow(blurRadius: 10, color: Colors.black12)],
+                ),
+                child: BottomNavigationBar(
               backgroundColor: Colors.transparent,
               type: BottomNavigationBarType.fixed,
               currentIndex: currentIndex,
@@ -80,12 +141,16 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                 ),
               ],
             ),
-          ),
-          Positioned(
-            top: -fabSize / 2 + 4,
-            child: GestureDetector(
-              onTap: () => setState(() => currentIndex = 2),
-              child: Container(
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: Center(
+                child: GestureDetector(
+                  onTap: () => setState(() => currentIndex = 2),
+                  child: Container(
                 height: fabSize,
                 width: fabSize,
                 decoration: BoxDecoration(
@@ -101,15 +166,17 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                     ),
                   ],
                 ),
-                child: const Icon(
-                  Icons.auto_awesome,
-                  color: Colors.white,
-                  size: 26,
+                    child: const Icon(
+                      Icons.auto_awesome,
+                      color: Colors.white,
+                      size: 26,
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

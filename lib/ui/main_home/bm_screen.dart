@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:timelines_plus/timelines_plus.dart';
 
 class BmScreen extends StatelessWidget {
-  const BmScreen({super.key});
+  const BmScreen({super.key, this.onMonkkTap});
+
+  final VoidCallback? onMonkkTap;
 
   /// Highest level index achieved (0=BM, 1=AP, 2=AO, 3=AA, 4=AI)
   static const int achievedLevelIndex = 0;
@@ -50,6 +52,7 @@ class BmScreen extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -230,12 +233,15 @@ class BmScreen extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  "Monkk",
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primary,
+                GestureDetector(
+                  onTap: onMonkkTap,
+                  child: const Text(
+                    "Monkk",
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primary,
+                    ),
                   ),
                 ),
 
