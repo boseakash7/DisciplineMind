@@ -29,6 +29,27 @@ class ApiService extends GetxService {
     }
   }
 
+  /// POST request to messages API (disciplinedminds.in) with form-data
+  Future<ApiResponse<dynamic>> postMessagesForm(
+    String endpoint,
+    Map<String, String> fields, {
+    Map<String, String>? headers,
+  }) async {
+    try {
+      final uri = Uri.parse("${ApiConfig.baseUrl}$endpoint");
+      final request = http.MultipartRequest('POST', uri);
+      if (headers != null) request.headers.addAll(headers);
+      for (final e in fields.entries) {
+        request.fields[e.key] = e.value;
+      }
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+      return _processResponse(response);
+    } catch (e) {
+      return ApiResponse.error(e.toString());
+    }
+  }
+
   /// POST request with multipart/form-data (matches Postman --form).
   /// Use for endpoints that expect multipart (e.g. FCM sync).
   Future<ApiResponse<dynamic>> postMultipartForm(
@@ -104,9 +125,16 @@ class ApiService extends GetxService {
   }
 
   /// Process API response (success & error)
+  /// Strips leading HTML (e.g. <br /> from PHP) before parsing JSON.
   ApiResponse<dynamic> _processResponse(http.Response response) {
     try {
-      final jsonResponse = jsonDecode(response.body);
+      String body = response.body.trim();
+      // Strip leading HTML/whitespace that breaks jsonDecode
+      final jsonStart = body.indexOf('{');
+      if (jsonStart > 0) {
+        body = body.substring(jsonStart);
+      }
+      final jsonResponse = jsonDecode(body);
 
       if (jsonResponse['status'] == 'ok') {
         return ApiResponse.success(jsonResponse);

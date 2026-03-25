@@ -18,7 +18,9 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    _requestNotificationPermission();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _requestNotificationPermission();
+    });
     Future.delayed(const Duration(seconds: 2), () {
       authController.autoLogin();
     });
@@ -27,7 +29,10 @@ class _SplashScreenState extends State<SplashScreen> {
   Future<void> _requestNotificationPermission() async {
     try {
       await NotificationHandler.requestPermissions();
-    } catch (_) {}
+    } catch (e, s) {
+      debugPrint('Permission request failed: $e');
+      debugPrintStack(stackTrace: s);
+    }
   }
 
   @override

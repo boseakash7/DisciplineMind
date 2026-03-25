@@ -413,13 +413,24 @@ class AppBlockingService : Service() {
                 os.write("user_id=${java.net.URLEncoder.encode(userId, "UTF-8")}".toByteArray())
             }
             if (conn.responseCode != 200) return
-            val response = conn.inputStream.bufferedReader().readText()
+            var body = conn.inputStream.bufferedReader().readText().trim()
             conn.disconnect()
-            val json = JSONObject(response)
+            // Strip leading HTML (e.g. <br />) before parsing JSON
+            val jsonStart = body.indexOf('{')
+            if (jsonStart > 0) body = body.substring(jsonStart)
+            val json = JSONObject(body)
             val payload = json.optJSONArray("payload") ?: return
-            if (payload.length() == 0) {
-                // No active alerts — permanently clear blocked list so overlay never shows again
-                // until the user creates a new alert.
+            // Unblock only when no pending alerts (empty list or all triggered/completed)
+            var hasPending = false
+            for (i in 0 until payload.length()) {
+                val item = payload.optJSONObject(i)
+                val status = (item?.optString("status", "") ?: "").lowercase()
+                if (status == "pending") {
+                    hasPending = true
+                    break
+                }
+            }
+            if (!hasPending) {
                 mainHandler.post { performAutoUnblock() }
             }
         } catch (e: Exception) {

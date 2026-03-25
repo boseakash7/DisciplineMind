@@ -10,6 +10,7 @@ import 'package:get/get.dart';
 
 import '../common/device_utils.dart';
 import '../constants/blocked_apps.dart';
+import '../controller/chat_controller.dart';
 import '../model/instrument_api_model.dart';
 import '../model/instrument_detail_model.dart';
 import '../model/user_alert_model.dart';
@@ -85,8 +86,9 @@ class AlertController extends GetxController {
     }
   }
 
-  /// Create 2 alerts at once: upper (above current) and lower (below current).
-  Future<void> createAlertPair({
+  /// Create 1 trade alert with upper_price and lower_price (no price).
+  /// Returns true on success.
+  Future<bool> createTradeAlert({
     required String instrument,
     required String upperPrice,
     required String lowerPrice,
@@ -97,14 +99,121 @@ class AlertController extends GetxController {
       final userId = Common.userData.value?.payload?.id;
       if (userId == null) {
         AppToast.showToast("Please log in to create an alert");
-        return;
+        return false;
+      }
+      final hasPermissions = await checkBlockAppPermissions();
+      if (!hasPermissions) {
+        // Permission denied: do not call alert/create API.
+        return false;
       }
       await fetchUserAlerts(userId.toString());
-      if (savedAlerts.isNotEmpty) {
+      final hasPending =
+          // false;
+          savedAlerts.any((a) => (a.status ?? '').toLowerCase() == 'pending');
+      if (hasPending) {
         AppToast.showToast(
-          "You already have active alerts. Delete them to add new ones.",
+          "You have a pending trade. Complete or delete it before adding a new one.",
         );
-        return;
+        return false;
+      }
+      final response = await apiService.postFormData(ApiUrl.createAlertUrl, {
+        'user_id': userId.toString(),
+        'instrument': instrument,
+        'upper_price': upperPrice,
+        'lower_price': lowerPrice,
+        'current_price': currentPrice.toString(),
+      });
+
+      if (response.isSuccess) {
+        AppToast.showToast("Alert created successfully");
+        fetchUserAlerts(userId.toString());
+        // Block trading apps
+        if (Platform.isAndroid) {
+          await _blockService.saveUserIdForOverlay(userId.toString());
+          for (final package in BLOCKED_TRADING_APP_PACKAGES) {
+            await _blockService.blockApp(package);
+          }
+          try {
+            await _blockService.startBlockingService();
+          } catch (e) {
+            print('[AlertController] Failed to start blocking service: $e');
+          }
+          AppToast.showToast("Trading apps have been locked");
+        } else if (Platform.isIOS) {
+          final limiter = AppLimiter();
+          final granted = await limiter.requestIosPermission();
+          if (granted) {
+            await limiter.blockAndUnblockIOSApp();
+            AppToast.showToast("Trading apps have been locked");
+          }
+        }
+        return true;
+      } else {
+        AppToast.showToast(response.errorMessage ?? "Failed to create alert");
+        return false;
+      }
+    } catch (e) {
+      AppToast.showToast("Error: ${e.toString()}");
+      return false;
+    } finally {
+      isSavingAlert.value = false;
+    }
+  }
+
+  /// Max number of instruments user can have alerts for.
+  static const int maxAlertInstruments = 2;
+
+  int _uniqueInstrumentCount() {
+    final keys = <String>{};
+    for (final a in savedAlerts) {
+      keys.add("${a.exchange}:${a.tradingsymbol}");
+    }
+    return keys.length;
+  }
+
+  bool hasAlertForInstrument(String instrument) {
+    return savedAlerts.any(
+      (a) =>
+          "${a.exchange}:${a.tradingsymbol}".toLowerCase() ==
+          instrument.toLowerCase(),
+    );
+  }
+
+  bool canAddAlert(String instrument) {
+    if (hasAlertForInstrument(instrument)) return false;
+    return _uniqueInstrumentCount() < maxAlertInstruments;
+  }
+
+  /// Create 2 alerts at once: upper (above current) and lower (below current).
+  Future<bool> createAlertPair({
+    required String instrument,
+    required String upperPrice,
+    required String lowerPrice,
+    required double currentPrice,
+  }) async {
+    try {
+      isSavingAlert.value = true;
+      final userId = Common.userData.value?.payload?.id;
+      if (userId == null) {
+        AppToast.showToast("Please log in to create an alert");
+        return false;
+      }
+      final hasPermissions = await checkBlockAppPermissions();
+      if (!hasPermissions) {
+        // Permission denied: do not call alert/create API.
+        return false;
+      }
+
+      await fetchUserAlerts(userId.toString());
+      if (hasAlertForInstrument(instrument)) {
+        AppToast.showToast("You already have an alert for this instrument.");
+        return false;
+      }
+      if (_uniqueInstrumentCount() >= maxAlertInstruments) {
+        AppToast.showToast(
+          "You can only create $maxAlertInstruments alerts. Delete one to add new.",
+        );
+        return false;
       }
       final AppLimiter limiter = AppLimiter();
 
@@ -126,13 +235,6 @@ class AlertController extends GetxController {
       bool success = false;
       if (Platform.isAndroid) {
         await _blockService.saveUserIdForOverlay(userId.toString());
-        final perms = await _blockService.checkPermissions();
-        if (perms['hasOverlayPermission'] != true) {
-          await _blockService.requestOverlayPermission();
-        }
-        if (perms['hasUsageStatsPermission'] != true) {
-          await _blockService.requestUsageStatsPermission();
-        }
         for (final package in BLOCKED_TRADING_APP_PACKAGES) {
           final ok = await _blockService.blockApp(package);
           if (ok) success = true;
@@ -143,13 +245,13 @@ class AlertController extends GetxController {
           print('[AlertController] Failed to start blocking service: $e');
         }
       } else if (Platform.isIOS) {
-        final permissionGranted = await limiter.requestIosPermission();
-        if (!permissionGranted) {
-          AppToast.showToast("iOS permission required to block apps");
-          return;
+        try {
+          await limiter.blockAndUnblockIOSApp();
+          success = true;
+        } catch (e) {
+          print('[AlertController] iOS block failed: $e');
+          success = false;
         }
-        await limiter.blockAndUnblockIOSApp();
-        success = true;
       }
 
       if (success) {
@@ -157,9 +259,13 @@ class AlertController extends GetxController {
           "Trading apps (Zerodha, Upstox, Groww) have been blocked",
         );
       }
-      if (respUpper.isSuccess && respLower.isSuccess) {
+      final alertsCreated = respUpper.isSuccess && respLower.isSuccess;
+      if (alertsCreated) {
         AppToast.showToast("Alerts created successfully");
         fetchUserAlerts(userId.toString());
+        if (Get.isRegistered<ChatController>()) {
+          Get.find<ChatController>().loadMessages(refresh: true);
+        }
       } else {
         AppToast.showToast(
           respUpper.errorMessage ??
@@ -167,8 +273,10 @@ class AlertController extends GetxController {
               "Failed to create alerts",
         );
       }
+      return alertsCreated;
     } catch (e) {
       AppToast.showToast("Error: ${e.toString()}");
+      return false;
     } finally {
       isSavingAlert.value = false;
     }
@@ -265,8 +373,15 @@ class AlertController extends GetxController {
     }
 
     final updated = await _blockService.checkPermissions();
-    return (updated['hasOverlayPermission'] ?? false) &&
+    final granted =
+        (updated['hasOverlayPermission'] ?? false) &&
         (updated['hasUsageStatsPermission'] ?? false);
+    if (!granted) {
+      AppToast.showToast(
+        "Android overlay and usage access permissions are required to create alerts",
+      );
+    }
+    return granted;
   }
 
   // Future<bool> checkBlockAppPermissions() async {

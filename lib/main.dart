@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/controller/alert_controller.dart';
+import 'package:discipline_mind/controller/chat_controller.dart';
 import 'package:discipline_mind/firebase_options.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
@@ -31,6 +32,9 @@ void _refreshUserAlertsOnNotification() {
   if (userId == null) return;
   if (Get.isRegistered<AlertController>()) {
     Get.find<AlertController>().fetchUserAlerts(userId);
+  }
+  if (Get.isRegistered<ChatController>()) {
+    Get.find<ChatController>().loadMessages(refresh: true, silent: true);
   }
 }
 

@@ -34,16 +34,17 @@ class _SetAlertDetailScreenState extends State<SetAlertDetailScreen> {
     _checkExistingActiveAlert();
   }
 
-  /// Fetch alerts so we know if user already has an active alert (to show message / disable save).
+  /// Fetch alerts so we know if user can add more (max 2 instruments).
   void _checkExistingActiveAlert() {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final userId = Common.userData.value?.payload?.id?.toString();
       if (userId == null) return;
       await alertController.fetchUserAlerts(userId);
-      if (alertController.savedAlerts.isNotEmpty) {
-        AppToast.showToast(
-          "You already have active alerts. Delete them to add new ones.",
-        );
+      if (!alertController.canAddAlert(instrumentKey)) {
+        final msg = alertController.hasAlertForInstrument(instrumentKey)
+            ? "You already have an alert for this instrument."
+            : "You can only create ${AlertController.maxAlertInstruments} alerts. Delete one to add new.";
+        AppToast.showToast(msg);
       }
     });
   }
@@ -75,7 +76,7 @@ class _SetAlertDetailScreenState extends State<SetAlertDetailScreen> {
             _stockHeader(currentPrice),
             const Divider(height: 1),
             Obx(() {
-              if (alertController.savedAlerts.isEmpty)
+              if (alertController.canAddAlert(instrumentKey))
                 return const SizedBox.shrink();
               return _activeAlertMessage();
             }),
@@ -231,6 +232,11 @@ class _SetAlertDetailScreenState extends State<SetAlertDetailScreen> {
   }
 
   Widget _activeAlertMessage() {
+    final isSameInstrument =
+        alertController.hasAlertForInstrument(instrumentKey);
+    final message = isSameInstrument
+        ? "You already have an alert for this instrument."
+        : "You can only create ${AlertController.maxAlertInstruments} alerts. Delete one to add new.";
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -246,7 +252,7 @@ class _SetAlertDetailScreenState extends State<SetAlertDetailScreen> {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              "You already have active alerts. Delete them to add new ones.",
+              message,
               style: TextStyle(
                 color: Colors.orange.shade900,
                 fontSize: 13,
@@ -261,12 +267,12 @@ class _SetAlertDetailScreenState extends State<SetAlertDetailScreen> {
 
   Widget _saveButton() {
     return Obx(() {
-      final hasActiveAlert = alertController.savedAlerts.isNotEmpty;
+      final canAdd = alertController.canAddAlert(instrumentKey);
       return PrimaryButton(
         isLoading: alertController.isSavingAlert.value,
         text: "Create Alert",
         color: Colors.green,
-        onPressed: hasActiveAlert
+        onPressed: !canAdd
             ? null
             : () async {
                 final upper = upperPriceController.text.trim();
@@ -296,19 +302,15 @@ class _SetAlertDetailScreenState extends State<SetAlertDetailScreen> {
                   noButtonTitle: "Cancel",
                   onYesPress: () async {
                     Get.back();
-                    final hasPermissions = await alertController.checkBlockAppPermissions();
-                    if (!hasPermissions) {
-                      AppToast.showToast("Permissions required to block trading apps");
-                      return;
-                    }
                     final instrument =
                         "${widget.stock.exchange}:${widget.stock.tradingsymbol}";
-                    await alertController.createAlertPair(
+                    final created = await alertController.createAlertPair(
                       instrument: instrument,
                       upperPrice: upper,
                       lowerPrice: lower,
                       currentPrice: currentPriceValue,
                     );
+                    if (!created) return;
                     Get.offAll(() => MainHomeScreen());
                   },
                   onNoPress: () => Get.back(),

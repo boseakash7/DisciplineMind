@@ -179,11 +179,14 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
       final alerts = model.payload ?? [];
 
       // ✅ Logic:
-      // If list is empty → unblock app
-      // If list is NOT empty → keep app blocked
-      final keepBlocked = alerts.isNotEmpty;
+      // If list empty → unblock app
+      // If any alert has status "pending" → keep app blocked (same as non-empty)
+      final hasPending = alerts.any(
+        (a) => (a.status ?? '').toLowerCase() == 'pending',
+      );
+      final keepBlocked = hasPending;
       print(
-        '[BlockedAppOverlay] alertsCount=${alerts.length} → keepBlocked=$keepBlocked',
+        '[BlockedAppOverlay] alertsCount=${alerts.length} pending=$hasPending → keepBlocked=$keepBlocked',
       );
 
       return keepBlocked;

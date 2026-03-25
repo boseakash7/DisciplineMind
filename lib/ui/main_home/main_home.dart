@@ -25,6 +25,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
   Widget build(BuildContext context) {
     const navBarHeight = 70.0;
     const fabSize = 56.0;
+    final bottomInset = MediaQuery.of(context).padding.bottom;
 
     final screens = [
       BmScreen(onMonkkTap: _openDrawer),
@@ -86,7 +87,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
       body: screens[currentIndex],
 
       bottomNavigationBar: SizedBox(
-        height: navBarHeight + fabSize / 2,
+        height: navBarHeight + fabSize / 2 + bottomInset,
         child: Stack(
           clipBehavior: Clip.none,
           alignment: Alignment.bottomCenter,
@@ -96,51 +97,55 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
               right: 0,
               bottom: 0,
               child: Container(
-                height: navBarHeight,
+                height: navBarHeight + bottomInset,
                 decoration: const BoxDecoration(
                   color: Colors.white,
                   boxShadow: [BoxShadow(blurRadius: 10, color: Colors.black12)],
                 ),
                 child: BottomNavigationBar(
-              backgroundColor: Colors.transparent,
-              type: BottomNavigationBarType.fixed,
-              currentIndex: currentIndex,
-              selectedItemColor: AppColors.primary,
-              unselectedItemColor: Colors.grey,
-              showSelectedLabels: true,
-              showUnselectedLabels: true,
-              elevation: 0,
-              onTap: (index) {
-                setState(() {
-                  currentIndex = index;
-                });
-              },
-              items: [
-                const BottomNavigationBarItem(
-                  icon: Icon(Icons.grid_view_outlined),
-                  activeIcon: Icon(Icons.grid_view),
-                  label: "BM",
+                  backgroundColor: Colors.transparent,
+                  type: BottomNavigationBarType.fixed,
+                  currentIndex: currentIndex,
+                  selectedItemColor: AppColors.primary,
+                  unselectedItemColor: Colors.grey,
+                  showSelectedLabels: true,
+                  showUnselectedLabels: true,
+                  selectedLabelStyle: const TextStyle(fontSize: 11, height: 1.1),
+                  unselectedLabelStyle:
+                      const TextStyle(fontSize: 11, height: 1.1),
+                  iconSize: 22,
+                  elevation: 0,
+                  onTap: (index) {
+                    setState(() {
+                      currentIndex = index;
+                    });
+                  },
+                  items: [
+                    const BottomNavigationBarItem(
+                      icon: Icon(Icons.grid_view_outlined),
+                      activeIcon: Icon(Icons.grid_view),
+                      label: "BM",
+                    ),
+                    const BottomNavigationBarItem(
+                      icon: Icon(Icons.swap_vert),
+                      activeIcon: Icon(Icons.swap_vert),
+                      label: "Trades",
+                    ),
+                    const BottomNavigationBarItem(
+                      icon: SizedBox(height: 24, width: 24),
+                      label: "",
+                    ),
+                    const BottomNavigationBarItem(
+                      icon: Icon(Icons.bar_chart_outlined),
+                      activeIcon: Icon(Icons.bar_chart),
+                      label: "Analysis",
+                    ),
+                    const BottomNavigationBarItem(
+                      icon: Icon(Icons.menu),
+                      label: "More",
+                    ),
+                  ],
                 ),
-                const BottomNavigationBarItem(
-                  icon: Icon(Icons.swap_vert),
-                  activeIcon: Icon(Icons.swap_vert),
-                  label: "Trades",
-                ),
-                const BottomNavigationBarItem(
-                  icon: SizedBox(height: 24, width: 24),
-                  label: "",
-                ),
-                const BottomNavigationBarItem(
-                  icon: Icon(Icons.bar_chart_outlined),
-                  activeIcon: Icon(Icons.bar_chart),
-                  label: "Analysis",
-                ),
-                const BottomNavigationBarItem(
-                  icon: Icon(Icons.menu),
-                  label: "More",
-                ),
-              ],
-            ),
               ),
             ),
             Positioned(
@@ -151,21 +156,21 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                 child: GestureDetector(
                   onTap: () => setState(() => currentIndex = 2),
                   child: Container(
-                height: fabSize,
-                width: fabSize,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: currentIndex == 2
-                      ? AppColors.primary
-                      : AppColors.primary.withOpacity(0.9),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.primary.withOpacity(0.4),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
+                    height: fabSize,
+                    width: fabSize,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: currentIndex == 2
+                          ? AppColors.primary
+                          : AppColors.primary.withOpacity(0.9),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primary.withOpacity(0.4),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
                     child: const Icon(
                       Icons.auto_awesome,
                       color: Colors.white,

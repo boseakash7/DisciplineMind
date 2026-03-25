@@ -11,4 +11,7 @@ class ApiUrl {
   static String quoteUrl = "instrument/quote";
 
   static const String fcmSync = "fcm/sync";
+
+  static const String getMessagesByUser = "messages/get-by-user";
+  static const String gttAlertCreate = "gtt/alert/create";
 }
