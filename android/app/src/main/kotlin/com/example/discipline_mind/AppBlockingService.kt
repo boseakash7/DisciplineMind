@@ -55,6 +55,13 @@ class AppBlockingService : Service() {
             "com.sec.android.app.launcher", "org.lineageos.trebuchet",
             "com.android.systemui", "com.android.quickstep"  // recents / gesture nav
         )
+        // Always monitor these trading apps for usage stats,
+        // even when they are not currently in blockedApps.
+        private val MONITORED_TRADING_PACKAGES = setOf(
+            "com.zerodha.kite3",
+            "in.upstox.app",
+            "com.nextbillion.groww"
+        )
     }
 
     private val executor = Executors.newSingleThreadScheduledExecutor()
@@ -66,6 +73,7 @@ class AppBlockingService : Service() {
     private var overlayShowing: Boolean = false
     private var overlayShowTimeMs: Long = 0
     private var overlayPackage: String = ""
+    private var lastTrackedForegroundApp: String = ""
     /** Force Unblock = one-time bypass only. Cleared when user switches away. */
     private val temporaryUnblocked = mutableSetOf<String>()
     private var lastAllowedApp: String = ""  // blocked app we're currently allowing (no overlay)
@@ -174,6 +182,13 @@ class AppBlockingService : Service() {
         executor.scheduleAtFixedRate({
             AppManager.loadBlockedApps(applicationContext)
             val foregroundApp = getForegroundApp()
+            if (foregroundApp != null &&
+                foregroundApp != lastTrackedForegroundApp &&
+                MONITORED_TRADING_PACKAGES.contains(foregroundApp)
+            ) {
+                AppUsageTracker.recordAppOpened(applicationContext, foregroundApp)
+            }
+            lastTrackedForegroundApp = foregroundApp ?: ""
             when {
                 foregroundApp == null -> {
                     if (overlayShowing) {
@@ -361,7 +376,6 @@ class AppBlockingService : Service() {
             overlayShowing = true
             overlayShowTimeMs = System.currentTimeMillis()
             overlayPackage = packageName
-            AppUsageTracker.recordAppOpened(applicationContext, packageName)
             AppUsageTracker.recordOpenedWhenBlocked(applicationContext, packageName)
         } catch (e: Exception) {
             e.printStackTrace()

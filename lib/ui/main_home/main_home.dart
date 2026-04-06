@@ -1,15 +1,20 @@
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/ui/main_home/alert_main.dart';
+import 'package:discipline_mind/ui/android_app_block/app_usage_stats_page.dart';
 import 'package:discipline_mind/ui/main_home/chat_screen.dart';
 import 'package:discipline_mind/ui/main_home/trade_screen.dart';
+import 'package:discipline_mind/ui/settings/app_block_settings_screen.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import 'bm_screen.dart';
 
 class MainHomeScreen extends StatefulWidget {
-  const MainHomeScreen({super.key});
+  final int initialIndex;
+
+  const MainHomeScreen({super.key, this.initialIndex = 0});
 
   @override
   State<MainHomeScreen> createState() => _MainHomeScreenState();
@@ -17,7 +22,13 @@ class MainHomeScreen extends StatefulWidget {
 
 class _MainHomeScreenState extends State<MainHomeScreen> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
-  int currentIndex = 0;
+  late int currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    currentIndex = widget.initialIndex;
+  }
 
   void _openDrawer() => _scaffoldKey.currentState?.openDrawer();
 
@@ -69,6 +80,39 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                   MaterialPageRoute(
                     builder: (_) => AlertsMainScreen(),
                   ),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.shield_outlined),
+              title: const Text('Blocked Apps'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const AppBlockSettingsScreen(),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.analytics_outlined),
+              title: const Text('App Tracking'),
+              onTap: () {
+                Navigator.pop(context);
+                if (defaultTargetPlatform == TargetPlatform.android) {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AppUsageStatsPage(),
+                    ),
+                  );
+                  return;
+                }
+                Get.snackbar(
+                  'Not Available',
+                  'App tracking is available on Android only',
                 );
               },
             ),

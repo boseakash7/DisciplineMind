@@ -15,11 +15,39 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final _textController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  int _lastMessageCount = 0;
 
   @override
   void dispose() {
     _textController.dispose();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  void _scrollToBottom({bool animated = true}) {
+    if (!_scrollController.hasClients) return;
+    final target = _scrollController.position.maxScrollExtent;
+    if (animated) {
+      _scrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    } else {
+      _scrollController.jumpTo(target);
+    }
+  }
+
+  void _scheduleScrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollToBottom(animated: false);
+      // Retry once more in case list size updates after first layout.
+      Future.delayed(const Duration(milliseconds: 50), () {
+        if (!mounted) return;
+        _scrollToBottom(animated: false);
+      });
+    });
   }
 
   @override
@@ -37,20 +65,42 @@ class _ChatScreenState extends State<ChatScreen> {
                   if (controller.isLoading.value) {
                     return const Center(child: CircularProgressIndicator());
                   }
+                  if (_lastMessageCount != controller.messages.length) {
+                    _lastMessageCount = controller.messages.length;
+                    _scheduleScrollToBottom();
+                  }
                   return RefreshIndicator(
                     onRefresh: () => controller.loadMessages(refresh: true),
-                    child: ListView.builder(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      itemCount: controller.messages.length,
-                      itemBuilder: (_, i) => _buildMessage(
-                        context,
-                        controller.messages[i],
-                        controller,
-                      ),
-                    ),
+                    child: controller.messages.isEmpty
+                        ? ListView(
+                            controller: _scrollController,
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            children: const [
+                              SizedBox(
+                                height: 420,
+                                child: Center(
+                                  child: Text(
+                                    'No messages yet.\nPull down to refresh',
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          )
+                        : ListView.builder(
+                            controller: _scrollController,
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            itemCount: controller.messages.length,
+                            itemBuilder: (_, i) => _buildMessage(
+                              context,
+                              controller.messages[i],
+                              controller,
+                            ),
+                          ),
                   );
                 }),
               ),
@@ -108,6 +158,11 @@ class _ChatScreenState extends State<ChatScreen> {
         return _buildNewTradeOpportunity(
           context,
           msg as NewTradeOpportunityMessage,
+        );
+      case ChatMessageType.tradeExecutionPrompt:
+        return _buildTradeExecutionPrompt(
+          context,
+          msg as TradeExecutionPromptMessage,
           controller,
         );
       case ChatMessageType.tradeExecuted:
@@ -250,7 +305,6 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget _buildNewTradeOpportunity(
     BuildContext context,
     NewTradeOpportunityMessage msg,
-    ChatController controller,
   ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -275,148 +329,115 @@ class _ChatScreenState extends State<ChatScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (!_isActionDelete(msg.action)) ...[
-                  Text(
-                    'New Trade Opportunity is spotted for you',
-                    style: TextStyle(
-                      color: Colors.grey.shade800,
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                ],
-                GestureDetector(
-                  onTap: _isCardTappable(msg.action)
-                      ? () => _showTradeParamsPopup(context, msg, controller)
-                      : null,
-                  child: Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey.shade300),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            CircleAvatar(
-                              radius: 14,
-                              backgroundColor: Colors.green.shade100,
-                              child: Icon(
-                                Icons.verified_user,
-                                size: 14,
-                                color: Colors.green.shade700,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'SEBI REG ANALYST',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade800,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                            if (msg.action.isNotEmpty)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: _actionColor(
-                                    msg.action,
-                                  ).withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(
-                                    color: _actionColor(
-                                      msg.action,
-                                    ).withOpacity(0.6),
-                                    width: 1,
-                                  ),
-                                ),
-                                child: Text(
-                                  msg.action.toUpperCase(),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: _actionColor(msg.action),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                        Divider(
-                          height: 20,
-                          color: Colors.grey.shade300,
-                          thickness: 1,
-                        ),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            CircleAvatar(
-                              radius: 20,
-                              backgroundColor: AppColors.primary.withOpacity(
-                                0.2,
-                              ),
-                              child: Text(
-                                msg.instrument[0].toUpperCase(),
-                                style: TextStyle(
-                                  color: AppColors.primary,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 18,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    msg.instrument,
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.grey.shade800,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    msg.contract,
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: Colors.grey.shade700,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        _buildTradeTimeline(msg),
-                      ],
-                    ),
+                Text(
+                  'New Trade Opportunity is spotted for you',
+                  style: TextStyle(
+                    color: Colors.grey.shade800,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-                if (_isActionAdd(msg.action)) ...[
-                  const SizedBox(height: 12),
-                  _buildTradeExecutedBlock(context, msg, controller),
-                ],
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade300),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          CircleAvatar(
+                            radius: 14,
+                            backgroundColor: Colors.green.shade100,
+                            child: Icon(
+                              Icons.verified_user,
+                              size: 14,
+                              color: Colors.green.shade700,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'SEBI REG ANALYST',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade800,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      Divider(
+                        height: 20,
+                        color: Colors.grey.shade300,
+                        thickness: 1,
+                      ),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CircleAvatar(
+                            radius: 20,
+                            backgroundColor: AppColors.primary.withOpacity(0.2),
+                            child: Text(
+                              msg.instrument[0].toUpperCase(),
+                              style: TextStyle(
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  msg.instrument,
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey.shade800,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  msg.contract,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey.shade700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      _buildTradeTimeline(msg),
+                      if (msg.rtt.trim().isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: _BlinkingCurrentPriceBadge(price: msg.rtt),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -425,20 +446,25 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  bool _isActionAdd(String action) {
-    return action.toLowerCase() == 'add' || action.toLowerCase() == 'edit';
-  }
-
-  bool _isActionDelete(String action) {
-    final a = action.toLowerCase();
-    return a == 'delete' || a == 'deleted';
+  Widget _buildTradeExecutionPrompt(
+    BuildContext context,
+    TradeExecutionPromptMessage msg,
+    ChatController controller,
+  ) {
+    return _buildTradeExecutedBlock(
+      context,
+      msg.tradeData,
+      controller,
+      text: msg.text,
+    );
   }
 
   Widget _buildTradeExecutedBlock(
     BuildContext context,
     NewTradeOpportunityMessage msg,
-    ChatController controller,
-  ) {
+    ChatController controller, {
+    String? text,
+  }) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -457,7 +483,8 @@ class _ChatScreenState extends State<ChatScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Trading App is unlocked. Let me know once u set your Trade as per the above Instructions by clicking on the below button',
+                text ??
+                    'Trading App is unlocked. Let me know once u set your Trade as per the above Instructions by clicking on the below button',
                 style: TextStyle(fontSize: 14, color: Colors.grey.shade800),
               ),
               const SizedBox(height: 12),
@@ -681,84 +708,141 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  bool _isCardTappable(String action) {
-    final a = action.toLowerCase();
-    return a == 'add' || a == 'update' || a == 'edit';
-  }
-
-  Color _actionColor(String action) {
-    switch (action.toLowerCase()) {
-      case 'add':
-        return Colors.green.shade700;
-      case 'delete':
-        return Colors.red.shade700;
-      case 'update':
-        return Colors.blue.shade700;
-      default:
-        return Colors.grey.shade700;
-    }
-  }
-
   Widget _buildTradeTimeline(NewTradeOpportunityMessage msg) {
     const dotRadius = 6.0;
-    final labels = ['Stop Loss', 'Entry Range', 'Target'];
+    // Split labels into multiple lines to save horizontal space
+    final labels = ['Stop\nLoss', 'Entry\nRange', 'Target'];
+    // For values, split ranges onto two lines if they exist
     final values = [
-      msg.stopLoss,
-      msg.entryRange,
+      msg.stopLoss.replaceAll(' - ', '\n- '),
+      msg.entryRange.replaceAll(' - ', '\n- '),
       msg.frr,
-    ]; // frr = take profit/target
+    ];
+
+    double parseNumeric(String raw) {
+      final matches = RegExp(r'[\d.]+').allMatches(raw);
+      final nums = matches
+          .map((m) => double.tryParse(m.group(0) ?? ''))
+          .whereType<double>()
+          .toList();
+      if (nums.isEmpty) return 0.0;
+      final sum = nums.fold<double>(0.0, (a, b) => a + b);
+      return sum / nums.length;
+    }
+
+    final numeric = [
+      parseNumeric(msg.stopLoss),
+      parseNumeric(msg.entryRange),
+      parseNumeric(msg.frr),
+    ];
+    final minV = numeric.reduce((a, b) => a < b ? a : b);
+    final maxV = numeric.reduce((a, b) => a > b ? a : b);
+    final denom = (maxV - minV).abs();
 
     return LayoutBuilder(
       builder: (ctx, constraints) {
         final w = constraints.maxWidth;
+        final usableW = w.clamp(0.0, double.infinity);
+
+        List<double> fractions;
+        if (denom < 0.000001) {
+          fractions = const [0.0, 0.5, 1.0];
+        } else {
+          fractions = numeric
+              .map((v) => ((v - minV) / denom).clamp(0.0, 1.0))
+              .toList();
+        }
+
+        const lW = 60.0; // Box width
+        const minGap = 2.0; // Minimum gap between box edges
+
+        // 1. Calculate ideal dot positions (lx)
+        List<double> lx = List.generate(3, (i) => usableW * fractions[i]);
+
+        // 2. Adjust dot positions to ensure their labels (60px wide) don't overlap
+        // Right pass
+        if (lx[1] - lx[0] < lW + minGap) lx[1] = lx[0] + lW + minGap;
+        if (lx[2] - lx[1] < lW + minGap) lx[2] = lx[1] + lW + minGap;
+
+        // Left pass
+        if (lx[2] > w) {
+          lx[2] = w;
+          if (lx[2] - lx[1] < lW + minGap) lx[1] = lx[2] - (lW + minGap);
+          if (lx[1] - lx[0] < lW + minGap) lx[0] = lx[1] - (lW + minGap);
+        }
+
+        // Final clamp
+        if (lx[0] < 0) {
+          lx[0] = 0;
+          if (lx[1] < lx[0] + lW + minGap) lx[1] = lx[0] + lW + minGap;
+          if (lx[2] < lx[1] + lW + minGap) lx[2] = lx[1] + lW + minGap;
+        }
+
         return Column(
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: List.generate(3, (i) {
-                return SizedBox(
-                  width: w / 3,
-                  child: Center(
-                    child: Text(
-                      labels[i],
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey.shade700,
+            // Labels Row
+            SizedBox(
+              height: 32,
+              child: Stack(
+                children: List.generate(3, (i) {
+                  double left;
+                  if (i == 0) {
+                    left = lx[i].clamp(0.0, w - lW);
+                  } else if (i == 2) {
+                    left = (lx[i] - lW).clamp(0.0, w - lW);
+                  } else {
+                    left = (lx[i] - lW / 2).clamp(0.0, w - lW);
+                  }
+
+                  return Positioned(
+                    left: left,
+                    width: lW,
+                    child: Align(
+                      alignment: i == 0
+                          ? Alignment.centerLeft
+                          : (i == 2 ? Alignment.centerRight : Alignment.center),
+                      child: Text(
+                        labels[i],
+                        textAlign: i == 0
+                            ? TextAlign.left
+                            : (i == 2 ? TextAlign.right : TextAlign.center),
+                        style: const TextStyle(
+                          height: 1.1,
+                          fontSize: 10,
+                          color: Color(0xFF616161),
+                        ),
                       ),
                     ),
-                  ),
-                );
-              }),
+                  );
+                }),
+              ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
+            // Timeline
             SizedBox(
               height: dotRadius * 2 + 4,
               width: w,
               child: Stack(
-                alignment: Alignment.center,
                 children: [
                   Positioned(
-                    left: dotRadius,
-                    right: dotRadius,
-                    top: 0,
-                    bottom: 0,
-                    child: Center(
-                      child: CustomPaint(
-                        size: Size(w - dotRadius * 2, 2),
-                        painter: _DottedLinePainter(),
-                      ),
+                    left: 0,
+                    right: 0,
+                    top: dotRadius,
+                    height: 2,
+                    child: CustomPaint(
+                      size: Size(w, 2),
+                      painter: _DottedLinePainter(),
                     ),
                   ),
                   ...List.generate(3, (i) {
-                    final x = dotRadius + (w - dotRadius * 2) * (i / 2);
                     return Positioned(
-                      left: x - dotRadius,
-                      top: 2,
+                      left: (lx[i] - dotRadius).clamp(0.0, w - dotRadius * 2),
+                      top: 1,
                       child: Container(
                         width: dotRadius * 2,
                         height: dotRadius * 2,
                         decoration: BoxDecoration(
-                          color: Colors.grey.shade700,
+                          color: const Color(0xFF616161),
                           shape: BoxShape.circle,
                         ),
                       ),
@@ -767,24 +851,44 @@ class _ChatScreenState extends State<ChatScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: List.generate(3, (i) {
-                return SizedBox(
-                  width: w / 3,
-                  child: Center(
-                    child: Text(
-                      values[i],
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey.shade800,
+            const SizedBox(height: 4),
+            // Values Row
+            SizedBox(
+              height: 36,
+              child: Stack(
+                children: List.generate(3, (i) {
+                  double left;
+                  if (i == 0) {
+                    left = lx[i].clamp(0.0, w - lW);
+                  } else if (i == 2) {
+                    left = (lx[i] - lW).clamp(0.0, w - lW);
+                  } else {
+                    left = (lx[i] - lW / 2).clamp(0.0, w - lW);
+                  }
+
+                  return Positioned(
+                    left: left,
+                    width: lW,
+                    child: Align(
+                      alignment: i == 0
+                          ? Alignment.centerLeft
+                          : (i == 2 ? Alignment.centerRight : Alignment.center),
+                      child: Text(
+                        values[i],
+                        textAlign: i == 0
+                            ? TextAlign.left
+                            : (i == 2 ? TextAlign.right : TextAlign.center),
+                        style: const TextStyle(
+                          height: 1.1,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF424242),
+                        ),
                       ),
                     ),
-                  ),
-                );
-              }),
+                  );
+                }),
+              ),
             ),
           ],
         );
@@ -1004,7 +1108,17 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 const SizedBox(height: 12),
                 GestureDetector(
-                  onTap: () => controller.onTradeExecuted(),
+                  onTap: () {
+                    if (msg.isGttHit && msg.tradeData != null) {
+                      _showTradeParamsPopup(
+                        context,
+                        msg.tradeData!,
+                        controller,
+                      );
+                    } else {
+                      controller.onTradeExecuted();
+                    }
+                  },
                   child: Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(vertical: 12),
@@ -1121,6 +1235,7 @@ class _ChatScreenState extends State<ChatScreen> {
               onSubmitted: (text) {
                 controller.sendTextMessage(text);
                 textController.clear();
+                _scheduleScrollToBottom();
               },
             ),
           ),
@@ -1130,6 +1245,7 @@ class _ChatScreenState extends State<ChatScreen> {
               final text = textController.text;
               controller.sendTextMessage(text);
               textController.clear();
+              _scheduleScrollToBottom();
             },
             child: Container(
               padding: const EdgeInsets.all(12),
@@ -1168,4 +1284,59 @@ class _DottedLinePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _BlinkingCurrentPriceBadge extends StatefulWidget {
+  const _BlinkingCurrentPriceBadge({required this.price});
+
+  final String price;
+
+  @override
+  State<_BlinkingCurrentPriceBadge> createState() =>
+      _BlinkingCurrentPriceBadgeState();
+}
+
+class _BlinkingCurrentPriceBadgeState extends State<_BlinkingCurrentPriceBadge>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+      lowerBound: 0.35,
+      upperBound: 1.0,
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _controller,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.red.shade300),
+        ),
+        child: Text(
+          'Current Market Price: ${widget.price}',
+          style: TextStyle(
+            color: Colors.red.shade700,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
 }

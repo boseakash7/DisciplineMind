@@ -20,8 +20,7 @@ class _SplashScreenState extends State<SplashScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _requestNotificationPermission();
-    });
-    Future.delayed(const Duration(seconds: 2), () {
+      // Start auth immediately; avoids extra splash delay.
       authController.autoLogin();
     });
   }

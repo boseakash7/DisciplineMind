@@ -2,6 +2,7 @@
 enum ChatMessageType {
   simpleText,
   newTradeOpportunity,
+  tradeExecutionPrompt,
   tradeExecuted,
   agentWithButton, // e.g. "Register for Demo" button
   alertHitWithButton, // GTT or upper/lower alert hit - shows text + button to unlock
@@ -47,6 +48,7 @@ class NewTradeOpportunityMessage extends ChatMessage {
   final String action; // API trade action: "add", "delete", "update", etc.
   final String
   exchange; // e.g. "NSE", "CRYPTO" - concat with instrument for API
+  final String tradeId; // ID of the trade
 
   const NewTradeOpportunityMessage({
     required this.analystInfo,
@@ -61,6 +63,7 @@ class NewTradeOpportunityMessage extends ChatMessage {
     this.lotNumbers = const [4, 4, 3, 1],
     this.action = '',
     this.exchange = '',
+    this.tradeId = '',
   }) : super(type: ChatMessageType.newTradeOpportunity);
 }
 
@@ -76,20 +79,36 @@ class TradeExecutedMessage extends ChatMessage {
   }) : super(type: ChatMessageType.tradeExecuted);
 }
 
+/// Follow-up prompt shown as a separate message below a trade card.
+class TradeExecutionPromptMessage extends ChatMessage {
+  final String text;
+  final NewTradeOpportunityMessage tradeData;
+
+  const TradeExecutionPromptMessage({
+    required this.tradeData,
+    this.text =
+        'Trading App is unlocked. Let me know once u set your Trade as per the above Instructions by clicking on the below button',
+  }) : super(type: ChatMessageType.tradeExecutionPrompt);
+}
+
 /// Alert hit (GTT or upper/lower) - text + button to acknowledge and unlock apps
 class AlertHitWithButtonMessage extends ChatMessage {
   final String text;
   final String buttonLabel;
+  final bool isGttHit;
+  final NewTradeOpportunityMessage? tradeData;
 
   const AlertHitWithButtonMessage({
     required this.text,
     this.buttonLabel = 'Trade Executed',
+    this.isGttHit = false,
+    this.tradeData,
   }) : super(type: ChatMessageType.alertHitWithButton);
 }
 
-/// Parse API message JSON into ChatMessage.
-/// Uses message_type + entity_type to decide: entity_type "trade" = trade card.
-ChatMessage chatMessageFromJson(Map<String, dynamic> json) {
+/// Parse API message JSON into one or more chat messages.
+/// Trade payloads can include both normal text + trade card, so we return a list.
+List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
   final messageType = (json['message_type'] ?? json['type'] ?? '').toString();
   final entityType = (json['entity_type'] ?? '').toString();
   final message = (json['message'] ?? '').toString();
@@ -109,10 +128,46 @@ ChatMessage chatMessageFromJson(Map<String, dynamic> json) {
         : <String, dynamic>{};
     final buttonLabel =
         (p['button_label'] ?? p['buttonLabel'] ?? 'Trade Executed').toString();
-    return AlertHitWithButtonMessage(
-      text: message.isNotEmpty ? message : 'Your alert has been triggered.',
-      buttonLabel: buttonLabel,
-    );
+
+    bool isGttHit = p['gtt_price'] != null;
+    NewTradeOpportunityMessage? tradeData;
+    if (isGttHit && p['trade'] != null && p['trade'] is Map) {
+      final tp = Map<String, dynamic>.from(p['trade']);
+      final header = (tp['header'] ?? '').toString();
+      final symbol = (tp['symbol'] ?? '').toString();
+      final exchange = (tp['exchange'] ?? '').toString();
+      final entryPrice = (tp['entry_price'] ?? '').toString();
+      final stopLoss = (tp['stop_loss'] ?? '').toString();
+      final takeProfit = (tp['take_profit'] ?? '').toString();
+      final currentPrice = (tp['current_price'] ?? '').toString();
+      final action = (tp['action'] ?? '').toString();
+      final tradeId = (p['trade_id'] ?? tp['trade_id'] ?? tp['id'] ?? '').toString();
+
+      tradeData = NewTradeOpportunityMessage(
+        analystInfo: exchange.isNotEmpty
+            ? 'TRADE SIGNAL - $exchange'
+            : 'TRADE SIGNAL',
+        instrument: header,
+        contract: symbol,
+        stopLoss: stopLoss,
+        entryRange: entryPrice,
+        frr: takeProfit,
+        rtt: currentPrice,
+        lotNumbers: const [1, 1, 1, 1],
+        action: action,
+        exchange: exchange,
+        tradeId: tradeId,
+      );
+    }
+
+    return [
+      AlertHitWithButtonMessage(
+        text: message.isNotEmpty ? message : 'Your alert has been triggered.',
+        buttonLabel: buttonLabel,
+        isGttHit: isGttHit,
+        tradeData: tradeData,
+      ),
+    ];
   }
 
   if (isTrade) {
@@ -125,8 +180,10 @@ ChatMessage chatMessageFromJson(Map<String, dynamic> json) {
     final takeProfit = (p['take_profit'] ?? '').toString();
     final currentPrice = (p['current_price'] ?? '').toString();
     final action = (p['action'] ?? '').toString();
+    final tradeId = (p['trade_id'] ?? p['id'] ?? '').toString();
 
-    return NewTradeOpportunityMessage(
+    final parsed = <ChatMessage>[];
+    final tradeMessage = NewTradeOpportunityMessage(
       analystInfo: exchange.isNotEmpty
           ? 'TRADE SIGNAL - $exchange'
           : 'TRADE SIGNAL',
@@ -139,10 +196,27 @@ ChatMessage chatMessageFromJson(Map<String, dynamic> json) {
       lotNumbers: const [1, 1, 1, 1],
       action: action,
       exchange: exchange,
+      tradeId: tradeId,
     );
+    parsed.add(tradeMessage);
+    if (_isTradePromptAction(action)) {
+      parsed.add(TradeExecutionPromptMessage(tradeData: tradeMessage));
+    }
+    return parsed;
   }
 
-  return SimpleTextMessage(
-    text: message.isNotEmpty ? message : 'Unknown message',
-  );
+  return [
+    SimpleTextMessage(text: message.isNotEmpty ? message : 'Unknown message'),
+  ];
+}
+
+bool _isTradePromptAction(String action) {
+  final a = action.toLowerCase();
+  return a == 'add' || a == 'update' || a == 'edit';
+}
+
+/// Backward-compatible helper when callers expect a single message.
+ChatMessage chatMessageFromJson(Map<String, dynamic> json) {
+  final parsed = chatMessagesFromJson(json);
+  return parsed.first;
 }

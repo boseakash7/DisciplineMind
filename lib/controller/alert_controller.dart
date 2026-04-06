@@ -4,6 +4,7 @@ import 'package:app_limiter/app_limiter.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/services/api/api_reponse.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
+import 'package:discipline_mind/services/app_block_preferences_service.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:get/get.dart';
@@ -26,10 +27,15 @@ class AlertController extends GetxController {
   var isSavingAlert = false.obs;
   var isUserAlertLoading = false.obs;
   final NativeAppBlockService _blockService = NativeAppBlockService();
+  final AppBlockPreferencesService _prefs = AppBlockPreferencesService();
 
-  /// Trading apps to block when user sets a price alert (Zerodha Kite, Upstox, Groww)
-  static const List<String> BLOCKED_TRADING_APP_PACKAGES =
-      blockedTradingAppPackages;
+  List<String> _selectedBlockedPackages() {
+    final userId = Common.userData.value?.payload?.id?.toString();
+    if (userId == null || userId.isEmpty) {
+      return blockedTradingAppPackages;
+    }
+    return _prefs.getSelectedPackages(userId: userId);
+  }
   @override
   void onInit() {
     super.onInit();
@@ -93,6 +99,7 @@ class AlertController extends GetxController {
     required String upperPrice,
     required String lowerPrice,
     required double currentPrice,
+    String? tradeId,
   }) async {
     try {
       isSavingAlert.value = true;
@@ -122,6 +129,7 @@ class AlertController extends GetxController {
         'upper_price': upperPrice,
         'lower_price': lowerPrice,
         'current_price': currentPrice.toString(),
+        if (tradeId != null && tradeId.isNotEmpty) 'trade_id': tradeId,
       });
 
       if (response.isSuccess) {
@@ -130,7 +138,8 @@ class AlertController extends GetxController {
         // Block trading apps
         if (Platform.isAndroid) {
           await _blockService.saveUserIdForOverlay(userId.toString());
-          for (final package in BLOCKED_TRADING_APP_PACKAGES) {
+          final selectedPackages = _selectedBlockedPackages();
+          for (final package in selectedPackages) {
             await _blockService.blockApp(package);
           }
           try {
@@ -190,6 +199,7 @@ class AlertController extends GetxController {
     required String upperPrice,
     required String lowerPrice,
     required double currentPrice,
+    String? tradeId,
   }) async {
     try {
       isSavingAlert.value = true;
@@ -223,6 +233,7 @@ class AlertController extends GetxController {
         'instrument': instrument,
         'price': upperPrice,
         'current_price': currentPrice.toString(),
+        if (tradeId != null && tradeId.isNotEmpty) 'trade_id': tradeId,
       });
       // Create lower alert (price below current)
       final respLower = await apiService.postFormData(ApiUrl.createAlertUrl, {
@@ -230,12 +241,14 @@ class AlertController extends GetxController {
         'instrument': instrument,
         'price': lowerPrice,
         'current_price': currentPrice.toString(),
+        if (tradeId != null && tradeId.isNotEmpty) 'trade_id': tradeId,
       });
 
       bool success = false;
       if (Platform.isAndroid) {
         await _blockService.saveUserIdForOverlay(userId.toString());
-        for (final package in BLOCKED_TRADING_APP_PACKAGES) {
+        final selectedPackages = _selectedBlockedPackages();
+        for (final package in selectedPackages) {
           final ok = await _blockService.blockApp(package);
           if (ok) success = true;
         }
@@ -256,7 +269,7 @@ class AlertController extends GetxController {
 
       if (success) {
         AppToast.showToast(
-          "Trading apps (Zerodha, Upstox, Groww) have been blocked",
+          "Selected trading apps have been blocked",
         );
       }
       final alertsCreated = respUpper.isSuccess && respLower.isSuccess;
@@ -419,7 +432,8 @@ class AlertController extends GetxController {
       if (allSuccess) {
         AppToast.showToast("Alert${alertIds.length > 1 ? 's' : ''} deleted");
         if (Platform.isAndroid) {
-          for (final package in BLOCKED_TRADING_APP_PACKAGES) {
+          final selectedPackages = _selectedBlockedPackages();
+          for (final package in selectedPackages) {
             await _blockService.unblockApp(package);
           }
           AppToast.showToast("Trading apps unblocked");

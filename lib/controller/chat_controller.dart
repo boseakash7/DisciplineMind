@@ -7,17 +7,26 @@ import 'package:discipline_mind/controller/alert_controller.dart';
 import 'package:discipline_mind/model/chat_message_model.dart';
 import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
+import 'package:discipline_mind/services/app_block_preferences_service.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:get/get.dart';
 
 class ChatController extends GetxController {
   final NativeAppBlockService _blockService = NativeAppBlockService();
-  static const _blockedPackages = blockedTradingAppPackages;
+  final AppBlockPreferencesService _prefs = AppBlockPreferencesService();
 
   final messages = <ChatMessage>[].obs;
   final isLoading = false.obs;
   final isRefreshing = false.obs;
+
+  List<String> _selectedBlockedPackages() {
+    final userId = Common.userData.value?.payload?.id?.toString();
+    if (userId == null || userId.isEmpty) {
+      return blockedTradingAppPackages;
+    }
+    return _prefs.getSelectedPackages(userId: userId);
+  }
 
   @override
   void onInit() {
@@ -52,7 +61,9 @@ class ChatController extends GetxController {
           final parsed = <ChatMessage>[];
           for (final item in payload) {
             if (item is Map<String, dynamic>) {
-              parsed.add(chatMessageFromJson(item));
+              // We reverse at the end for oldest->newest display, so reverse
+              // each item's parsed messages here to preserve local order.
+              parsed.addAll(chatMessagesFromJson(item).reversed);
             }
           }
           // API returns newest first; chat shows oldest first
@@ -120,7 +131,8 @@ class ChatController extends GetxController {
         if (perms['hasUsageStatsPermission'] != true) {
           await _blockService.requestUsageStatsPermission();
         }
-        for (final package in _blockedPackages) {
+        final selectedPackages = _selectedBlockedPackages();
+        for (final package in selectedPackages) {
           await _blockService.blockApp(package);
         }
         try {
@@ -177,6 +189,7 @@ class ChatController extends GetxController {
         'user_id': userId,
         'instrument': instrument,
         'gtt_price': gttPrice.trim(),
+        'trade_id': msg.tradeId,
       });
       if (response.isSuccess) {
         await _applyTradingAppBlock(userId);
@@ -218,7 +231,8 @@ class ChatController extends GetxController {
     }
 
     final updated = await _blockService.checkPermissions();
-    final granted = (updated['hasOverlayPermission'] ?? false) &&
+    final granted =
+        (updated['hasOverlayPermission'] ?? false) &&
         (updated['hasUsageStatsPermission'] ?? false);
     if (!granted) {
       AppToast.showToast(
@@ -233,7 +247,8 @@ class ChatController extends GetxController {
       if (userId != null && userId.isNotEmpty) {
         await _blockService.saveUserIdForOverlay(userId);
       }
-      for (final package in _blockedPackages) {
+      final selectedPackages = _selectedBlockedPackages();
+      for (final package in selectedPackages) {
         await _blockService.blockApp(package);
       }
       try {
@@ -275,6 +290,7 @@ class ChatController extends GetxController {
       upperPrice: takeProfit,
       lowerPrice: stopLoss,
       currentPrice: entry,
+      tradeId: msg.tradeId,
     );
     if (success) {
       loadMessages(refresh: true);
@@ -286,10 +302,11 @@ class ChatController extends GetxController {
   Future<void> onTradeExecuted() async {
     try {
       if (Platform.isAndroid) {
-        for (final package in _blockedPackages) {
+        final selectedPackages = _selectedBlockedPackages();
+        for (final package in selectedPackages) {
           await _blockService.unblockApp(package);
         }
-        await _blockService.unblockAndClose(_blockedPackages);
+        await _blockService.unblockAndClose(selectedPackages);
         await _blockService.stopBlockingService();
         AppToast.showToast('Trading apps unlocked');
       } else if (Platform.isIOS) {

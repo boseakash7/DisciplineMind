@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:discipline_mind/common/app_colors.dart';
 import 'package:flutter/material.dart';
 
 import '../../services/native_app_block_service.dart';
@@ -70,25 +71,22 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? const Color(0xFF0D0D0D) : const Color(0xFFF2F4F8);
-
     return Scaffold(
-      backgroundColor: bg,
+      backgroundColor: AppColors.backgroundGray,
       body: CustomScrollView(
         slivers: [
-          _buildHeader(isDark),
+          _buildHeader(),
           if (_isLoading)
-            SliverFillRemaining(child: _buildShimmer(isDark))
+            SliverFillRemaining(child: _buildShimmer())
           else if (!Platform.isAndroid)
             SliverFillRemaining(child: _buildNotSupported())
           else ...[
-            SliverToBoxAdapter(child: _buildSummaryStrip(isDark)),
+            SliverToBoxAdapter(child: _buildSummaryStrip()),
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
               sliver: SliverList(
                 delegate: SliverChildBuilderDelegate(
-                  (context, index) => _buildAppCard(_stats[index], isDark),
+                  (context, index) => _buildAppCard(_stats[index]),
                   childCount: _stats.length,
                 ),
               ),
@@ -99,24 +97,23 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
     );
   }
 
-  Widget _buildHeader(bool isDark) {
+  Widget _buildHeader() {
     return SliverAppBar(
       expandedHeight: 140,
       pinned: true,
-      backgroundColor: isDark ? const Color(0xFF111111) : Colors.white,
+      backgroundColor: Colors.white,
       elevation: 0,
       leading: IconButton(
         icon: Icon(
           Icons.arrow_back_ios_new_rounded,
-          color: isDark ? Colors.white : Colors.black87,
+          color: AppColors.textBlack,
           size: 20,
         ),
         onPressed: () => Navigator.of(context).pop(),
       ),
       actions: [
         IconButton(
-          icon: Icon(Icons.refresh_rounded,
-              color: isDark ? Colors.white70 : Colors.black54),
+          icon: const Icon(Icons.refresh_rounded, color: AppColors.textGrey),
           onPressed: () {
             setState(() => _isLoading = true);
             _load();
@@ -131,9 +128,10 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: isDark
-                  ? [const Color(0xFF1A1A2E), const Color(0xFF111111)]
-                  : [const Color(0xFF1565C0), const Color(0xFF42A5F5)],
+              colors: [
+                AppColors.primary,
+                AppColors.primary.withOpacity(0.85),
+              ],
             ),
           ),
           padding: const EdgeInsets.fromLTRB(20, 80, 20, 20),
@@ -165,8 +163,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
     );
   }
 
-  Widget _buildSummaryStrip(bool isDark) {
-    final cardBg = isDark ? const Color(0xFF1C1C1E) : Colors.white;
+  Widget _buildSummaryStrip() {
     final opens = _totalOpens();
     final blocked = _totalBlocked();
     final usageMs = _totalUsageMs();
@@ -175,11 +172,11 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
       decoration: BoxDecoration(
-        color: cardBg,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.3 : 0.06),
+            color: Colors.black.withOpacity(0.06),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -191,35 +188,32 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
             icon: Icons.open_in_new_rounded,
             label: 'Total Opens',
             value: '$opens',
-            color: const Color(0xFF387ED1),
-            isDark: isDark,
+            color: AppColors.primary,
           ),
-          _summaryDivider(isDark),
+          _summaryDivider(),
           _summaryTile(
             icon: Icons.block_rounded,
             label: 'Blocked',
             value: '$blocked',
-            color: const Color(0xFFE53935),
-            isDark: isDark,
+            color: AppColors.actionRed,
           ),
-          _summaryDivider(isDark),
+          _summaryDivider(),
           _summaryTile(
             icon: Icons.schedule_rounded,
             label: 'Total Time',
             value: _formatDuration(usageMs),
-            color: const Color(0xFF00B386),
-            isDark: isDark,
+            color: AppColors.primaryGreen,
           ),
         ],
       ),
     );
   }
 
-  Widget _summaryDivider(bool isDark) {
+  Widget _summaryDivider() {
     return Container(
       width: 1,
       height: 40,
-      color: isDark ? Colors.white12 : Colors.black12,
+      color: Colors.black12,
     );
   }
 
@@ -228,7 +222,6 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
     required String label,
     required String value,
     required Color color,
-    required bool isDark,
   }) {
     return Expanded(
       child: Column(
@@ -240,7 +233,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : Colors.black87,
+              color: AppColors.textBlack,
             ),
           ),
           const SizedBox(height: 2),
@@ -248,7 +241,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
             label,
             style: TextStyle(
               fontSize: 11,
-              color: isDark ? Colors.white38 : Colors.black38,
+              color: Colors.black45,
             ),
           ),
         ],
@@ -256,7 +249,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
     );
   }
 
-  Widget _buildAppCard(Map<String, dynamic> stat, bool isDark) {
+  Widget _buildAppCard(Map<String, dynamic> stat) {
     final pkg = stat['packageName']?.toString() ?? '';
     final meta = _appMeta[pkg];
     final name = meta?['name'] as String? ?? pkg;
@@ -268,16 +261,14 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
     final totalMs = (stat['totalUsageTimeMs'] is num) ? (stat['totalUsageTimeMs'] as num).toInt() : 0;
 
     final blockRate = opens > 0 ? blocked / opens : 0.0;
-    final cardBg = isDark ? const Color(0xFF1C1C1E) : Colors.white;
-
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: cardBg,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.3 : 0.07),
+            color: Colors.black.withOpacity(0.07),
             blurRadius: 16,
             offset: const Offset(0, 6),
           ),
@@ -326,7 +317,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
-                          color: isDark ? Colors.white : Colors.black87,
+                          color: AppColors.textBlack,
                         ),
                       ),
                       const SizedBox(height: 3),
@@ -334,7 +325,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
                         pkg,
                         style: TextStyle(
                           fontSize: 11,
-                          color: isDark ? Colors.white38 : Colors.black38,
+                          color: AppColors.textGrey,
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -370,8 +361,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
                     icon: Icons.open_in_new_rounded,
                     label: 'Total Opens',
                     value: '$opens',
-                    color: const Color(0xFF387ED1),
-                    isDark: isDark,
+                    color: AppColors.primary,
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -380,8 +370,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
                     icon: Icons.block_rounded,
                     label: 'Blocked Opens',
                     value: '$blocked',
-                    color: const Color(0xFFE53935),
-                    isDark: isDark,
+                    color: AppColors.actionRed,
                   ),
                 ),
               ],
@@ -396,8 +385,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
                     icon: Icons.schedule_rounded,
                     label: 'Total Usage',
                     value: _formatDuration(totalMs),
-                    color: const Color(0xFF00B386),
-                    isDark: isDark,
+                    color: AppColors.primaryGreen,
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -406,8 +394,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
                     icon: Icons.warning_amber_rounded,
                     label: 'Blocked Usage',
                     value: _formatDuration(usageMs),
-                    color: const Color(0xFFFB8C00),
-                    isDark: isDark,
+                    color: AppColors.actionRed,
                   ),
                 ),
               ],
@@ -428,14 +415,14 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color: isDark ? Colors.white54 : Colors.black54,
+                        color: AppColors.textGrey,
                       ),
                     ),
                     Text(
                       '$blocked / $opens opens blocked',
                       style: TextStyle(
                         fontSize: 12,
-                        color: isDark ? Colors.white38 : Colors.black38,
+                        color: AppColors.textGrey,
                       ),
                     ),
                   ],
@@ -446,11 +433,9 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
                   child: LinearProgressIndicator(
                     value: blockRate.clamp(0.0, 1.0),
                     minHeight: 8,
-                    backgroundColor: isDark
-                        ? Colors.white.withOpacity(0.08)
-                        : Colors.black.withOpacity(0.06),
+                    backgroundColor: Colors.black.withOpacity(0.06),
                     valueColor: AlwaysStoppedAnimation<Color>(
-                      blockRate > 0.5 ? const Color(0xFFE53935) : color,
+                      blockRate > 0.5 ? AppColors.actionRed : AppColors.primary,
                     ),
                   ),
                 ),
@@ -467,11 +452,8 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
     required String label,
     required String value,
     required Color color,
-    required bool isDark,
   }) {
-    final tileBg = isDark
-        ? Colors.white.withOpacity(0.05)
-        : color.withOpacity(0.06);
+    final tileBg = color.withOpacity(0.06);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -500,14 +482,14 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white : Colors.black87,
+                    color: AppColors.textBlack,
                   ),
                 ),
                 Text(
                   label,
                   style: TextStyle(
                     fontSize: 10,
-                    color: isDark ? Colors.white38 : Colors.black45,
+                    color: Colors.black45,
                   ),
                 ),
               ],
@@ -518,8 +500,8 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
     );
   }
 
-  Widget _buildShimmer(bool isDark) {
-    final base = isDark ? const Color(0xFF2A2A2A) : Colors.grey.shade300;
+  Widget _buildShimmer() {
+    final base = Colors.grey.shade300;
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: 3,

@@ -1,6 +1,8 @@
 import 'package:discipline_mind/services/api/api_url.dart';
+import 'package:discipline_mind/services/app_block_preferences_service.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
 import 'package:discipline_mind/ui/main_home/main_home.dart';
+import 'package:discipline_mind/ui/settings/app_block_settings_screen.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
@@ -17,6 +19,21 @@ class AuthController extends GetxController {
   var isLoading = false.obs;
   final ApiService apiService = Get.put(ApiService());
   final LocalStorageService storage = LocalStorageService();
+  final AppBlockPreferencesService appBlockPrefs = AppBlockPreferencesService();
+
+  void _navigateAfterLogin() {
+    final userId = Common.userData.value?.payload?.id?.toString();
+    if (userId == null) {
+      Get.offAll(() => MainHomeScreen(initialIndex: 2));
+      return;
+    }
+    if (appBlockPrefs.isSetupComplete(userId: userId)) {
+      Get.offAll(() => MainHomeScreen(initialIndex: 2));
+    } else {
+      Get.offAll(() => const AppBlockSettingsScreen(isFirstSetup: true));
+    }
+  }
+
   void login(String email, String password, {bool isAutoLogin = false}) async {
     try {
       isLoading.value = true;
@@ -53,13 +70,24 @@ class AuthController extends GetxController {
         // Subscribe to trade_alerts notifications topic
         await NotificationHandler.subscribeToTradeAlerts();
 
-        Get.offAll(() => MainHomeScreen());
+        _navigateAfterLogin();
       } else {
         AppToast.showToast(response.errorMessage ?? "Something went wrong");
+        if (isAutoLogin) {
+          // Auto-login failed -> clear saved creds and route to login.
+          storage.clearLogin();
+          GetStorage().remove('user_id');
+          Get.offAll(() => LoginScreen());
+        }
       }
     } catch (e) {
       isLoading.value = false;
       AppToast.showToast(e.toString());
+      if (isAutoLogin) {
+        storage.clearLogin();
+        GetStorage().remove('user_id');
+        Get.offAll(() => LoginScreen());
+      }
     }
   }
 
