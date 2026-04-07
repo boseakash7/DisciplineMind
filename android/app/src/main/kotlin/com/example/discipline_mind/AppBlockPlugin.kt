@@ -99,6 +99,22 @@ class AppBlockPlugin(private val activity: android.app.Activity) : MethodChannel
                     "totalUsageTimeMs" to it["totalUsageTimeMs"]
                 ) })
             }
+            "launchApp" -> {
+                val packageName = call.argument<String>("packageName")
+                if (packageName != null) {
+                    val pm = ctx.packageManager
+                    val launchIntent = pm.getLaunchIntentForPackage(packageName)
+                    if (launchIntent != null) {
+                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        ctx.startActivity(launchIntent)
+                        result.success(true)
+                    } else {
+                        result.success(false)
+                    }
+                } else {
+                    result.error("ERROR", "packageName required", null)
+                }
+            }
             else -> result.notImplemented()
         }
     }

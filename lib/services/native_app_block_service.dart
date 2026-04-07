@@ -184,4 +184,18 @@ class NativeAppBlockService {
       return false;
     }
   }
+
+  /// Open an installed app by package name (Android only).
+  Future<bool> launchApp(String packageName) async {
+    if (!Platform.isAndroid) return false;
+    try {
+      return (await _channel.invokeMethod<bool>('launchApp', {
+            'packageName': packageName,
+          })) ??
+          false;
+    } catch (e) {
+      print('[NativeAppBlock] launchApp failed: $e');
+      return false;
+    }
+  }
 }
