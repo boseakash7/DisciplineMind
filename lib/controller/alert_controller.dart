@@ -10,7 +10,6 @@ import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:get/get.dart';
 
 import '../common/device_utils.dart';
-import '../constants/blocked_apps.dart';
 import '../controller/chat_controller.dart';
 import '../model/instrument_api_model.dart';
 import '../model/instrument_detail_model.dart';
@@ -32,7 +31,7 @@ class AlertController extends GetxController {
   List<String> _selectedBlockedPackages() {
     final userId = Common.userData.value?.payload?.id?.toString();
     if (userId == null || userId.isEmpty) {
-      return blockedTradingAppPackages;
+      return [];
     }
     return _prefs.getSelectedPackages(userId: userId);
   }

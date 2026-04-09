@@ -1,4 +1,7 @@
 class ApiUrl {
+  /// Broker apps list for blocking / GTT behaviour (GET, JSON).
+  static const String tradingApps = 'trading-apps';
+
   static String loginUrl = "user/login";
   static String searchInstrument = "instrument/search";
   static String getAlertsByUser = "alert/get-by-user-id";

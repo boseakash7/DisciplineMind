@@ -18,18 +18,9 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
   List<Map<String, dynamic>> _stats = [];
 
   static const _appMeta = {
-    'com.zerodha.kite3': {
-      'name': 'Zerodha Kite',
-      'color': Color(0xFF387ED1),
-    },
-    'in.upstox.app': {
-      'name': 'Upstox',
-      'color': Color(0xFF7B2FBE),
-    },
-    'com.nextbillion.groww': {
-      'name': 'Groww',
-      'color': Color(0xFF00B386),
-    },
+    'com.zerodha.kite3': {'name': 'Zerodha Kite', 'color': Color(0xFF387ED1)},
+    'in.upstox.app': {'name': 'Upstox', 'color': Color(0xFF7B2FBE)},
+    'com.nextbillion.groww': {'name': 'Groww', 'color': Color(0xFF00B386)},
   };
 
   @override
@@ -44,10 +35,11 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
       return;
     }
     final data = await _blockService.getBlockedAppUsageStats();
-    if (mounted) setState(() {
-      _stats = data;
-      _isLoading = false;
-    });
+    if (mounted)
+      setState(() {
+        _stats = data;
+        _isLoading = false;
+      });
   }
 
   String _formatDuration(int ms) {
@@ -56,18 +48,33 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
     final hours = totalSeconds ~/ 3600;
     final minutes = (totalSeconds % 3600) ~/ 60;
     if (hours > 0) return '${hours}h ${minutes}m';
-    if (minutes > 0) return '${minutes} min';
+    if (minutes > 0) return '$minutes min';
     return '${totalSeconds}s';
   }
 
-  int _totalOpens() => _stats.fold(0, (s, e) =>
-      s + ((e['openCount'] is num) ? (e['openCount'] as num).toInt() : 0));
+  int _totalOpens() => _stats.fold(
+    0,
+    (s, e) =>
+        s + ((e['openCount'] is num) ? (e['openCount'] as num).toInt() : 0),
+  );
 
-  int _totalBlocked() => _stats.fold(0, (s, e) =>
-      s + ((e['openedWhenBlockedCount'] is num) ? (e['openedWhenBlockedCount'] as num).toInt() : 0));
+  int _totalBlocked() => _stats.fold(
+    0,
+    (s, e) =>
+        s +
+        ((e['openedWhenBlockedCount'] is num)
+            ? (e['openedWhenBlockedCount'] as num).toInt()
+            : 0),
+  );
 
-  int _totalUsageMs() => _stats.fold(0, (s, e) =>
-      s + ((e['totalUsageTimeMs'] is num) ? (e['totalUsageTimeMs'] as num).toInt() : 0));
+  int _totalUsageMs() => _stats.fold(
+    0,
+    (s, e) =>
+        s +
+        ((e['totalUsageTimeMs'] is num)
+            ? (e['totalUsageTimeMs'] as num).toInt()
+            : 0),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -128,10 +135,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [
-                AppColors.primary,
-                AppColors.primary.withOpacity(0.85),
-              ],
+              colors: [AppColors.primary, AppColors.primary.withOpacity(0.85)],
             ),
           ),
           padding: const EdgeInsets.fromLTRB(20, 80, 20, 20),
@@ -210,11 +214,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
   }
 
   Widget _summaryDivider() {
-    return Container(
-      width: 1,
-      height: 40,
-      color: Colors.black12,
-    );
+    return Container(width: 1, height: 40, color: Colors.black12);
   }
 
   Widget _summaryTile({
@@ -237,13 +237,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
             ),
           ),
           const SizedBox(height: 2),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              color: Colors.black45,
-            ),
-          ),
+          Text(label, style: TextStyle(fontSize: 11, color: Colors.black45)),
         ],
       ),
     );
@@ -255,10 +249,18 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
     final name = meta?['name'] as String? ?? pkg;
     final color = meta?['color'] as Color? ?? Colors.blueGrey;
 
-    final opens = (stat['openCount'] is num) ? (stat['openCount'] as num).toInt() : 0;
-    final blocked = (stat['openedWhenBlockedCount'] is num) ? (stat['openedWhenBlockedCount'] as num).toInt() : 0;
-    final usageMs = (stat['usageTimeMs'] is num) ? (stat['usageTimeMs'] as num).toInt() : 0;
-    final totalMs = (stat['totalUsageTimeMs'] is num) ? (stat['totalUsageTimeMs'] as num).toInt() : 0;
+    final opens = (stat['openCount'] is num)
+        ? (stat['openCount'] as num).toInt()
+        : 0;
+    final blocked = (stat['openedWhenBlockedCount'] is num)
+        ? (stat['openedWhenBlockedCount'] as num).toInt()
+        : 0;
+    final usageMs = (stat['usageTimeMs'] is num)
+        ? (stat['usageTimeMs'] as num).toInt()
+        : 0;
+    final totalMs = (stat['totalUsageTimeMs'] is num)
+        ? (stat['totalUsageTimeMs'] as num).toInt()
+        : 0;
 
     final blockRate = opens > 0 ? blocked / opens : 0.0;
     return Container(
@@ -286,7 +288,9 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
+              ),
             ),
             child: Row(
               children: [
@@ -333,7 +337,10 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(20),
@@ -420,10 +427,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
                     ),
                     Text(
                       '$blocked / $opens opens blocked',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppColors.textGrey,
-                      ),
+                      style: TextStyle(fontSize: 12, color: AppColors.textGrey),
                     ),
                   ],
                 ),
@@ -487,10 +491,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
                 ),
                 Text(
                   label,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Colors.black45,
-                  ),
+                  style: TextStyle(fontSize: 10, color: Colors.black45),
                 ),
               ],
             ),

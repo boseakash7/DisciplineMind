@@ -84,12 +84,18 @@ class AppBlockPlugin(private val activity: android.app.Activity) : MethodChannel
                     result.error("ERROR", "userId required", null)
                 }
             }
+            "setMonitoredTradingApps" -> {
+                @Suppress("UNCHECKED_CAST")
+                val packages = call.argument<List<String>>("packages")
+                if (packages != null) {
+                    AppManager.saveMonitoredTradingApps(ctx, packages)
+                    result.success(true)
+                } else {
+                    result.error("ERROR", "packages list required", null)
+                }
+            }
             "getBlockedAppUsageStats" -> {
-                val packages = listOf(
-                    "com.zerodha.kite3",
-                    "in.upstox.app",
-                    "com.nextbillion.groww"
-                )
+                val packages = AppManager.getMonitoredTradingApps(ctx).toList()
                 val list = AppUsageTracker.getAllUsage(ctx, packages)
                 result.success(list.map { mapOf(
                     "packageName" to it["packageName"],

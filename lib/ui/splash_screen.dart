@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import '../../common/app_colors.dart';
 import '../../controller/auth_controller.dart';
 import '../../services/notification/notification_handler.dart';
+import '../../services/trading_apps_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -18,10 +19,14 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
+    if (!Get.isRegistered<TradingAppsService>()) {
+      Get.put(TradingAppsService(), permanent: true);
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _requestNotificationPermission();
       // Start auth immediately; avoids extra splash delay.
       authController.autoLogin();
+      Get.find<TradingAppsService>().refresh();
     });
   }
 

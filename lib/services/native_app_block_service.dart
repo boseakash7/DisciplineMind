@@ -137,6 +137,18 @@ class NativeAppBlockService {
     }
   }
 
+  /// Sync monitored trading packages for native usage tracking.
+  Future<void> setMonitoredTradingApps(List<String> packages) async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod('setMonitoredTradingApps', {
+        'packages': packages,
+      });
+    } catch (e) {
+      print('[NativeAppBlock] setMonitoredTradingApps failed: $e');
+    }
+  }
+
   /// Request usage stats permission.
   Future<void> requestUsageStatsPermission() async {
     if (!Platform.isAndroid) return;

@@ -12,6 +12,7 @@ import android.os.Build
 object AppManager {
     private const val PREFS_NAME = "AppBlockingPrefs"
     private const val BLOCKED_APPS_KEY = "blockedApps"
+    private const val MONITORED_APPS_KEY = "monitoredTradingApps"
     private const val USER_ID_KEY = "userIdForOverlay"
 
     fun saveUserIdForOverlay(context: Context, userId: String) {
@@ -82,4 +83,27 @@ object AppManager {
     }
 
     fun getBlockedAppsList(): List<String> = blockedApps.toList()
+
+    fun saveMonitoredTradingApps(context: Context, packages: List<String>) {
+        val cleaned = packages
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putStringSet(MONITORED_APPS_KEY, cleaned)
+            .apply()
+    }
+
+    fun getMonitoredTradingApps(context: Context): Set<String> {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val stored = prefs.getStringSet(MONITORED_APPS_KEY, null)
+        if (stored != null && stored.isNotEmpty()) return stored
+        // Safe fallback until API list is synced from Flutter.
+        return setOf(
+            "com.zerodha.kite3",
+            "in.upstox.app",
+            "com.nextbillion.groww"
+        )
+    }
 }

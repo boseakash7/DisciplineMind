@@ -4,6 +4,7 @@ import 'package:app_limiter/app_limiter.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/constants/blocked_apps.dart';
 import 'package:discipline_mind/controller/alert_controller.dart';
+import 'package:discipline_mind/services/trading_apps_service.dart';
 import 'package:discipline_mind/model/chat_message_model.dart';
 import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
@@ -23,7 +24,7 @@ class ChatController extends GetxController {
   List<String> _selectedBlockedPackages() {
     final userId = Common.userData.value?.payload?.id?.toString();
     if (userId == null || userId.isEmpty) {
-      return blockedTradingAppPackages;
+      return [];
     }
     return _prefs.getSelectedPackages(userId: userId);
   }
@@ -70,7 +71,6 @@ class ChatController extends GetxController {
           final chronological = parsed.reversed.toList();
           final display = _dedupeRedundantDeleteTradeButtons(chronological);
           messages.assignAll(display);
-          await _syncDefaultBlockingByOpportunity(display);
         }
       } else {
         if (!refresh) {
@@ -88,41 +88,6 @@ class ChatController extends GetxController {
         isLoading.value = false;
         isRefreshing.value = false;
       }
-    }
-  }
-
-  /// Keep apps blocked by default until a fresh opportunity (action=add) exists.
-  Future<void> _syncDefaultBlockingByOpportunity(
-    List<ChatMessage> display,
-  ) async {
-    if (!Platform.isAndroid) return;
-    try {
-      final hasNewOpportunity = display.any((m) {
-        if (m is! NewTradeOpportunityMessage) return false;
-        final action = m.action.toLowerCase().trim();
-        return action.isEmpty || action == 'add';
-      });
-      final selectedPackages = _selectedBlockedPackages();
-      if (selectedPackages.isEmpty) return;
-
-      if (hasNewOpportunity) {
-        for (final package in selectedPackages) {
-          await _blockService.unblockApp(package);
-        }
-        await _blockService.unblockAndClose(selectedPackages);
-        await _blockService.stopBlockingService();
-      } else {
-        final userId = Common.userData.value?.payload?.id?.toString();
-        if (userId != null && userId.isNotEmpty) {
-          await _blockService.saveUserIdForOverlay(userId);
-        }
-        for (final package in selectedPackages) {
-          await _blockService.blockApp(package);
-        }
-        await _blockService.startBlockingService();
-      }
-    } catch (e) {
-      print('[ChatController] _syncDefaultBlockingByOpportunity failed: $e');
     }
   }
 
@@ -159,9 +124,6 @@ class ChatController extends GetxController {
 
   void addMessage(ChatMessage msg) {
     messages.add(msg);
-    if (msg is TradeExecutedMessage) {
-      onTradeExecuted();
-    }
   }
 
   void sendTextMessage(String text) {
@@ -222,9 +184,17 @@ class ChatController extends GetxController {
     return match?.group(0) ?? '';
   }
 
-  /// true => selected app needs GTT + SL + Target in popup.
+  /// true => selected app needs GTT + SL + Target in popup (from API flags).
   bool shouldUseExtendedGttInputs() {
     final selected = _selectedBlockedPackages();
+    if (selected.isEmpty) return false;
+    if (Get.isRegistered<TradingAppsService>()) {
+      final svc = Get.find<TradingAppsService>();
+      for (final pkg in selected) {
+        if (svc.requiresExtendedGttForPackage(pkg)) return true;
+      }
+      return false;
+    }
     return selected.any(extendedGttInputPackages.contains);
   }
 
@@ -247,6 +217,20 @@ class ChatController extends GetxController {
       }
 
       final userId = Common.userData.value?.payload?.id?.toString() ?? '2';
+      final alertController = Get.isRegistered<AlertController>()
+          ? Get.find<AlertController>()
+          : Get.put(AlertController(), permanent: true);
+      await alertController.fetchUserAlerts(userId);
+      final hasPending = alertController.savedAlerts.any(
+        (a) => (a.status ?? '').toLowerCase() == 'pending',
+      );
+      if (hasPending) {
+        AppToast.showToast(
+          'You already have a pending alert. Complete or delete it before creating another.',
+        );
+        return false;
+      }
+
       final instrument = msg.exchange.isNotEmpty
           ? '${msg.exchange}:${msg.instrument}'
           : msg.instrument;

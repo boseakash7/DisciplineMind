@@ -7,6 +7,8 @@ import 'package:discipline_mind/controller/chat_controller.dart';
 import 'package:discipline_mind/firebase_options.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
+import 'package:discipline_mind/services/trading_block_bootstrap.dart';
+import 'package:discipline_mind/ui/onboarding/post_login_trading_block_screen.dart';
 import 'package:discipline_mind/ui/android_app_block/blocked_app_overlay_page.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
@@ -25,6 +27,21 @@ void _onAppResumed() {
     const MethodChannel('com.discipline_mind/app_lifecycle')
         .invokeMethod<void>('hideBlockOverlay');
   } catch (_) {}
+}
+
+/// Logged-in Android users cannot use the app without overlay + usage access.
+Future<void> _enforceAndroidTradingPermissionsIfLoggedIn() async {
+  if (!Platform.isAndroid) return;
+  final fromRx = Common.userData.value?.payload?.id?.toString();
+  final fromBox = GetStorage().read('user_id');
+  final uid = (fromRx != null && fromRx.isNotEmpty)
+      ? fromRx
+      : fromBox?.toString();
+  if (uid == null || uid.isEmpty) return;
+  if (await hasAndroidTradingBlockPermissions()) return;
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    Get.offAll(() => const PostLoginTradingBlockScreen());
+  });
 }
 
 void _refreshUserAlertsOnNotification() {
@@ -128,7 +145,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _onAppResumed();
+    if (state == AppLifecycleState.resumed) {
+      _onAppResumed();
+      _enforceAndroidTradingPermissionsIfLoggedIn();
+    }
   }
 
   @override

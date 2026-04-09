@@ -12,15 +12,27 @@ enum ChatMessageType {
 abstract class ChatMessage {
   final ChatMessageType type;
   final bool isFromUser;
+  final String messageId;
+  final bool isUnread;
 
-  const ChatMessage({required this.type, this.isFromUser = false});
+  const ChatMessage({
+    required this.type,
+    this.isFromUser = false,
+    this.messageId = '',
+    this.isUnread = false,
+  });
 }
 
 /// Simple text message
 class SimpleTextMessage extends ChatMessage {
   final String text;
 
-  const SimpleTextMessage({required this.text, super.isFromUser = false})
+  const SimpleTextMessage({
+    required this.text,
+    super.isFromUser = false,
+    super.messageId,
+    super.isUnread,
+  })
     : super(type: ChatMessageType.simpleText);
 }
 
@@ -74,6 +86,8 @@ class NewTradeOpportunityMessage extends ChatMessage {
     this.oldStopLoss = '',
     this.apiMessage = '',
     this.buttonType = '',
+    super.messageId,
+    super.isUnread,
   }) : super(type: ChatMessageType.newTradeOpportunity);
 }
 
@@ -85,6 +99,8 @@ class TradeExecutedMessage extends ChatMessage {
   const TradeExecutedMessage({
     this.text = 'Trading App is unlocked.',
     this.buttonLabel = 'GTT / Levels Applied',
+    super.messageId,
+    super.isUnread,
   }) : super(type: ChatMessageType.tradeExecuted);
 }
 
@@ -96,6 +112,8 @@ class TradeExecutionPromptMessage extends ChatMessage {
   const TradeExecutionPromptMessage({
     required this.tradeData,
     this.text = 'Trading App is unlocked.',
+    super.messageId,
+    super.isUnread,
   }) : super(type: ChatMessageType.tradeExecutionPrompt);
 }
 
@@ -111,6 +129,8 @@ class AlertHitWithButtonMessage extends ChatMessage {
     this.buttonLabel = 'Trade Executed',
     this.isGttHit = false,
     this.tradeData,
+    super.messageId,
+    super.isUnread,
   }) : super(type: ChatMessageType.alertHitWithButton);
 }
 
@@ -120,6 +140,9 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
   final messageType = (json['message_type'] ?? json['type'] ?? '').toString();
   final entityType = (json['entity_type'] ?? '').toString();
   final message = (json['message'] ?? '').toString();
+  final messageId = (json['message_id'] ?? '').toString();
+  final status = (json['message_status'] ?? '').toString().toLowerCase();
+  final isUnread = status == 'unread';
   final buttonTypeOuter = (json['button_type'] ?? '').toString();
   final payload = json['payload'];
 
@@ -135,7 +158,9 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
   /// Plain copy only — ignore payload / entity (e.g. alert with trade nested).
   if (messageType.toLowerCase() == 'text' &&
       buttonTypeOuter.toLowerCase() == 'no_button') {
-    return [SimpleTextMessage(text: message)];
+    return [
+      SimpleTextMessage(text: message, messageId: messageId, isUnread: isUnread),
+    ];
   }
 
   if (isAlertButton) {
@@ -184,6 +209,8 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         oldStopLoss: oldStopLoss,
         apiMessage: message.trim(),
         buttonType: buttonTypeOuter,
+        messageId: messageId,
+        isUnread: isUnread,
       );
     }
 
@@ -193,6 +220,8 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         buttonLabel: buttonLabel,
         isGttHit: isGttHit,
         tradeData: tradeData,
+        messageId: messageId,
+        isUnread: isUnread,
       ),
     ];
   }
@@ -235,16 +264,28 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       oldStopLoss: oldStopLoss,
       apiMessage: apiMessage,
       buttonType: buttonTypeOuter,
+      messageId: messageId,
+      isUnread: isUnread,
     );
     parsed.add(tradeMessage);
     if (_isTradePromptAction(action)) {
-      parsed.add(TradeExecutionPromptMessage(tradeData: tradeMessage));
+      parsed.add(
+        TradeExecutionPromptMessage(
+          tradeData: tradeMessage,
+          messageId: messageId,
+          isUnread: isUnread,
+        ),
+      );
     }
     return parsed;
   }
 
   return [
-    SimpleTextMessage(text: message.isNotEmpty ? message : 'Unknown message'),
+    SimpleTextMessage(
+      text: message.isNotEmpty ? message : 'Unknown message',
+      messageId: messageId,
+      isUnread: isUnread,
+    ),
   ];
 }
 

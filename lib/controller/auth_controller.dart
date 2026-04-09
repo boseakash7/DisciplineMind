@@ -1,7 +1,11 @@
+import 'dart:io';
+
 import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
+import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:discipline_mind/ui/main_home/main_home.dart';
+import 'package:discipline_mind/ui/onboarding/post_login_trading_block_screen.dart';
 import 'package:discipline_mind/ui/settings/app_block_settings_screen.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:get/get.dart';
@@ -21,10 +25,14 @@ class AuthController extends GetxController {
   final LocalStorageService storage = LocalStorageService();
   final AppBlockPreferencesService appBlockPrefs = AppBlockPreferencesService();
 
-  void _navigateAfterLogin() {
+  Future<void> _navigateAfterLogin() async {
     final userId = Common.userData.value?.payload?.id?.toString();
     if (userId == null) {
       Get.offAll(() => MainHomeScreen(initialIndex: 2));
+      return;
+    }
+    if (Platform.isAndroid && !await hasAndroidTradingBlockPermissions()) {
+      Get.offAll(() => const PostLoginTradingBlockScreen());
       return;
     }
     if (appBlockPrefs.isSetupComplete(userId: userId)) {
@@ -70,7 +78,7 @@ class AuthController extends GetxController {
         // Subscribe to trade_alerts notifications topic
         await NotificationHandler.subscribeToTradeAlerts();
 
-        _navigateAfterLogin();
+        await _navigateAfterLogin();
       } else {
         AppToast.showToast(response.errorMessage ?? "Something went wrong");
         if (isAutoLogin) {

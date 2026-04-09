@@ -1,7 +1,8 @@
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
-import 'package:discipline_mind/constants/blocked_apps.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
+import 'package:discipline_mind/services/trading_apps_service.dart';
+import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:discipline_mind/ui/main_home/main_home.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
@@ -18,17 +19,42 @@ class AppBlockSettingsScreen extends StatefulWidget {
 
 class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
   final AppBlockPreferencesService _prefs = AppBlockPreferencesService();
-  final Set<String> _selected = <String>{};
   bool _isSaving = false;
 
+  /// Single selected package from API list.
+  String? _selectedPackage;
+
   String? get _userId => Common.userData.value?.payload?.id?.toString();
+
+  TradingAppsService get _tradingApps {
+    if (!Get.isRegistered<TradingAppsService>()) {
+      Get.put(TradingAppsService(), permanent: true);
+    }
+    return Get.find<TradingAppsService>();
+  }
 
   @override
   void initState() {
     super.initState();
     final userId = _userId;
     if (userId != null) {
-      _selected.addAll(_prefs.getSelectedPackages(userId: userId));
+      _selectedPackage = _prefs.getSelectedPackage(userId: userId);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadApps());
+  }
+
+  Future<void> _loadApps() async {
+    await _tradingApps.refresh();
+    if (!mounted) return;
+    final userId = _userId;
+    if (userId == null) return;
+    final saved = _prefs.getSelectedPackage(userId: userId);
+    if (saved != null &&
+        _tradingApps.apps.any((a) => a.packageName == saved)) {
+      setState(() => _selectedPackage = saved);
+    } else if (_selectedPackage != null &&
+        _tradingApps.apps.every((a) => a.packageName != _selectedPackage)) {
+      setState(() => _selectedPackage = null);
     }
   }
 
@@ -38,21 +64,22 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
       AppToast.showToast('User not found. Please login again.');
       return;
     }
-    if (_selected.isEmpty) {
-      AppToast.showToast('Please select at least one app');
+    if (_selectedPackage == null || _selectedPackage!.isEmpty) {
+      AppToast.showToast('Please select one trading app');
       return;
     }
 
     setState(() => _isSaving = true);
     try {
-      await _prefs.saveSelectedPackages(
+      await _prefs.saveSelectedPackage(
         userId: userId,
-        packages: _selected.toList(),
+        packageName: _selectedPackage!,
       );
+      await applyAndroidTradingAppBlock();
       if (widget.isFirstSetup) {
         Get.offAll(() => const MainHomeScreen(initialIndex: 2));
       } else {
-        AppToast.showToast('Blocked apps updated');
+        AppToast.showToast('Trading app updated');
         Get.back();
       }
     } finally {
@@ -62,10 +89,11 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final title = widget.isFirstSetup ? 'Select Apps to Block' : 'Blocked Apps';
+    final title =
+        widget.isFirstSetup ? 'Select trading app' : 'Blocked trading app';
     final subtitle = widget.isFirstSetup
-        ? 'Choose apps to lock when trade is executed.'
-        : 'Edit which apps should be locked on trade execution.';
+        ? 'Choose one broker app to lock. You can change it later in settings.'
+        : 'Choose one broker app to lock when alerts or GTT are active.';
 
     return WillPopScope(
       onWillPop: () async => !widget.isFirstSetup,
@@ -86,44 +114,69 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
                 ),
                 const SizedBox(height: 16),
                 Expanded(
-                  child: ListView(
-                    children: blockedTradingAppPackages.map((pkg) {
-                      final selected = _selected.contains(pkg);
-                      final label = blockedTradingAppLabels[pkg] ?? pkg;
-                      return Card(
-                        color: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(
-                            color: selected
-                                ? AppColors.primary
-                                : Colors.grey.shade300,
-                          ),
-                        ),
-                        child: CheckboxListTile(
-                          value: selected,
-                          activeColor: AppColors.primary,
-                          title: Text(label),
-                          subtitle: Text(
-                            pkg,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade600,
+                  child: Obx(() {
+                    final svc = _tradingApps;
+                    if (svc.isLoading.value && svc.apps.isEmpty) {
+                      return const Center(
+                        child: CircularProgressIndicator(),
+                      );
+                    }
+                    if (svc.apps.isEmpty) {
+                      return Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              svc.lastError.value ??
+                                  'Could not load apps. Check your connection.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.grey.shade700),
                             ),
-                          ),
-                          onChanged: (v) {
-                            setState(() {
-                              if (v == true) {
-                                _selected.add(pkg);
-                              } else {
-                                _selected.remove(pkg);
-                              }
-                            });
-                          },
+                            const SizedBox(height: 16),
+                            FilledButton(
+                              onPressed: _loadApps,
+                              child: const Text('Retry'),
+                            ),
+                          ],
                         ),
                       );
-                    }).toList(),
-                  ),
+                    }
+                    return ListView(
+                      children: svc.apps.map((app) {
+                        final selected =
+                            _selectedPackage == app.packageName;
+                        return Card(
+                          color: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(
+                              color: selected
+                                  ? AppColors.primary
+                                  : Colors.grey.shade300,
+                            ),
+                          ),
+                          child: RadioListTile<String>(
+                            value: app.packageName,
+                            groupValue: _selectedPackage,
+                            activeColor: AppColors.primary,
+                            title: Text(app.name),
+                            subtitle: Text(
+                              app.packageName,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                            onChanged: (v) {
+                              if (v != null) {
+                                setState(() => _selectedPackage = v);
+                              }
+                            },
+                          ),
+                        );
+                      }).toList(),
+                    );
+                  }),
                 ),
                 const SizedBox(height: 8),
                 SizedBox(
@@ -151,4 +204,3 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
     );
   }
 }
-

@@ -18,6 +18,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   int _lastMessageCount = 0;
+  final Set<String> _revealedUnreadMessageIds = <String>{};
 
   @override
   void dispose() {
@@ -96,11 +97,24 @@ class _ChatScreenState extends State<ChatScreen> {
                               vertical: 8,
                             ),
                             itemCount: controller.messages.length,
-                            itemBuilder: (_, i) => _buildMessage(
-                              context,
-                              controller.messages[i],
-                              controller,
-                            ),
+                            itemBuilder: (_, i) {
+                              final msg = controller.messages[i];
+                              final bubble = _buildMessage(context, msg, controller);
+                              final id = msg.messageId.trim();
+                              if (!msg.isUnread || id.isEmpty) return bubble;
+                              if (_revealedUnreadMessageIds.contains(id)) {
+                                return bubble;
+                              }
+                              return _UnreadRevealGate(
+                                messageId: id,
+                                onRevealed: (messageId) {
+                                  if (!mounted) return;
+                                  setState(() {
+                                    _revealedUnreadMessageIds.add(messageId);
+                                  });
+                                },
+                              );
+                            },
                           ),
                   );
                 }),
@@ -1771,6 +1785,113 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _UnreadRevealGate extends StatefulWidget {
+  const _UnreadRevealGate({
+    required this.messageId,
+    required this.onRevealed,
+  });
+
+  final String messageId;
+  final ValueChanged<String> onRevealed;
+
+  @override
+  State<_UnreadRevealGate> createState() => _UnreadRevealGateState();
+}
+
+class _UnreadRevealGateState extends State<_UnreadRevealGate> {
+  @override
+  void initState() {
+    super.initState();
+    Future.delayed(const Duration(milliseconds: 900), () {
+      if (!mounted) return;
+      widget.onRevealed(widget.messageId);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          SizedBox(width: 44),
+          _TypingDots(),
+        ],
+      ),
+    );
+  }
+}
+
+class _TypingDots extends StatefulWidget {
+  const _TypingDots();
+
+  @override
+  State<_TypingDots> createState() => _TypingDotsState();
+}
+
+class _TypingDotsState extends State<_TypingDots>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        double opacityFor(int i) {
+          final phase = ((_controller.value * 3) - i).clamp(0.0, 1.0);
+          return 0.25 + (phase * 0.75);
+        }
+
+        Widget dot(int i) => Opacity(
+          opacity: opacityFor(i),
+          child: Container(
+            width: 6,
+            height: 6,
+            decoration: const BoxDecoration(
+              color: Color(0xFF9E9E9E),
+              shape: BoxShape.circle,
+            ),
+          ),
+        );
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              dot(0),
+              const SizedBox(width: 4),
+              dot(1),
+              const SizedBox(width: 4),
+              dot(2),
+            ],
+          ),
+        );
+      },
     );
   }
 }

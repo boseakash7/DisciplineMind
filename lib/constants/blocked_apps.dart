@@ -1,11 +1,11 @@
-/// Package names of trading apps that can be blocked.
+/// Fallback labels (broker list + GTT behaviour come from API `trading-apps`).
 const List<String> blockedTradingAppPackages = [
-  "com.zerodha.kite3", // Zerodha Kite
-  "in.upstox.app", // Upstox
-  "com.nextbillion.groww", // Groww
+  "com.zerodha.kite3",
+  "in.upstox.app",
+  "com.nextbillion.groww",
 ];
 
-/// App labels for selection UI.
+/// App labels for legacy / native fallbacks only.
 const Map<String, String> blockedTradingAppLabels = {
   "com.zerodha.kite3": "Zerodha Kite",
   "in.upstox.app": "Upstox",
@@ -20,8 +20,7 @@ const Map<String, List<String>> tradingAppLaunchAliases = {
   "in.upstox.app": ["in.upstox.app"],
 };
 
-/// Apps that require expanded GTT form (GTT + SL + Target).
-/// Add package names here to enable the 3-input popup for that app.
+/// Fallback when the trading-apps API has not loaded yet (`is_target` + `is_stoploss` drive GTT UI).
 const Set<String> extendedGttInputPackages = {
   "com.nextbillion.groww",
 };

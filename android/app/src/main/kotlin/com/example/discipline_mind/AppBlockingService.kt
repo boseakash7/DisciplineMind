@@ -55,13 +55,6 @@ class AppBlockingService : Service() {
             "com.sec.android.app.launcher", "org.lineageos.trebuchet",
             "com.android.systemui", "com.android.quickstep"  // recents / gesture nav
         )
-        // Always monitor these trading apps for usage stats,
-        // even when they are not currently in blockedApps.
-        private val MONITORED_TRADING_PACKAGES = setOf(
-            "com.zerodha.kite3",
-            "in.upstox.app",
-            "com.nextbillion.groww"
-        )
     }
 
     private val executor = Executors.newSingleThreadScheduledExecutor()
@@ -182,9 +175,10 @@ class AppBlockingService : Service() {
         executor.scheduleAtFixedRate({
             AppManager.loadBlockedApps(applicationContext)
             val foregroundApp = getForegroundApp()
+            val monitoredPackages = AppManager.getMonitoredTradingApps(applicationContext)
             if (foregroundApp != null &&
                 foregroundApp != lastTrackedForegroundApp &&
-                MONITORED_TRADING_PACKAGES.contains(foregroundApp)
+                monitoredPackages.contains(foregroundApp)
             ) {
                 AppUsageTracker.recordAppOpened(applicationContext, foregroundApp)
             }

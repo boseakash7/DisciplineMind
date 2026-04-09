@@ -3,11 +3,12 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:http/http.dart' as http;
 
-import '../../constants/blocked_apps.dart';
 import '../../model/user_alert_model.dart';
+import '../../services/trading_apps_service.dart';
 import '../../services/api/api_config.dart';
 import '../../services/api/api_url.dart';
 import '../../services/native_app_block_service.dart';
@@ -197,23 +198,32 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
   }
 
   static String _appDisplayName(String? package) {
-    if (package == null) return 'This app';
-    switch (package) {
-      case 'com.zerodha.kite3':
-        return 'Zerodha Kite';
-      case 'in.upstox.app':
-        return 'Upstox';
-      case 'com.nextbillion.groww':
-        return 'Groww';
-      default:
-        return 'This app';
+    if (package == null || package.isEmpty || package == 'blocked_app') {
+      return 'This app';
     }
+    if (Get.isRegistered<TradingAppsService>()) {
+      final name =
+          Get.find<TradingAppsService>().displayNameForPackage(package);
+      if (name != package) return name;
+    }
+    return package;
   }
 
   Future<void> _unblockAndClose() async {
     try {
       print('[BlockedAppOverlay] Unblocking apps...');
-      await _blockService.unblockAndClose(blockedTradingAppPackages);
+      var packages = await _blockService.getBlockedApps();
+      if (packages.isEmpty) {
+        final p = _blockedPackageName;
+        if (p != null && p.isNotEmpty && p != 'blocked_app') {
+          packages = [p];
+        }
+      }
+      if (packages.isEmpty) {
+        await _blockService.closeOverlay();
+      } else {
+        await _blockService.unblockAndClose(packages);
+      }
       print('[BlockedAppOverlay] Apps unblocked successfully');
     } catch (e) {
       print('[BlockedAppOverlay] unblockAndClose failed: $e');
