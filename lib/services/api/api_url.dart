@@ -3,6 +3,8 @@ class ApiUrl {
   static const String tradingApps = 'trading-apps';
 
   static String loginUrl = "user/login";
+  static String sendOtpUrl = "user/send-otp";
+  static String verifyOtpUrl = "user/verify-otp";
   static String searchInstrument = "instrument/search";
   static String getAlertsByUser = "alert/get-by-user-id";
 
@@ -21,6 +23,7 @@ class ApiUrl {
 
   /// Confirms user deleted the trade in the broker app (form: trade_id, user_id).
   static const String deleteTrade = "delete/trade";
+
   /// Confirms user trailed the SL in the broker app (form: trade_id, user_id).
   static const String editTrade = "edit/trade";
 }

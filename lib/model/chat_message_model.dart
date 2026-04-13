@@ -14,24 +14,30 @@ abstract class ChatMessage {
   final bool isFromUser;
   final String messageId;
   final bool isUnread;
+  /// Backend control key: show action buttons only when this is null.
+  final dynamic actionTaken;
 
   const ChatMessage({
     required this.type,
     this.isFromUser = false,
     this.messageId = '',
     this.isUnread = false,
+    this.actionTaken,
   });
 }
 
 /// Simple text message
 class SimpleTextMessage extends ChatMessage {
   final String text;
+  final String tradeId;
 
   const SimpleTextMessage({
     required this.text,
+    this.tradeId = '',
     super.isFromUser = false,
     super.messageId,
     super.isUnread,
+    super.actionTaken,
   })
     : super(type: ChatMessageType.simpleText);
 }
@@ -41,7 +47,11 @@ class AgentWithButtonMessage extends ChatMessage {
   final String text;
   final String buttonLabel;
 
-  const AgentWithButtonMessage({required this.text, required this.buttonLabel})
+  const AgentWithButtonMessage({
+    required this.text,
+    required this.buttonLabel,
+    super.actionTaken,
+  })
     : super(type: ChatMessageType.agentWithButton);
 }
 
@@ -88,6 +98,7 @@ class NewTradeOpportunityMessage extends ChatMessage {
     this.buttonType = '',
     super.messageId,
     super.isUnread,
+    super.actionTaken,
   }) : super(type: ChatMessageType.newTradeOpportunity);
 }
 
@@ -101,6 +112,7 @@ class TradeExecutedMessage extends ChatMessage {
     this.buttonLabel = 'GTT / Levels Applied',
     super.messageId,
     super.isUnread,
+    super.actionTaken,
   }) : super(type: ChatMessageType.tradeExecuted);
 }
 
@@ -114,6 +126,7 @@ class TradeExecutionPromptMessage extends ChatMessage {
     this.text = 'Trading App is unlocked.',
     super.messageId,
     super.isUnread,
+    super.actionTaken,
   }) : super(type: ChatMessageType.tradeExecutionPrompt);
 }
 
@@ -131,6 +144,7 @@ class AlertHitWithButtonMessage extends ChatMessage {
     this.tradeData,
     super.messageId,
     super.isUnread,
+    super.actionTaken,
   }) : super(type: ChatMessageType.alertHitWithButton);
 }
 
@@ -144,7 +158,21 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
   final status = (json['message_status'] ?? '').toString().toLowerCase();
   final isUnread = status == 'unread';
   final buttonTypeOuter = (json['button_type'] ?? '').toString();
+  final actionTaken = json['action_taken'];
   final payload = json['payload'];
+  final payloadMap = payload is Map<String, dynamic>
+      ? payload
+      : (payload is Map ? Map<String, dynamic>.from(payload) : null);
+  final payloadTradeMap = payloadMap?['trade'] is Map
+      ? Map<String, dynamic>.from(payloadMap!['trade'] as Map)
+      : null;
+  final relatedTradeId = (payloadMap?['trade_id'] ??
+          payloadMap?['id'] ??
+          payloadTradeMap?['trade_id'] ??
+          payloadTradeMap?['id'] ??
+          payloadTradeMap?['trade_uid'] ??
+          '')
+      .toString();
 
   /// Trade map: [entity_type] is trade, or legacy [message_type] == trade.
   /// Button rows with [entity_type] trade (e.g. open_app_button) map here, not alert UI.
@@ -159,7 +187,13 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
   if (messageType.toLowerCase() == 'text' &&
       buttonTypeOuter.toLowerCase() == 'no_button') {
     return [
-      SimpleTextMessage(text: message, messageId: messageId, isUnread: isUnread),
+      SimpleTextMessage(
+        text: message,
+        tradeId: relatedTradeId,
+        messageId: messageId,
+        isUnread: isUnread,
+        actionTaken: actionTaken,
+      ),
     ];
   }
 
@@ -211,6 +245,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         buttonType: buttonTypeOuter,
         messageId: messageId,
         isUnread: isUnread,
+        actionTaken: actionTaken,
       );
     }
 
@@ -222,6 +257,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         tradeData: tradeData,
         messageId: messageId,
         isUnread: isUnread,
+        actionTaken: actionTaken,
       ),
     ];
   }
@@ -266,6 +302,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       buttonType: buttonTypeOuter,
       messageId: messageId,
       isUnread: isUnread,
+      actionTaken: actionTaken,
     );
     parsed.add(tradeMessage);
     if (_isTradePromptAction(action)) {
@@ -274,6 +311,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
           tradeData: tradeMessage,
           messageId: messageId,
           isUnread: isUnread,
+          actionTaken: actionTaken,
         ),
       );
     }
@@ -283,8 +321,10 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
   return [
     SimpleTextMessage(
       text: message.isNotEmpty ? message : 'Unknown message',
+      tradeId: relatedTradeId,
       messageId: messageId,
       isUnread: isUnread,
+      actionTaken: actionTaken,
     ),
   ];
 }

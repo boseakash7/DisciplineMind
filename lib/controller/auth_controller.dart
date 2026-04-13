@@ -4,6 +4,7 @@ import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
 import 'package:discipline_mind/services/trading_block_bootstrap.dart';
+import 'package:discipline_mind/ui/auth/phone_login_screen.dart';
 import 'package:discipline_mind/ui/main_home/main_home.dart';
 import 'package:discipline_mind/ui/onboarding/post_login_trading_block_screen.dart';
 import 'package:discipline_mind/ui/settings/app_block_settings_screen.dart';
@@ -14,10 +15,10 @@ import 'package:get_storage/get_storage.dart';
 import '../common/common.dart';
 import '../common/device_utils.dart';
 import '../model/login_reponse_model.dart';
+import '../model/otp_auth_models.dart';
 import '../services/api/api_reponse.dart';
 import '../services/api/api_services.dart';
 import '../services/local_db.dart';
-import '../ui/auth/login_screen.dart';
 
 class AuthController extends GetxController {
   var isLoading = false.obs;
@@ -42,68 +43,94 @@ class AuthController extends GetxController {
     }
   }
 
-  void login(String email, String password, {bool isAutoLogin = false}) async {
+  Future<void> _syncFcmAndSubscribe(String userId) async {
+    await Common.getFcmToken();
+    if (Common.fcmToken.isNotEmpty) {
+      await apiService.postMultipartForm(ApiUrl.fcmSync, {
+        "user_id": userId,
+        "device_id": DeviceUtils.getDeviceId(),
+        "token": Common.fcmToken,
+      });
+    }
+    await NotificationHandler.subscribeToTradeAlerts();
+  }
+
+  /// Call after OTP verify (existing user) or when restoring a saved session.
+  Future<void> applyLoggedInUser(LoginResponseModel model) async {
+    final id = model.payload?.id?.toString();
+    if (id == null) {
+      AppToast.showToast("Something went wrong");
+      return;
+    }
+    Common.userData.value = model;
+    storage.saveUserSession(model);
+    GetStorage().write('user_id', id);
+    try {
+      await _syncFcmAndSubscribe(id);
+    } catch (e) {
+      AppToast.showToast(e.toString());
+    }
+    await _navigateAfterLogin();
+  }
+
+  Future<bool> sendOtp(String phone) async {
     try {
       isLoading.value = true;
-
-      // Call API
-      ApiResponse response = await apiService.postFormData(ApiUrl.loginUrl, {
-        "email": email,
-        "password": password,
-      });
-
+      final ApiResponse response = await apiService.postFormData(
+        ApiUrl.sendOtpUrl,
+        {"phone": phone},
+      );
       isLoading.value = false;
 
       if (response.isSuccess) {
-        final userModel = LoginResponseModel.fromJson(response.data);
-        Common.userData.value = userModel;
-        if (!isAutoLogin) {
-          storage.saveLogin(email, password);
-        }
-        // Store user_id for overlay to check alerts
-        if (userModel.payload?.id != null) {
-          GetStorage().write('user_id', userModel.payload!.id.toString());
-        }
-
-        // Sync FCM token with multipart (same as Postman) so backend saves to DB
-        await Common.getFcmToken();
-        if (Common.fcmToken.isNotEmpty) {
-          await apiService.postMultipartForm(ApiUrl.fcmSync, {
-            "user_id": userModel.payload!.id.toString(),
-            "device_id": DeviceUtils.getDeviceId(),
-            "token": Common.fcmToken,
-          });
-        }
-
-        // Subscribe to trade_alerts notifications topic
-        await NotificationHandler.subscribeToTradeAlerts();
-
-        await _navigateAfterLogin();
-      } else {
-        AppToast.showToast(response.errorMessage ?? "Something went wrong");
-        if (isAutoLogin) {
-          // Auto-login failed -> clear saved creds and route to login.
-          storage.clearLogin();
-          GetStorage().remove('user_id');
-          Get.offAll(() => LoginScreen());
-        }
+        final data = Map<String, dynamic>.from(response.data as Map);
+        final parsed = SendOtpResponse.fromJson(data);
+        final msg = parsed.payload?.message ?? "OTP sent successfully";
+        AppToast.showToast(msg);
+        return true;
       }
+      AppToast.showToast(response.errorMessage ?? "Failed to send OTP");
+      return false;
     } catch (e) {
       isLoading.value = false;
       AppToast.showToast(e.toString());
-      if (isAutoLogin) {
-        storage.clearLogin();
-        GetStorage().remove('user_id');
-        Get.offAll(() => LoginScreen());
-      }
+      return false;
     }
   }
 
-  void autoLogin() {
-    if (storage.hasLoginData()) {
-      login(storage.getEmail()!, storage.getPassword()!, isAutoLogin: true);
+  Future<VerifyOtpPayload?> verifyOtp(String phone, String otp) async {
+    try {
+      isLoading.value = true;
+      final ApiResponse response = await apiService.postFormData(
+        ApiUrl.verifyOtpUrl,
+        {"phone": phone, "otp": otp},
+      );
+      isLoading.value = false;
+
+      if (!response.isSuccess) {
+        AppToast.showToast(response.errorMessage ?? "Invalid OTP");
+        return null;
+      }
+      final data = Map<String, dynamic>.from(response.data as Map);
+      return VerifyOtpResponse.fromJson(data).payload;
+    } catch (e) {
+      isLoading.value = false;
+      AppToast.showToast(e.toString());
+      return null;
+    }
+  }
+
+  Future<void> autoLogin() async {
+    final session = storage.getUserSession();
+    if (session != null && session.payload?.id != null) {
+      Common.userData.value = session;
+      GetStorage().write('user_id', session.payload!.id.toString());
+      try {
+        await _syncFcmAndSubscribe(session.payload!.id.toString());
+      } catch (_) {}
+      await _navigateAfterLogin();
     } else {
-      Get.offAll(() => LoginScreen());
+      Get.offAll(() => PhoneLoginScreen());
     }
   }
 
@@ -116,8 +143,7 @@ class AuthController extends GetxController {
     try {
       isLoading.value = true;
 
-      // Call API
-      ApiResponse response = await apiService.postFormData(ApiUrl.signUpUrl, {
+      final ApiResponse response = await apiService.postFormData(ApiUrl.signUpUrl, {
         "fullname": fullname,
         "email": email,
         "password": password,
@@ -128,8 +154,7 @@ class AuthController extends GetxController {
 
       if (response.isSuccess) {
         AppToast.showToast("Account created successfully!");
-        // Navigate to login screen after signup
-        Get.back();
+        Get.offAll(() => PhoneLoginScreen());
       } else {
         AppToast.showToast(response.errorMessage ?? "Failed to create account");
       }
@@ -139,13 +164,11 @@ class AuthController extends GetxController {
     }
   }
 
-  void resetPassword() {
-    Get.snackbar("Email Sent", "Check your inbox for the reset link.");
-  }
-
   void logout() {
     storage.clearLogin();
+    Common.userData.value = null;
     GetStorage().remove('user_id');
-    Get.offAll(() => LoginScreen());
+    ApiService.clearPersistedSessionCookie();
+    Get.offAll(() => PhoneLoginScreen());
   }
 }

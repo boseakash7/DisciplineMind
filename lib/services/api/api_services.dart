@@ -1,10 +1,14 @@
 import 'dart:convert';
 
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:http/http.dart' as http;
 
 import 'api_config.dart';
 import 'api_reponse.dart';
+
+/// Stored from Set-Cookie on auth responses; sent on later form posts.
+const String _kSessionCookieStorageKey = 'dm_session_cookie';
 
 class ApiService extends GetxService {
   // GET request
@@ -56,21 +60,50 @@ class ApiService extends GetxService {
     String endpoint,
     Map<String, String> fields, {
     Map<String, String>? headers,
+    bool usePersistedSessionCookie = true,
   }) async {
     try {
       final uri = Uri.parse("${ApiConfig.baseUrl}$endpoint");
       final request = http.MultipartRequest('POST', uri);
       if (headers != null) request.headers.addAll(headers);
+      final merged = {
+        if (usePersistedSessionCookie) ..._persistedSessionCookies(),
+      };
+      if (merged.isNotEmpty) {
+        request.headers['Cookie'] = merged.entries
+            .map((e) => "${e.key}=${e.value}")
+            .join("; ");
+      }
       for (final e in fields.entries) {
         request.fields[e.key] = e.value;
       }
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
+      persistSessionFromResponse(response);
       print("API Response: ${response.body}");
       return _processResponse(response);
     } catch (e) {
       return ApiResponse.error(e.toString());
     }
+  }
+
+  static Map<String, String> _persistedSessionCookies() {
+    final id = GetStorage().read<String>(_kSessionCookieStorageKey);
+    if (id == null || id.isEmpty) return {};
+    return {'session': id};
+  }
+
+  static void persistSessionFromResponse(http.Response response) {
+    final raw = response.headers['set-cookie'];
+    if (raw == null || raw.isEmpty) return;
+    final match = RegExp(r'session=([^;,\s]+)').firstMatch(raw);
+    if (match != null) {
+      GetStorage().write(_kSessionCookieStorageKey, match.group(1));
+    }
+  }
+
+  static void clearPersistedSessionCookie() {
+    GetStorage().remove(_kSessionCookieStorageKey);
   }
 
   /// POST request with form-data (x-www-form-urlencoded)
@@ -79,13 +112,19 @@ class ApiService extends GetxService {
     Map<String, String> fields, {
     Map<String, String>? headers,
     Map<String, String>? cookies,
+    bool usePersistedSessionCookie = true,
   }) async {
     try {
+      final Map<String, String> mergedCookies = {
+        if (usePersistedSessionCookie) ..._persistedSessionCookies(),
+        ...?cookies,
+      };
+
       // Build headers
       final Map<String, String> finalHeaders = {
         "Content-Type": "application/x-www-form-urlencoded",
-        if (cookies != null && cookies.isNotEmpty)
-          "Cookie": cookies.entries
+        if (mergedCookies.isNotEmpty)
+          "Cookie": mergedCookies.entries
               .map((e) => "${e.key}=${e.value}")
               .join("; "),
         if (headers != null) ...headers,
@@ -96,6 +135,8 @@ class ApiService extends GetxService {
         headers: finalHeaders,
         body: fields, // Send form fields
       );
+
+      persistSessionFromResponse(response);
 
       print("API Response: ${response.body}");
 

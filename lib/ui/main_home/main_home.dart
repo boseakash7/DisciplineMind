@@ -1,7 +1,7 @@
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
-import 'package:discipline_mind/ui/main_home/alert_main.dart';
 import 'package:discipline_mind/ui/android_app_block/app_usage_stats_page.dart';
+import 'package:discipline_mind/ui/main_home/alert_main.dart';
 import 'package:discipline_mind/ui/main_home/chat_screen.dart';
 import 'package:discipline_mind/ui/main_home/trade_screen.dart';
 import 'package:discipline_mind/ui/settings/app_block_settings_screen.dart';
@@ -53,11 +53,10 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
           padding: EdgeInsets.zero,
           children: [
             DrawerHeader(
-              decoration: const BoxDecoration(
-                color: AppColors.primary,
-              ),
+              decoration: const BoxDecoration(color: AppColors.primary),
               child: Obx(() {
-                final name = Common.userData.value?.payload?.fullName ??
+                final name =
+                    Common.userData.value?.payload?.fullName ??
                     Common.userData.value?.payload?.email ??
                     'User';
                 return Text(
@@ -77,9 +76,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                 Navigator.pop(context);
                 Navigator.push(
                   context,
-                  MaterialPageRoute(
-                    builder: (_) => AlertsMainScreen(),
-                  ),
+                  MaterialPageRoute(builder: (_) => AlertsMainScreen()),
                 );
               },
             ),
@@ -154,9 +151,14 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                   unselectedItemColor: Colors.grey,
                   showSelectedLabels: true,
                   showUnselectedLabels: true,
-                  selectedLabelStyle: const TextStyle(fontSize: 11, height: 1.1),
-                  unselectedLabelStyle:
-                      const TextStyle(fontSize: 11, height: 1.1),
+                  selectedLabelStyle: const TextStyle(
+                    fontSize: 11,
+                    height: 1.1,
+                  ),
+                  unselectedLabelStyle: const TextStyle(
+                    fontSize: 11,
+                    height: 1.1,
+                  ),
                   iconSize: 22,
                   elevation: 0,
                   onTap: (index) {

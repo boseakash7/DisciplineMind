@@ -17,13 +17,22 @@ class NotificationHandler {
   bool _localInited = false;
   bool _firebaseInited = false;
 
-  static const AndroidNotificationChannel _channel = AndroidNotificationChannel(
+  static const AndroidNotificationChannel _defaultChannel = AndroidNotificationChannel(
     'discipline_mind_alerts',
     'Price Alerts',
     description: 'Notifications for price alerts',
     importance: Importance.high,
     playSound: true,
   );
+  static const AndroidNotificationChannel _tradeOpportunityChannel =
+      AndroidNotificationChannel(
+        'discipline_mind_trade_opportunities',
+        'Trade Opportunities',
+        description: 'Notifications for new trade opportunities',
+        importance: Importance.high,
+        playSound: true,
+        sound: RawResourceAndroidNotificationSound('trade_opportunity'),
+      );
 
   /// Called when a notification is received (foreground, background tap, or opened from terminated).
   static void Function()? onNotificationReceived;
@@ -72,7 +81,12 @@ class NotificationHandler {
           .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin
           >()
-          ?.createNotificationChannel(_channel);
+          ?.createNotificationChannel(_defaultChannel);
+      await _localNotifications
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >()
+          ?.createNotificationChannel(_tradeOpportunityChannel);
     }
     _localInited = true;
   }
@@ -95,6 +109,7 @@ class NotificationHandler {
 
     FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      _logNotificationData(source: 'onMessageOpenedApp', message: message);
       onNotificationReceived?.call();
     });
     _firebaseInited = true;
@@ -102,12 +117,17 @@ class NotificationHandler {
 
   /// When app is in foreground, FCM does not show system notification on Android — show local instead.
   Future<void> _handleForegroundMessage(RemoteMessage message) async {
+    _logNotificationData(source: 'onMessage', message: message);
     onNotificationReceived?.call();
 
     if (Platform.isAndroid) {
       final notification = message.notification;
       final title = notification?.title ?? 'Discipline Mind';
       final body = notification?.body ?? 'You have a new alert update';
+      final isTradeOpportunity = _isNewTradeOpportunity(message);
+      final channel = isTradeOpportunity
+          ? _tradeOpportunityChannel
+          : _defaultChannel;
 
       await _localNotifications.show(
         message.hashCode,
@@ -115,12 +135,17 @@ class NotificationHandler {
         body,
         NotificationDetails(
           android: AndroidNotificationDetails(
-            _channel.id,
-            _channel.name,
-            channelDescription: _channel.description,
+            channel.id,
+            channel.name,
+            channelDescription: channel.description,
             importance: Importance.high,
             priority: Priority.high,
             playSound: true,
+            sound: isTradeOpportunity
+                ? const RawResourceAndroidNotificationSound(
+                    'trade_opportunity',
+                  )
+                : null,
           ),
           iOS: const DarwinNotificationDetails(
             presentAlert: true,
@@ -131,6 +156,37 @@ class NotificationHandler {
         payload: message.data.toString(),
       );
     }
+  }
+
+  bool _isNewTradeOpportunity(RemoteMessage message) {
+    final data = message.data;
+    final type =
+        (data['type'] ??
+                data['notification_type'] ??
+                data['event'] ??
+                data['category'] ??
+                '')
+            .toString()
+            .toLowerCase();
+    final isTradeFlag =
+        data['is_new_trade_opportunity']?.toString().toLowerCase();
+
+    return type == 'new_trade_opportunity' || isTradeFlag == 'true';
+  }
+
+  void _logNotificationData({
+    required String source,
+    required RemoteMessage message,
+  }) {
+    if (!kDebugMode) return;
+    final isTrade = _isNewTradeOpportunity(message);
+    debugPrint(
+      'FCM[$source] messageId=${message.messageId} '
+      'title=${message.notification?.title} '
+      'body=${message.notification?.body} '
+      'isTradeOpportunity=$isTrade '
+      'data=${message.data}',
+    );
   }
 
   Future<void> _requestPermissions() async {
@@ -172,6 +228,7 @@ class NotificationHandler {
       RemoteMessage? message,
     ) {
       if (message != null) {
+        _logNotificationData(source: 'getInitialMessage', message: message);
         onNotificationReceived?.call();
       }
     });

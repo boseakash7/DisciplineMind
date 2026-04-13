@@ -410,7 +410,7 @@ class AppBlockingService : Service() {
     private fun checkAlertsAndAutoUnblock() {
         val userId = AppManager.loadUserIdForOverlay(applicationContext) ?: return
         try {
-            val url = URL("http://api.disciplinedminds.in/api/alert/get-by-user-id")
+            val url = URL("http://api.disciplinedminds.in/api/alert/action/taken")
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
@@ -427,18 +427,13 @@ class AppBlockingService : Service() {
             val jsonStart = body.indexOf('{')
             if (jsonStart > 0) body = body.substring(jsonStart)
             val json = JSONObject(body)
-            val payload = json.optJSONArray("payload") ?: return
-            // Unblock only when no pending alerts (empty list or all triggered/completed)
-            var hasPending = false
-            for (i in 0 until payload.length()) {
-                val item = payload.optJSONObject(i)
-                val status = (item?.optString("status", "") ?: "").lowercase()
-                if (status == "pending") {
-                    hasPending = true
-                    break
-                }
-            }
-            if (!hasPending) {
+            val payload = json.optJSONObject("payload")
+            val actionTaken = payload?.optInt("action_taken", 0) ?: 0
+            val alertStatus = (payload?.optString("alert_status", "") ?: "").lowercase()
+
+            // Keep blocked ONLY when action_taken = 1 and alert_status = pending.
+            val shouldKeepBlocked = actionTaken == 1 && alertStatus == "pending"
+            if (!shouldKeepBlocked) {
                 mainHandler.post { performAutoUnblock() }
             }
         } catch (e: Exception) {

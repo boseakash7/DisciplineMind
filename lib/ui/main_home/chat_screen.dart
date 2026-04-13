@@ -52,6 +52,52 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  /// Spreads [lx] so adjacent markers are at least [minSep] apart without
+  /// reversing price order (low price → left, high → right).
+  List<double> _spreadTimelineAnchorsByPrice(
+    List<double> lx,
+    List<double> numeric,
+    double minSep,
+    double maxWidth,
+  ) {
+    final n = lx.length;
+    final order = List<int>.generate(n, (i) => i);
+    order.sort((a, b) {
+      final c = numeric[a].compareTo(numeric[b]);
+      if (c != 0) return c;
+      return a.compareTo(b);
+    });
+    final xs = order.map((i) => lx[i]).toList();
+
+    for (var k = 1; k < n; k++) {
+      if (xs[k] - xs[k - 1] < minSep) {
+        xs[k] = xs[k - 1] + minSep;
+      }
+    }
+    if (xs[n - 1] > maxWidth) {
+      xs[n - 1] = maxWidth;
+      for (var k = n - 2; k >= 0; k--) {
+        if (xs[k + 1] - xs[k] < minSep) {
+          xs[k] = xs[k + 1] - minSep;
+        }
+      }
+      if (xs[0] < 0) {
+        xs[0] = 0;
+        for (var k = 1; k < n; k++) {
+          if (xs[k] - xs[k - 1] < minSep) {
+            xs[k] = xs[k - 1] + minSep;
+          }
+        }
+      }
+    }
+
+    final out = List<double>.filled(n, 0);
+    for (var k = 0; k < n; k++) {
+      out[order[k]] = xs[k];
+    }
+    return out;
+  }
+
   @override
   Widget build(BuildContext context) {
     return GetBuilder<ChatController>(
@@ -99,7 +145,11 @@ class _ChatScreenState extends State<ChatScreen> {
                             itemCount: controller.messages.length,
                             itemBuilder: (_, i) {
                               final msg = controller.messages[i];
-                              final bubble = _buildMessage(context, msg, controller);
+                              final bubble = _buildMessage(
+                                context,
+                                msg,
+                                controller,
+                              );
                               final id = msg.messageId.trim();
                               if (!msg.isUnread || id.isEmpty) return bubble;
                               if (_revealedUnreadMessageIds.contains(id)) {
@@ -288,27 +338,29 @@ class _ChatScreenState extends State<ChatScreen> {
                     msg.text,
                     style: const TextStyle(color: Colors.black87, fontSize: 15),
                   ),
-                  const SizedBox(height: 12),
-                  Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        msg.buttonLabel,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
+                  if (msg.actionTaken == null) ...[
+                    const SizedBox(height: 12),
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          msg.buttonLabel,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
                         ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -322,6 +374,7 @@ class _ChatScreenState extends State<ChatScreen> {
       msg.action.toLowerCase() == 'delete';
   bool _isEditTradeAction(NewTradeOpportunityMessage msg) =>
       msg.action.toLowerCase() == 'edit';
+  bool _showButtons(ChatMessage msg) => msg.actionTaken == null;
 
   String _tradeDeleteStepLine(int n, String api, String fallback) {
     final t = api.trim();
@@ -413,11 +466,7 @@ class _ChatScreenState extends State<ChatScreen> {
         color: AppColors.primary,
         shape: BoxShape.circle,
       ),
-      child: const Icon(
-        Icons.auto_awesome,
-        color: Colors.white,
-        size: 20,
-      ),
+      child: const Icon(Icons.auto_awesome, color: Colors.white, size: 20),
     );
   }
 
@@ -471,23 +520,19 @@ class _ChatScreenState extends State<ChatScreen> {
                   children: [
                     Text('Trading App Unlocked', style: titleStyle),
                     const SizedBox(height: 12),
-                    Text(
-                      _deleteTradeStep1Text(msg),
-                      style: stepStyle,
-                    ),
+                    Text(_deleteTradeStep1Text(msg), style: stepStyle),
                     const SizedBox(height: 8),
                     _tradePromptPrimaryButton(
                       label: 'Open Trading APP',
-                      onTap: () => controller.openTradingApp(),
+                      enabled: _showButtons(msg),
+                      interactive: false,
                     ),
                     const SizedBox(height: 14),
-                    Text(
-                      _deleteTradeStep2Text(msg),
-                      style: stepStyle,
-                    ),
+                    Text(_deleteTradeStep2Text(msg), style: stepStyle),
                     const SizedBox(height: 8),
                     _tradePromptPrimaryButton(
                       label: 'Trade Deleted',
+                      enabled: _showButtons(msg),
                       onTap: () => controller.acknowledgeTradeDeleted(msg),
                     ),
                   ],
@@ -554,11 +599,15 @@ class _ChatScreenState extends State<ChatScreen> {
                   children: [
                     Text('Trading App Unlocked', style: titleStyle),
                     const SizedBox(height: 12),
-                    Text(_tradeDeleteStepLine(1, backendText, backendText), style: stepStyle),
+                    Text(
+                      _tradeDeleteStepLine(1, backendText, backendText),
+                      style: stepStyle,
+                    ),
                     const SizedBox(height: 8),
                     _tradePromptPrimaryButton(
                       label: 'Open Trading APP',
-                      onTap: () => controller.openTradingApp(),
+                      enabled: _showButtons(msg),
+                      interactive: false,
                     ),
                     const SizedBox(height: 14),
                     Text(
@@ -568,6 +617,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     const SizedBox(height: 8),
                     _tradePromptPrimaryButton(
                       label: 'SL Trailed',
+                      enabled: _showButtons(msg),
                       onTap: () => controller.acknowledgeSlTrailed(msg),
                     ),
                   ],
@@ -599,11 +649,7 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
         ),
-        Divider(
-          height: 18,
-          color: Colors.grey.shade300,
-          thickness: 1,
-        ),
+        Divider(height: 18, color: Colors.grey.shade300, thickness: 1),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -611,9 +657,7 @@ class _ChatScreenState extends State<ChatScreen> {
               radius: 20,
               backgroundColor: AppColors.primary.withOpacity(0.2),
               child: Text(
-                msg.instrument.isEmpty
-                    ? '?'
-                    : msg.instrument[0].toUpperCase(),
+                msg.instrument.isEmpty ? '?' : msg.instrument[0].toUpperCase(),
                 style: TextStyle(
                   color: AppColors.primary,
                   fontWeight: FontWeight.bold,
@@ -637,10 +681,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   const SizedBox(height: 2),
                   Text(
                     msg.contract,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade700,
-                    ),
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
                   ),
                 ],
               ),
@@ -681,9 +722,7 @@ class _ChatScreenState extends State<ChatScreen> {
               children: [
                 inner,
                 Positioned.fill(
-                  child: CustomPaint(
-                    painter: _InvalidTradeCrossPainter(),
-                  ),
+                  child: CustomPaint(painter: _InvalidTradeCrossPainter()),
                 ),
               ],
             )
@@ -701,6 +740,7 @@ class _ChatScreenState extends State<ChatScreen> {
       msg.tradeData,
       controller,
       text: msg.text,
+      sourceMessage: msg,
     );
   }
 
@@ -709,7 +749,9 @@ class _ChatScreenState extends State<ChatScreen> {
     NewTradeOpportunityMessage msg,
     ChatController controller, {
     String? text,
+    ChatMessage? sourceMessage,
   }) {
+    final actionSource = sourceMessage ?? msg;
     final bodyStyle = TextStyle(fontSize: 14, color: Colors.grey.shade800);
     final stepStyle = TextStyle(
       fontSize: 13,
@@ -728,7 +770,11 @@ class _ChatScreenState extends State<ChatScreen> {
               color: AppColors.primary,
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.auto_awesome, color: Colors.white, size: 20),
+            child: const Icon(
+              Icons.auto_awesome,
+              color: Colors.white,
+              size: 20,
+            ),
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -747,23 +793,19 @@ class _ChatScreenState extends State<ChatScreen> {
                   ],
                 ),
                 const SizedBox(height: 14),
-                Text(
-                  '1. Go to Trading APP and apply Levels',
-                  style: stepStyle,
-                ),
+                Text('1. Go to Trading APP and apply Levels', style: stepStyle),
                 const SizedBox(height: 8),
                 _tradePromptPrimaryButton(
                   label: 'Open Trading APP',
-                  onTap: () => controller.openTradingApp(),
+                  enabled: _showButtons(actionSource),
+                  interactive: false,
                 ),
                 const SizedBox(height: 14),
-                Text(
-                  '2. Intimate me once you apply the GTT',
-                  style: stepStyle,
-                ),
+                Text('2. Intimate me once you apply the GTT', style: stepStyle),
                 const SizedBox(height: 8),
                 _tradePromptPrimaryButton(
                   label: 'GTT / Levels Applied',
+                  enabled: _showButtons(actionSource),
                   onTap: () => _showGttDialog(context, msg, controller),
                 ),
               ],
@@ -776,29 +818,36 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _tradePromptPrimaryButton({
     required String label,
-    required VoidCallback onTap,
+    VoidCallback? onTap,
+    bool enabled = true,
+    /// When false, same look but no tap / ripple (e.g. Open Trading APP display-only).
+    bool interactive = true,
   }) {
+    final child = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Text(
+        label,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w600,
+          fontSize: 15,
+        ),
+      ),
+    );
+    final canTap = interactive && enabled && onTap != null;
     return SizedBox(
       width: double.infinity,
       child: Material(
-        color: AppColors.primary,
+        color: enabled ? AppColors.primary : Colors.grey.shade400,
         borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Text(
-              label,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-                fontSize: 15,
-              ),
-            ),
-          ),
-        ),
+        child: canTap
+            ? InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(8),
+                child: child,
+              )
+            : child,
       ),
     );
   }
@@ -987,11 +1036,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget _buildTradeTimeline(NewTradeOpportunityMessage msg) {
     const dotRadius = 6.0;
     final labels = ['SL', 'Entry', 'Target'];
-    final values = [
-      msg.stopLoss,
-      msg.entryRange,
-      msg.frr,
-    ];
+    final values = [msg.stopLoss, msg.entryRange, msg.frr];
 
     double parseNumeric(String raw) {
       final matches = RegExp(r'[\d.]+').allMatches(raw);
@@ -1035,29 +1080,14 @@ class _ChatScreenState extends State<ChatScreen> {
         const minGap = 2.0;
 
         List<double> lx = List.generate(3, (i) => usableW * fractions[i]);
-
-        if (lx[1] - lx[0] < lW + minGap) lx[1] = lx[0] + lW + minGap;
-        if (lx[2] - lx[1] < lW + minGap) lx[2] = lx[1] + lW + minGap;
-
-        if (lx[2] > w) {
-          lx[2] = w;
-          if (lx[2] - lx[1] < lW + minGap) lx[1] = lx[2] - (lW + minGap);
-          if (lx[1] - lx[0] < lW + minGap) lx[0] = lx[1] - (lW + minGap);
-        }
-
-        if (lx[0] < 0) {
-          lx[0] = 0;
-          if (lx[1] < lx[0] + lW + minGap) lx[1] = lx[0] + lW + minGap;
-          if (lx[2] < lx[1] + lW + minGap) lx[2] = lx[1] + lW + minGap;
-        }
+        lx = _spreadTimelineAnchorsByPrice(lx, numeric, lW + minGap, w);
 
         double? lxCurrent;
         if (hasCurrent && currentNumeric != null) {
           if (denom < 0.000001) {
             lxCurrent = usableW * 0.5;
           } else {
-            final frac =
-                ((currentNumeric - minV) / denom).clamp(0.0, 1.0);
+            final frac = ((currentNumeric - minV) / denom).clamp(0.0, 1.0);
             lxCurrent = usableW * frac;
           }
         }
@@ -1229,7 +1259,9 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget _buildTradeTimelineForEdit(NewTradeOpportunityMessage msg) {
     const dotRadius = 6.0;
     final labels = ['Stop Loss', 'Trail SL', 'Target'];
-    final oldSl = msg.oldStopLoss.trim().isNotEmpty ? msg.oldStopLoss : msg.stopLoss;
+    final oldSl = msg.oldStopLoss.trim().isNotEmpty
+        ? msg.oldStopLoss
+        : msg.stopLoss;
     final values = [oldSl, msg.stopLoss, msg.frr];
 
     double parseNumeric(String raw) {
@@ -1269,42 +1301,37 @@ class _ChatScreenState extends State<ChatScreen> {
               .toList();
         }
 
-        const lW = 64.0;
-        const minGap = 2.0;
+        // Wider slots for "Stop Loss" / "Trail SL"; anchors need >= 1.5*lW apart
+        // because slot 0 is left-aligned, 1 centered, 2 right-aligned (64px boxes
+        // would overlap with the old lW + minGap rule).
+        const lW = 76.0;
+        const minGap = 4.0;
+        final minAnchorSep = lW * 1.5 + minGap;
         List<double> lx = List.generate(3, (i) => usableW * fractions[i]);
-        if (lx[1] - lx[0] < lW + minGap) lx[1] = lx[0] + lW + minGap;
-        if (lx[2] - lx[1] < lW + minGap) lx[2] = lx[1] + lW + minGap;
-        if (lx[2] > w) {
-          lx[2] = w;
-          if (lx[2] - lx[1] < lW + minGap) lx[1] = lx[2] - (lW + minGap);
-          if (lx[1] - lx[0] < lW + minGap) lx[0] = lx[1] - (lW + minGap);
-        }
-        if (lx[0] < 0) {
-          lx[0] = 0;
-          if (lx[1] < lx[0] + lW + minGap) lx[1] = lx[0] + lW + minGap;
-          if (lx[2] < lx[1] + lW + minGap) lx[2] = lx[1] + lW + minGap;
-        }
+        lx = _spreadTimelineAnchorsByPrice(lx, numeric, minAnchorSep, w);
 
         double? lxCurrent;
         if (hasCurrent && currentNumeric != null) {
           if (denom < 0.000001) {
             lxCurrent = usableW * 0.5;
           } else {
-            lxCurrent = usableW * ((currentNumeric - minV) / denom).clamp(0.0, 1.0);
+            lxCurrent =
+                usableW * ((currentNumeric - minV) / denom).clamp(0.0, 1.0);
           }
         }
 
         return Column(
           children: [
             SizedBox(
-              height: 28,
+              height: 34,
               child: Stack(
+                clipBehavior: Clip.none,
                 children: List.generate(3, (i) {
                   final left = i == 0
                       ? lx[i].clamp(0.0, w - lW)
                       : (i == 2
-                          ? (lx[i] - lW).clamp(0.0, w - lW)
-                          : (lx[i] - lW / 2).clamp(0.0, w - lW));
+                            ? (lx[i] - lW).clamp(0.0, w - lW)
+                            : (lx[i] - lW / 2).clamp(0.0, w - lW));
                   return Positioned(
                     left: left,
                     width: lW,
@@ -1317,7 +1344,10 @@ class _ChatScreenState extends State<ChatScreen> {
                         textAlign: i == 0
                             ? TextAlign.left
                             : (i == 2 ? TextAlign.right : TextAlign.center),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
+                          height: 1.15,
                           fontSize: 11,
                           color: Colors.grey.shade700,
                           fontWeight: FontWeight.w600,
@@ -1333,6 +1363,7 @@ class _ChatScreenState extends State<ChatScreen> {
               height: dotRadius * 2 + 4,
               width: w,
               child: Stack(
+                clipBehavior: Clip.none,
                 children: [
                   Positioned(
                     left: 0,
@@ -1345,7 +1376,9 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   ),
                   ...List.generate(3, (i) {
-                    final color = i == 1 ? const Color(0xFF616161) : const Color(0xFF616161);
+                    final color = i == 1
+                        ? const Color(0xFF616161)
+                        : const Color(0xFF616161);
                     return Positioned(
                       left: (lx[i] - dotRadius).clamp(0.0, w - dotRadius * 2),
                       top: 1,
@@ -1361,7 +1394,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   }),
                   if (lxCurrent != null)
                     Positioned(
-                      left: (lxCurrent - dotRadius).clamp(0.0, w - dotRadius * 2),
+                      left: (lxCurrent - dotRadius).clamp(
+                        0.0,
+                        w - dotRadius * 2,
+                      ),
                       top: 1,
                       child: Container(
                         width: dotRadius * 2,
@@ -1384,8 +1420,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   final left = i == 0
                       ? lx[i].clamp(0.0, w - lW)
                       : (i == 2
-                          ? (lx[i] - lW).clamp(0.0, w - lW)
-                          : (lx[i] - lW / 2).clamp(0.0, w - lW));
+                            ? (lx[i] - lW).clamp(0.0, w - lW)
+                            : (lx[i] - lW / 2).clamp(0.0, w - lW));
                   return Positioned(
                     left: left,
                     width: lW,
@@ -1629,22 +1665,26 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 const SizedBox(height: 12),
                 GestureDetector(
-                  onTap: () {
-                    if (msg.isGttHit && msg.tradeData != null) {
-                      _showTradeParamsPopup(
-                        context,
-                        msg.tradeData!,
-                        controller,
-                      );
-                    } else {
-                      controller.onTradeExecuted();
-                    }
-                  },
+                  onTap: _showButtons(msg)
+                      ? () {
+                          if (msg.isGttHit && msg.tradeData != null) {
+                            _showTradeParamsPopup(
+                              context,
+                              msg.tradeData!,
+                              controller,
+                            );
+                          } else {
+                            controller.onTradeExecuted();
+                          }
+                        }
+                      : null,
                   child: Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     decoration: BoxDecoration(
-                      color: AppColors.primary,
+                      color: _showButtons(msg)
+                          ? AppColors.primary
+                          : Colors.grey.shade400,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Center(
@@ -1705,23 +1745,19 @@ class _ChatScreenState extends State<ChatScreen> {
                   style: TextStyle(fontSize: 14, color: Colors.grey.shade800),
                 ),
                 const SizedBox(height: 14),
-                Text(
-                  '1. Go to Trading APP and apply Levels',
-                  style: stepStyle,
-                ),
+                Text('1. Go to Trading APP and apply Levels', style: stepStyle),
                 const SizedBox(height: 8),
                 _tradePromptPrimaryButton(
                   label: 'Open Trading APP',
-                  onTap: () => controller.openTradingApp(),
+                  enabled: _showButtons(msg),
+                  interactive: false,
                 ),
                 const SizedBox(height: 14),
-                Text(
-                  '2. Intimate me once you apply the GTT',
-                  style: stepStyle,
-                ),
+                Text('2. Intimate me once you apply the GTT', style: stepStyle),
                 const SizedBox(height: 8),
                 _tradePromptPrimaryButton(
                   label: msg.buttonLabel,
+                  enabled: _showButtons(msg),
                   onTap: () => AppToast.showToast('Thanks for confirming'),
                 ),
               ],
@@ -1790,10 +1826,7 @@ class _ChatScreenState extends State<ChatScreen> {
 }
 
 class _UnreadRevealGate extends StatefulWidget {
-  const _UnreadRevealGate({
-    required this.messageId,
-    required this.onRevealed,
-  });
+  const _UnreadRevealGate({required this.messageId, required this.onRevealed});
 
   final String messageId;
   final ValueChanged<String> onRevealed;
@@ -1816,12 +1849,7 @@ class _UnreadRevealGateState extends State<_UnreadRevealGate> {
   Widget build(BuildContext context) {
     return const Padding(
       padding: EdgeInsets.only(bottom: 8),
-      child: Row(
-        children: [
-          SizedBox(width: 44),
-          _TypingDots(),
-        ],
-      ),
+      child: Row(children: [SizedBox(width: 44), _TypingDots()]),
     );
   }
 }
