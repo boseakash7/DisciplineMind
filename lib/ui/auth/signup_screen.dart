@@ -16,9 +16,6 @@ class SignUpScreen extends StatelessWidget {
   final TextEditingController nameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController phoneController = TextEditingController();
-  final TextEditingController passwordController = TextEditingController();
-  final TextEditingController confirmPasswordController =
-      TextEditingController();
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
@@ -109,32 +106,6 @@ class SignUpScreen extends StatelessWidget {
                   },
                 ),
               ],
-              const SizedBox(height: 16),
-              CustomTextField(
-                controller: passwordController,
-                hint: "Password",
-                icon: Icons.lock_outline,
-                isPassword: true,
-                validator: (val) => val == null || val.isEmpty
-                    ? "Please enter your password"
-                    : null,
-              ),
-              const SizedBox(height: 16),
-              CustomTextField(
-                controller: confirmPasswordController,
-                hint: "Confirm Password",
-                icon: Icons.lock_clock_outlined,
-                isPassword: true,
-                validator: (val) {
-                  if (val == null || val.isEmpty) {
-                    return "Please confirm your password";
-                  }
-                  if (val != passwordController.text) {
-                    return "Passwords do not match";
-                  }
-                  return null;
-                },
-              ),
               const SizedBox(height: 32),
               Obx(
                 () => PrimaryButton(
@@ -152,7 +123,6 @@ class SignUpScreen extends StatelessWidget {
                             authController.signUp(
                               fullname: nameController.text.trim(),
                               email: emailController.text.trim(),
-                              password: passwordController.text.trim(),
                               phone: phone,
                             );
                           }

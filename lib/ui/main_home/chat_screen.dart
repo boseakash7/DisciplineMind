@@ -525,7 +525,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     _tradePromptPrimaryButton(
                       label: 'Open Trading APP',
                       enabled: _showButtons(msg),
-                      interactive: false,
+                      onTap: () => controller.openTradingApp(),
                     ),
                     const SizedBox(height: 14),
                     Text(_deleteTradeStep2Text(msg), style: stepStyle),
@@ -607,7 +607,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     _tradePromptPrimaryButton(
                       label: 'Open Trading APP',
                       enabled: _showButtons(msg),
-                      interactive: false,
+                      onTap: () => controller.openTradingApp(),
                     ),
                     const SizedBox(height: 14),
                     Text(
@@ -798,7 +798,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 _tradePromptPrimaryButton(
                   label: 'Open Trading APP',
                   enabled: _showButtons(actionSource),
-                  interactive: false,
+                  onTap: () => controller.openTradingApp(),
                 ),
                 const SizedBox(height: 14),
                 Text('2. Intimate me once you apply the GTT', style: stepStyle),
@@ -820,6 +820,7 @@ class _ChatScreenState extends State<ChatScreen> {
     required String label,
     VoidCallback? onTap,
     bool enabled = true,
+
     /// When false, same look but no tap / ripple (e.g. Open Trading APP display-only).
     bool interactive = true,
   }) {
@@ -1667,7 +1668,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 GestureDetector(
                   onTap: _showButtons(msg)
                       ? () {
-                          if (msg.isGttHit && msg.tradeData != null) {
+                          if (msg.buttonType == 'trade_executed') {
+                            controller.acknowledgeTradeExecuted(msg);
+                          } else if (msg.isGttHit && msg.tradeData != null) {
                             _showTradeParamsPopup(
                               context,
                               msg.tradeData!,
@@ -1750,7 +1753,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 _tradePromptPrimaryButton(
                   label: 'Open Trading APP',
                   enabled: _showButtons(msg),
-                  interactive: false,
+                  onTap: () => controller.openTradingApp(),
                 ),
                 const SizedBox(height: 14),
                 Text('2. Intimate me once you apply the GTT', style: stepStyle),

@@ -4,14 +4,15 @@ import 'package:app_limiter/app_limiter.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/constants/blocked_apps.dart';
 import 'package:discipline_mind/controller/alert_controller.dart';
-import 'package:discipline_mind/services/trading_apps_service.dart';
 import 'package:discipline_mind/model/chat_message_model.dart';
 import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
+import 'package:discipline_mind/services/trading_apps_service.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:get/get.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class ChatController extends GetxController {
   final NativeAppBlockService _blockService = NativeAppBlockService();
@@ -381,6 +382,7 @@ class ChatController extends GetxController {
         'user_id': userId,
       });
       if (response.isSuccess) {
+        await _applyTradingAppBlock(userId);
         AppToast.showToast('Trade deleted');
         await loadMessages(refresh: true);
       } else {
@@ -414,6 +416,7 @@ class ChatController extends GetxController {
         'user_id': userId,
       });
       if (response.isSuccess) {
+        await _applyTradingAppBlock(userId);
         AppToast.showToast('SL trailed');
         await loadMessages(refresh: true);
       } else {
@@ -425,6 +428,58 @@ class ChatController extends GetxController {
       AppToast.showToast('Error: $e');
       print('[ChatController] acknowledgeSlTrailed failed: $e');
     }
+  }
+
+  /// POST `trade/executed` (trade_id + user_id) after user confirms target hit.
+  Future<void> acknowledgeTradeExecuted(AlertHitWithButtonMessage msg) async {
+    final userId = Common.userData.value?.payload?.id?.toString();
+    if (userId == null || userId.isEmpty) {
+      AppToast.showToast('Please sign in to confirm');
+      return;
+    }
+    if (msg.tradeId.isEmpty) {
+      AppToast.showToast('Missing trade id');
+      return;
+    }
+    try {
+      final api = Get.isRegistered<ApiService>()
+          ? Get.find<ApiService>()
+          : Get.put(ApiService(), permanent: true);
+      final response = await api.postFormData(ApiUrl.tradeExecuted, {
+        'trade_id': msg.tradeId,
+        'user_id': userId,
+      });
+      if (response.isSuccess) {
+        AppToast.showToast('Trade execution confirmed');
+        await loadMessages(refresh: true);
+      } else {
+        AppToast.showToast(
+          response.errorMessage ?? 'Could not confirm trade execution',
+        );
+      }
+    } catch (e) {
+      AppToast.showToast('Error: $e');
+      print('[ChatController] acknowledgeTradeExecuted failed: $e');
+    }
+  }
+
+  Future<bool> _launchTradingPackageWithUrlLauncher(String packageName) async {
+    final candidateUris = <Uri>[
+      // Android intent URI that targets package directly.
+      Uri.parse('intent://#Intent;package=$packageName;end'),
+      // Alternate app URI format used by Android app links.
+      Uri.parse('android-app://$packageName'),
+    ];
+    for (final uri in candidateUris) {
+      try {
+        final ok = await launchUrl(
+          uri,
+          mode: LaunchMode.externalNonBrowserApplication,
+        );
+        if (ok) return true;
+      } catch (_) {}
+    }
+    return false;
   }
 
   /// Unblock trading apps and open the first selected broker app (Android).
@@ -442,7 +497,7 @@ class ChatController extends GetxController {
         for (final package in selectedPackages) {
           final aliases = tradingAppLaunchAliases[package] ?? [package];
           for (final candidate in aliases) {
-            final ok = await _blockService.launchApp(candidate);
+            final ok = await _launchTradingPackageWithUrlLauncher(candidate);
             if (ok) {
               launched = true;
               break;

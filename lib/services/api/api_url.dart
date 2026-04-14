@@ -26,4 +26,7 @@ class ApiUrl {
 
   /// Confirms user trailed the SL in the broker app (form: trade_id, user_id).
   static const String editTrade = "edit/trade";
+
+  /// Confirms target hit / trade executed from chat button.
+  static const String tradeExecuted = "trade/executed";
 }

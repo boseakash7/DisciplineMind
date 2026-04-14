@@ -137,24 +137,47 @@ class AuthController extends GetxController {
   void signUp({
     required String fullname,
     required String email,
-    required String password,
     required String phone,
+    String? password,
   }) async {
     try {
       isLoading.value = true;
 
-      final ApiResponse response = await apiService.postFormData(ApiUrl.signUpUrl, {
+      final fields = <String, String>{
         "fullname": fullname,
         "email": email,
-        "password": password,
         "phone": phone,
-      });
+      };
+      final pwd = (password ?? '').trim();
+      if (pwd.isNotEmpty) {
+        fields["password"] = pwd;
+      }
+
+      final ApiResponse response = await apiService.postFormData(
+        ApiUrl.signUpUrl,
+        fields,
+      );
 
       isLoading.value = false;
 
       if (response.isSuccess) {
+        final raw = response.data;
+        if (raw is! Map) {
+          AppToast.showToast("Account created, but login failed. Please login.");
+          Get.offAll(() => PhoneLoginScreen());
+          return;
+        }
+
+        final data = Map<String, dynamic>.from(raw);
+        final loginModel = LoginResponseModel.fromJson(data);
+        if (loginModel.payload?.id == null || loginModel.payload!.id!.isEmpty) {
+          AppToast.showToast("Account created, but login failed. Please login.");
+          Get.offAll(() => PhoneLoginScreen());
+          return;
+        }
+
         AppToast.showToast("Account created successfully!");
-        Get.offAll(() => PhoneLoginScreen());
+        await applyLoggedInUser(loginModel);
       } else {
         AppToast.showToast(response.errorMessage ?? "Failed to create account");
       }

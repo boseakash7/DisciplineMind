@@ -67,9 +67,13 @@ class AppBlockingService : Service() {
     private var overlayShowTimeMs: Long = 0
     private var overlayPackage: String = ""
     private var lastTrackedForegroundApp: String = ""
+    private var lastObservedForegroundApp: String = ""
     /** Force Unblock = one-time bypass only. Cleared when user switches away. */
     private val temporaryUnblocked = mutableSetOf<String>()
     private var lastAllowedApp: String = ""  // blocked app we're currently allowing (no overlay)
+    private var stateDecisionApp: String = ""
+    private var stateDecisionUnlocked: Boolean? = null
+    private var stateDecisionInFlight: Boolean = false
 
     override fun onCreate() {
         super.onCreate()
@@ -175,16 +179,19 @@ class AppBlockingService : Service() {
         executor.scheduleAtFixedRate({
             AppManager.loadBlockedApps(applicationContext)
             val foregroundApp = getForegroundApp()
+            lastObservedForegroundApp = foregroundApp ?: ""
             val monitoredPackages = AppManager.getMonitoredTradingApps(applicationContext)
             if (foregroundApp != null &&
                 foregroundApp != lastTrackedForegroundApp &&
                 monitoredPackages.contains(foregroundApp)
             ) {
                 AppUsageTracker.recordAppOpened(applicationContext, foregroundApp)
+                onMonitoredAppOpened(foregroundApp)
             }
             lastTrackedForegroundApp = foregroundApp ?: ""
             when {
                 foregroundApp == null -> {
+                    clearStateDecision()
                     if (overlayShowing) {
                         currentForegroundApp = ""
                         mainHandler.post { hideOverlay() }
@@ -194,6 +201,7 @@ class AppBlockingService : Service() {
                     }
                 }
                 foregroundApp != null && HIDE_OVERLAY_PACKAGES.any { foregroundApp.startsWith(it) || foregroundApp == it } -> {
+                    clearStateDecision()
                     if (overlayShowing) {
                         currentForegroundApp = ""
                         mainHandler.post { hideOverlay() }
@@ -203,6 +211,7 @@ class AppBlockingService : Service() {
                     }
                 }
                 foregroundApp == ourPackageName -> {
+                    clearStateDecision()
                     if (overlayShowing) {
                         currentForegroundApp = ""
                         mainHandler.post { hideOverlay() }
@@ -212,12 +221,21 @@ class AppBlockingService : Service() {
                     }
                 }
                 !AppManager.blockedApps.contains(foregroundApp) -> {
+                    clearStateDecision()
                     if (overlayShowing) {
                         currentForegroundApp = ""
                         mainHandler.post { hideOverlay() }
                     } else if (lastAllowedApp.isNotEmpty()) {
                         temporaryUnblocked.remove(lastAllowedApp)
                         lastAllowedApp = ""
+                    }
+                }
+                foregroundApp == stateDecisionApp && stateDecisionUnlocked == true -> {
+                    temporaryUnblocked.add(foregroundApp)
+                    lastAllowedApp = foregroundApp
+                    if (overlayShowing) {
+                        currentForegroundApp = ""
+                        mainHandler.post { hideOverlay() }
                     }
                 }
                 foregroundApp in temporaryUnblocked -> {
@@ -235,6 +253,42 @@ class AppBlockingService : Service() {
                 }
             }
         }, 0, CHECK_INTERVAL_MS, TimeUnit.MILLISECONDS)
+    }
+
+    private fun clearStateDecision() {
+        stateDecisionApp = ""
+        stateDecisionUnlocked = null
+        stateDecisionInFlight = false
+    }
+
+    /** Called each time a monitored trading app comes to foreground. */
+    private fun onMonitoredAppOpened(packageName: String) {
+        if (stateDecisionInFlight && stateDecisionApp == packageName) return
+        stateDecisionApp = packageName
+        stateDecisionUnlocked = null
+        stateDecisionInFlight = true
+        executor.execute {
+            val shouldUnlock = fetchTradingAppUnlockState()
+            mainHandler.post {
+                if (lastObservedForegroundApp != packageName) {
+                    stateDecisionInFlight = false
+                    return@post
+                }
+                stateDecisionUnlocked = shouldUnlock
+                stateDecisionInFlight = false
+                if (shouldUnlock) {
+                    temporaryUnblocked.add(packageName)
+                    lastAllowedApp = packageName
+                    if (overlayShowing) {
+                        currentForegroundApp = ""
+                        hideOverlay()
+                    }
+                } else {
+                    temporaryUnblocked.remove(packageName)
+                    if (lastAllowedApp == packageName) lastAllowedApp = ""
+                }
+            }
+        }
     }
 
     /**
@@ -379,9 +433,6 @@ class AppBlockingService : Service() {
             return
         }
 
-        // Native auto-unblock: check alerts API, if empty unblock (user only sees native overlay)
-        executor.execute { checkAlertsAndAutoUnblock() }
-
         // Load Flutter behind native; swap only after first frame - no black flash
         mainHandler.post {
             if (!overlayShowing) return@post
@@ -407,10 +458,10 @@ class AppBlockingService : Service() {
         }
     }
 
-    private fun checkAlertsAndAutoUnblock() {
-        val userId = AppManager.loadUserIdForOverlay(applicationContext) ?: return
+    private fun fetchTradingAppUnlockState(): Boolean {
+        val userId = AppManager.loadUserIdForOverlay(applicationContext) ?: return false
         try {
-            val url = URL("http://api.disciplinedminds.in/api/alert/action/taken")
+            val url = URL("http://api.disciplinedminds.in/api/app/state")
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
@@ -420,7 +471,7 @@ class AppBlockingService : Service() {
             conn.outputStream.use { os ->
                 os.write("user_id=${java.net.URLEncoder.encode(userId, "UTF-8")}".toByteArray())
             }
-            if (conn.responseCode != 200) return
+            if (conn.responseCode != 200) return false
             var body = conn.inputStream.bufferedReader().readText().trim()
             conn.disconnect()
             // Strip leading HTML (e.g. <br />) before parsing JSON
@@ -428,16 +479,11 @@ class AppBlockingService : Service() {
             if (jsonStart > 0) body = body.substring(jsonStart)
             val json = JSONObject(body)
             val payload = json.optJSONObject("payload")
-            val actionTaken = payload?.optInt("action_taken", 0) ?: 0
-            val alertStatus = (payload?.optString("alert_status", "") ?: "").lowercase()
-
-            // Keep blocked ONLY when action_taken = 1 and alert_status = pending.
-            val shouldKeepBlocked = actionTaken == 1 && alertStatus == "pending"
-            if (!shouldKeepBlocked) {
-                mainHandler.post { performAutoUnblock() }
-            }
+            val state = (payload?.optString("state", "") ?: "").lowercase()
+            return state == "unlocked"
         } catch (e: Exception) {
             e.printStackTrace()
+            return false
         }
     }
 
@@ -448,20 +494,6 @@ class AppBlockingService : Service() {
             "com.nextbillion.groww" -> "Groww"
             else -> "This app"
         }
-    }
-
-    /**
-     * Auto-unblock: called when the alerts API returns empty.
-     * Permanently removes all apps from the blocked list and stops the service
-     * so the overlay never flashes again on next open.
-     */
-    private fun performAutoUnblock() {
-        AppManager.getBlockedAppsList().toList().forEach { pkg ->
-            AppManager.removeBlockedApp(applicationContext, pkg)
-        }
-        AppManager.loadBlockedApps(applicationContext)
-        hideOverlay()
-        stopSelf()
     }
 
     /** Force Unblock: one-time bypass for this app only. Next open (if alerts exist) will block again. */

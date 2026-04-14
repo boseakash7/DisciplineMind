@@ -32,11 +32,7 @@ void _onAppResumed() {
 /// Logged-in Android users cannot use the app without overlay + usage access.
 Future<void> _enforceAndroidTradingPermissionsIfLoggedIn() async {
   if (!Platform.isAndroid) return;
-  final fromRx = Common.userData.value?.payload?.id?.toString();
-  final fromBox = GetStorage().read('user_id');
-  final uid = (fromRx != null && fromRx.isNotEmpty)
-      ? fromRx
-      : fromBox?.toString();
+  final uid = Common.userData.value?.payload?.id?.toString();
   if (uid == null || uid.isEmpty) return;
   if (await hasAndroidTradingBlockPermissions()) return;
   WidgetsBinding.instance.addPostFrameCallback((_) {

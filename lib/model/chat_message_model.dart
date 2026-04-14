@@ -134,12 +134,16 @@ class TradeExecutionPromptMessage extends ChatMessage {
 class AlertHitWithButtonMessage extends ChatMessage {
   final String text;
   final String buttonLabel;
+  final String buttonType;
+  final String tradeId;
   final bool isGttHit;
   final NewTradeOpportunityMessage? tradeData;
 
   const AlertHitWithButtonMessage({
     required this.text,
     this.buttonLabel = 'Trade Executed',
+    this.buttonType = '',
+    this.tradeId = '',
     this.isGttHit = false,
     this.tradeData,
     super.messageId,
@@ -183,9 +187,8 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
 
   final isAlertButton = messageType == 'button' && entityType == 'alert';
 
-  /// Plain copy only — ignore payload / entity (e.g. alert with trade nested).
-  if (messageType.toLowerCase() == 'text' &&
-      buttonTypeOuter.toLowerCase() == 'no_button') {
+  /// For `message_type: text`, always show plain text only.
+  if (messageType.toLowerCase() == 'text') {
     return [
       SimpleTextMessage(
         text: message,
@@ -201,8 +204,11 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
     final p = payload != null && payload is Map
         ? Map<String, dynamic>.from(payload)
         : <String, dynamic>{};
-    final buttonLabel =
-        (p['button_label'] ?? p['buttonLabel'] ?? 'Trade Executed').toString();
+    final buttonType = (json['button_type'] ?? '').toString();
+    final buttonLabel = buttonType == 'trade_executed'
+        ? 'Yes! Target is hit'
+        : (p['button_label'] ?? p['buttonLabel'] ?? 'Trade Executed').toString();
+    final tradeId = (p['trade_id'] ?? p['id'] ?? '').toString();
 
     bool isGttHit = p['gtt_price'] != null;
     NewTradeOpportunityMessage? tradeData;
@@ -253,6 +259,8 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       AlertHitWithButtonMessage(
         text: message.isNotEmpty ? message : 'Your alert has been triggered.',
         buttonLabel: buttonLabel,
+        buttonType: buttonType,
+        tradeId: tradeId,
         isGttHit: isGttHit,
         tradeData: tradeData,
         messageId: messageId,
