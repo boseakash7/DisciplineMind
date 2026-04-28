@@ -26,6 +26,9 @@ class AuthController extends GetxController {
   final LocalStorageService storage = LocalStorageService();
   final AppBlockPreferencesService appBlockPrefs = AppBlockPreferencesService();
 
+  /// Backend expects phone without spaces (users sometimes type "03 12 ...").
+  String _normalizePhone(String phone) => phone.replaceAll(RegExp(r'\s+'), '');
+
   Future<void> _navigateAfterLogin() async {
     final userId = Common.userData.value?.payload?.id?.toString();
     if (userId == null) {
@@ -78,7 +81,7 @@ class AuthController extends GetxController {
       isLoading.value = true;
       final ApiResponse response = await apiService.postFormData(
         ApiUrl.sendOtpUrl,
-        {"phone": phone},
+        {"phone": _normalizePhone(phone)},
       );
       isLoading.value = false;
 
@@ -103,7 +106,7 @@ class AuthController extends GetxController {
       isLoading.value = true;
       final ApiResponse response = await apiService.postFormData(
         ApiUrl.verifyOtpUrl,
-        {"phone": phone, "otp": otp},
+        {"phone": _normalizePhone(phone), "otp": otp},
       );
       isLoading.value = false;
 
@@ -146,7 +149,7 @@ class AuthController extends GetxController {
       final fields = <String, String>{
         "fullname": fullname,
         "email": email,
-        "phone": phone,
+        "phone": _normalizePhone(phone),
       };
       final pwd = (password ?? '').trim();
       if (pwd.isNotEmpty) {

@@ -236,9 +236,9 @@ class BmScreen extends StatelessWidget {
                 GestureDetector(
                   onTap: onMonkkTap,
                   child: const Text(
-                    "Monkk",
+                    "Discipline Mind",
                     style: TextStyle(
-                      fontSize: 22,
+                      fontSize: 18,
                       fontWeight: FontWeight.bold,
                       color: AppColors.primary,
                     ),

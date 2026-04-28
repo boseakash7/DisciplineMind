@@ -127,6 +127,28 @@ class NativeAppBlockService {
     }
   }
 
+  /// Push tracked usage data to backend.
+  /// If [apiUrl] is null, native code uses a dummy endpoint (`https://httpbin.org/post`).
+  Future<Map<String, dynamic>> pushBlockedAppUsageStats({
+    required String userId,
+    String? apiUrl,
+  }) async {
+    if (!Platform.isAndroid) return {'success': false, 'error': 'Android only'};
+    try {
+      final result = await _channel.invokeMethod<Map<Object?, Object?>>(
+        'pushBlockedAppUsageStats',
+        {
+          'userId': userId,
+          'apiUrl': apiUrl,
+        },
+      );
+      return Map<String, dynamic>.from(result ?? const {});
+    } catch (e) {
+      print('[NativeAppBlock] pushBlockedAppUsageStats failed: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
   /// Save userId for native overlay (used for alert check / auto-unblock).
   Future<void> saveUserIdForOverlay(String userId) async {
     if (!Platform.isAndroid) return;

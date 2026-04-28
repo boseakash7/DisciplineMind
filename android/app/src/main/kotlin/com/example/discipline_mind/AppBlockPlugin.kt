@@ -105,6 +105,18 @@ class AppBlockPlugin(private val activity: android.app.Activity) : MethodChannel
                     "totalUsageTimeMs" to it["totalUsageTimeMs"]
                 ) })
             }
+            "pushBlockedAppUsageStats" -> {
+                val packages = AppManager.getMonitoredTradingApps(ctx).toList()
+                val userId = call.argument<String>("userId")
+                val apiUrl = call.argument<String>("apiUrl")
+                val response = AppUsageTracker.pushAllUsageToBackend(
+                    context = ctx,
+                    packages = packages,
+                    userId = userId,
+                    apiUrl = apiUrl
+                )
+                result.success(response)
+            }
             "launchApp" -> {
                 val packageName = call.argument<String>("packageName")
                 if (packageName != null) {

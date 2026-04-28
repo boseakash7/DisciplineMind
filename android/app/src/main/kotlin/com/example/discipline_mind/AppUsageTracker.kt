@@ -6,6 +6,8 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.SharedPreferences
 import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
  * Tracks usage of blocked apps (Zerodha, Upstox, Groww):
@@ -87,5 +89,57 @@ object AppUsageTracker {
 
     fun getAllUsage(context: Context, packages: List<String>): List<Map<String, Any>> {
         return packages.map { getUsageForPackage(context, it) }
+    }
+
+    /**
+     * Push tracked usage payload to backend.
+     * This uses a dummy endpoint by default and can be overridden from Flutter.
+     */
+    fun pushAllUsageToBackend(
+        context: Context,
+        packages: List<String>,
+        userId: String?,
+        apiUrl: String?
+    ): Map<String, Any> {
+        val resolvedUrl = apiUrl?.takeIf { it.isNotBlank() } ?: "https://httpbin.org/post"
+        val usageList = getAllUsage(context, packages)
+        return try {
+            val payload = JSONObject().apply {
+                put("userId", userId ?: "")
+                put("sentAt", System.currentTimeMillis())
+                put("apps", org.json.JSONArray(usageList))
+            }
+            val conn = (URL(resolvedUrl).openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                setRequestProperty("Content-Type", "application/json")
+                connectTimeout = 10000
+                readTimeout = 10000
+                doOutput = true
+            }
+            conn.outputStream.use { os ->
+                os.write(payload.toString().toByteArray())
+            }
+            val code = conn.responseCode
+            val response = try {
+                conn.inputStream.bufferedReader().readText()
+            } catch (_: Exception) {
+                conn.errorStream?.bufferedReader()?.readText() ?: ""
+            }
+            conn.disconnect()
+            mapOf(
+                "success" to (code in 200..299),
+                "statusCode" to code,
+                "endpoint" to resolvedUrl,
+                "payload" to payload.toString(),
+                "response" to response
+            )
+        } catch (e: Exception) {
+            mapOf(
+                "success" to false,
+                "statusCode" to -1,
+                "endpoint" to resolvedUrl,
+                "error" to (e.message ?: "Unknown error")
+            )
+        }
     }
 }

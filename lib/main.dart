@@ -47,8 +47,16 @@ void _refreshUserAlertsOnNotification() {
     Get.find<AlertController>().fetchUserAlerts(userId);
   }
   if (Get.isRegistered<ChatController>()) {
-    Get.find<ChatController>().loadMessages(refresh: true, silent: true);
+    Get.find<ChatController>().loadNewMessages(silent: true);
   }
+}
+
+/// After minimize → reopen: pull latest chat if user is logged in and chat was opened once.
+void _refreshChatOnAppResumed() {
+  final userId = Common.userData.value?.payload?.id?.toString();
+  if (userId == null || userId.isEmpty) return;
+  if (!Get.isRegistered<ChatController>()) return;
+  unawaited(Get.find<ChatController>().loadNewMessages(silent: true));
 }
 
 bool _initialMessageCheckDone = false;
@@ -144,6 +152,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       _onAppResumed();
       _enforceAndroidTradingPermissionsIfLoggedIn();
+      _refreshChatOnAppResumed();
     }
   }
 

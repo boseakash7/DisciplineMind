@@ -70,7 +70,9 @@ class PhoneLoginScreen extends StatelessWidget {
                   isLoading: authController.isLoading.value,
                   onPressed: () async {
                     if (!_formKey.currentState!.validate()) return;
-                    final phone = phoneController.text.trim();
+                    final phone = phoneController.text
+                        .trim()
+                        .replaceAll(RegExp(r'\s+'), '');
                     final ok = await authController.sendOtp(phone);
                     if (ok) {
                       Get.to(() => OtpVerifyScreen(phone: phone));

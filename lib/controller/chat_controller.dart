@@ -21,6 +21,7 @@ class ChatController extends GetxController {
   final messages = <ChatMessage>[].obs;
   final isLoading = false.obs;
   final isRefreshing = false.obs;
+  final hasMoreOlderMessages = true.obs;
 
   List<String> _selectedBlockedPackages() {
     final userId = Common.userData.value?.payload?.id?.toString();
@@ -34,6 +35,58 @@ class ChatController extends GetxController {
   void onInit() {
     super.onInit();
     loadMessages();
+  }
+
+  String _lastKnownMessageId() {
+    for (var i = messages.length - 1; i >= 0; i--) {
+      final id = messages[i].messageId.trim();
+      if (id.isNotEmpty) return id;
+    }
+    return '';
+  }
+
+  String _firstKnownMessageId() {
+    for (var i = 0; i < messages.length; i++) {
+      final id = messages[i].messageId.trim();
+      if (id.isNotEmpty) return id;
+    }
+    return '';
+  }
+
+  List<ChatMessage> _parseDisplayMessages(dynamic payload) {
+    if (payload is! List) return const <ChatMessage>[];
+    final parsed = <ChatMessage>[];
+    for (final item in payload) {
+      if (item is Map<String, dynamic>) {
+        // API returns messages oldest → newest (newest last). Chat list is the same.
+        // [chatMessagesFromJson] order per row (e.g. trade card then prompt) is already
+        // top-to-bottom for that row.
+        parsed.addAll(chatMessagesFromJson(item));
+      }
+    }
+    return _dedupeRedundantDeleteTradeButtons(parsed);
+  }
+
+  List<ChatMessage> _mergeUniqueMessages({
+    required List<ChatMessage> base,
+    required List<ChatMessage> incoming,
+    required bool prepend,
+  }) {
+    final existingIds = base
+        .map((m) => m.messageId.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
+    final filteredIncoming = incoming.where((m) {
+      final id = m.messageId.trim();
+      if (id.isEmpty) return true;
+      return !existingIds.contains(id);
+    }).toList();
+
+    if (prepend) {
+      return [...filteredIncoming, ...base];
+    }
+    return [...base, ...filteredIncoming];
   }
 
   /// Fetch messages from API
@@ -59,20 +112,9 @@ class ChatController extends GetxController {
 
       if (response.isSuccess && response.data != null) {
         final payload = response.data['payload'];
-        if (payload is List) {
-          final parsed = <ChatMessage>[];
-          for (final item in payload) {
-            if (item is Map<String, dynamic>) {
-              // We reverse at the end for oldest->newest display, so reverse
-              // each item's parsed messages here to preserve local order.
-              parsed.addAll(chatMessagesFromJson(item).reversed);
-            }
-          }
-          // API returns newest first; chat shows oldest first
-          final chronological = parsed.reversed.toList();
-          final display = _dedupeRedundantDeleteTradeButtons(chronological);
-          messages.assignAll(display);
-        }
+        final display = _parseDisplayMessages(payload);
+        messages.assignAll(display);
+        hasMoreOlderMessages.value = true;
       } else {
         if (!refresh) {
           _loadSampleMessages();
@@ -89,6 +131,96 @@ class ChatController extends GetxController {
         isLoading.value = false;
         isRefreshing.value = false;
       }
+    }
+  }
+
+  /// Fetch only newly arrived messages:
+  /// sends latest local `message_id` + `direction=after`.
+  Future<void> loadNewMessages({bool silent = true}) async {
+    if (messages.isEmpty) {
+      await loadMessages(silent: silent);
+      return;
+    }
+    if (!silent) {
+      isRefreshing.value = true;
+    }
+    try {
+      final userId = Common.userData.value?.payload?.id?.toString() ?? '2';
+      final fields = <String, String>{'user_id': userId};
+      final lastMessageId = _lastKnownMessageId();
+      if (lastMessageId.isNotEmpty) {
+        fields['message_id'] = lastMessageId;
+        fields['direction'] = 'after';
+      }
+      final api = Get.isRegistered<ApiService>()
+          ? Get.find<ApiService>()
+          : Get.put(ApiService(), permanent: true);
+      final response = await api.postMessagesForm(
+        ApiUrl.getMessagesByUser,
+        fields,
+      );
+      if (response.isSuccess && response.data != null) {
+        final incoming = _parseDisplayMessages(response.data['payload']);
+        if (incoming.isNotEmpty) {
+          final merged = _mergeUniqueMessages(
+            base: messages.toList(),
+            incoming: incoming,
+            prepend: false,
+          );
+          messages.assignAll(merged);
+        }
+      } else if (!silent && response.errorMessage != null) {
+        AppToast.showToast(response.errorMessage!);
+      }
+    } catch (e) {
+      if (!silent) {
+        AppToast.showToast('Failed to load new messages: $e');
+      }
+    } finally {
+      if (!silent) {
+        isRefreshing.value = false;
+      }
+    }
+  }
+
+  /// Fetch older messages when user scrolls up:
+  /// sends earliest local `message_id` + `direction=before`.
+  Future<void> loadOlderMessages() async {
+    if (isRefreshing.value || !hasMoreOlderMessages.value) return;
+    final firstMessageId = _firstKnownMessageId();
+    if (firstMessageId.isEmpty) return;
+    isRefreshing.value = true;
+    try {
+      final userId = Common.userData.value?.payload?.id?.toString() ?? '2';
+      final fields = <String, String>{'user_id': userId};
+      fields['message_id'] = firstMessageId;
+      fields['direction'] = 'before';
+      final api = Get.isRegistered<ApiService>()
+          ? Get.find<ApiService>()
+          : Get.put(ApiService(), permanent: true);
+      final response = await api.postMessagesForm(
+        ApiUrl.getMessagesByUser,
+        fields,
+      );
+      if (response.isSuccess && response.data != null) {
+        final incoming = _parseDisplayMessages(response.data['payload']);
+        if (incoming.isNotEmpty) {
+          final merged = _mergeUniqueMessages(
+            base: messages.toList(),
+            incoming: incoming,
+            prepend: true,
+          );
+          messages.assignAll(merged);
+        } else {
+          hasMoreOlderMessages.value = false;
+        }
+      } else if (response.errorMessage != null) {
+        AppToast.showToast(response.errorMessage!);
+      }
+    } catch (e) {
+      AppToast.showToast('Failed to load older messages: $e');
+    } finally {
+      isRefreshing.value = false;
     }
   }
 
@@ -397,7 +529,10 @@ class ChatController extends GetxController {
   }
 
   /// POST `edit/trade` (trade_id + user_id) after user taps SL Trailed.
-  Future<void> acknowledgeSlTrailed(NewTradeOpportunityMessage msg) async {
+  Future<void> acknowledgeSlTrailed(
+    NewTradeOpportunityMessage msg, {
+    String? newSl,
+  }) async {
     final userId = Common.userData.value?.payload?.id?.toString();
     if (userId == null || userId.isEmpty) {
       AppToast.showToast('Please sign in to confirm');
@@ -411,10 +546,15 @@ class ChatController extends GetxController {
       final api = Get.isRegistered<ApiService>()
           ? Get.find<ApiService>()
           : Get.put(ApiService(), permanent: true);
-      final response = await api.postFormData(ApiUrl.editTrade, {
+      final fields = <String, String>{
         'trade_id': msg.tradeId,
         'user_id': userId,
-      });
+      };
+      final trimmed = (newSl ?? '').trim();
+      if (trimmed.isNotEmpty) {
+        fields['new_sl'] = trimmed;
+      }
+      final response = await api.postFormData(ApiUrl.editTrade, fields);
       if (response.isSuccess) {
         await _applyTradingAppBlock(userId);
         AppToast.showToast('SL trailed');

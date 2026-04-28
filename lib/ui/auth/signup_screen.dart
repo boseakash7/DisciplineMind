@@ -118,8 +118,12 @@ class SignUpScreen extends StatelessWidget {
                       : () {
                           if (_formKey.currentState!.validate()) {
                             final phone = phoneLocked
-                                ? lockedPhone!.trim()
-                                : phoneController.text.trim();
+                                ? lockedPhone!
+                                    .trim()
+                                    .replaceAll(RegExp(r'\s+'), '')
+                                : phoneController.text
+                                    .trim()
+                                    .replaceAll(RegExp(r'\s+'), '');
                             authController.signUp(
                               fullname: nameController.text.trim(),
                               email: emailController.text.trim(),

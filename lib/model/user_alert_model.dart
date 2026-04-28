@@ -26,44 +26,56 @@ class UserAlertModel {
 
 class UserAlerts {
   String? id;
+  String? tradeId;
   String? userId;
   String? exchange;
   String? tradingsymbol;
   String? currentPrice;
-  String? price;
+  String? upperPrice;
+  String? lowerPrice;
+  String? gttPrice;
   String? status;
   String? createdAt;
 
   UserAlerts({
     this.id,
+    this.tradeId,
     this.userId,
     this.exchange,
     this.tradingsymbol,
     this.currentPrice,
-    this.price,
+    this.upperPrice,
+    this.lowerPrice,
+    this.gttPrice,
     this.status,
     this.createdAt,
   });
 
   UserAlerts.fromJson(Map<String, dynamic> json) {
-    id = json['id'];
-    userId = json['user_id'];
-    exchange = json['exchange'];
-    tradingsymbol = json['tradingsymbol'];
-    currentPrice = json['current_price'];
-    price = json['price'];
-    status = json['status'];
-    createdAt = json['created_at'];
+    id = json['id']?.toString();
+    tradeId = json['trade_id']?.toString();
+    userId = json['user_id']?.toString();
+    exchange = json['exchange']?.toString();
+    tradingsymbol = json['tradingsymbol']?.toString();
+    currentPrice = json['current_price']?.toString();
+    upperPrice = json['upper_price']?.toString();
+    lowerPrice = json['lower_price']?.toString();
+    gttPrice = json['gtt_price']?.toString();
+    status = json['status']?.toString();
+    createdAt = json['created_at']?.toString();
   }
 
   Map<String, dynamic> toJson() {
     final Map<String, dynamic> data = <String, dynamic>{};
     data['id'] = id;
+    data['trade_id'] = tradeId;
     data['user_id'] = userId;
     data['exchange'] = exchange;
     data['tradingsymbol'] = tradingsymbol;
     data['current_price'] = currentPrice;
-    data['price'] = price;
+    data['upper_price'] = upperPrice;
+    data['lower_price'] = lowerPrice;
+    data['gtt_price'] = gttPrice;
     data['status'] = status;
     data['created_at'] = createdAt;
     return data;

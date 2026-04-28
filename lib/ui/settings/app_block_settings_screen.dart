@@ -1,6 +1,7 @@
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
+import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_apps_service.dart';
 import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:discipline_mind/ui/main_home/main_home.dart';
@@ -19,6 +20,7 @@ class AppBlockSettingsScreen extends StatefulWidget {
 
 class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
   final AppBlockPreferencesService _prefs = AppBlockPreferencesService();
+  final NativeAppBlockService _blockService = NativeAppBlockService();
   bool _isSaving = false;
 
   /// Single selected package from API list.
@@ -71,9 +73,20 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
 
     setState(() => _isSaving = true);
     try {
+      final previousPackage = _prefs.getSelectedPackage(userId: userId);
+      final nextPackage = _selectedPackage!;
+
+      // If user switched broker app, immediately remove old app from block list.
+      if (previousPackage != null &&
+          previousPackage.isNotEmpty &&
+          previousPackage != nextPackage) {
+        await _blockService.unblockApp(previousPackage);
+        await _blockService.unblockAndClose([previousPackage]);
+      }
+
       await _prefs.saveSelectedPackage(
         userId: userId,
-        packageName: _selectedPackage!,
+        packageName: nextPackage,
       );
       await applyAndroidTradingAppBlock();
       if (widget.isFirstSetup) {

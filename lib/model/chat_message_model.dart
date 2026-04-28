@@ -78,6 +78,10 @@ class NewTradeOpportunityMessage extends ChatMessage {
 
   /// Outer API `button_type` when [message_type] is button (e.g. open_app_button).
   final String buttonType;
+  /// Preferred trade card title from payload `name`.
+  final String tradeName;
+  /// Preferred trade card subtitle from payload `symbol`.
+  final String tradeSymbol;
 
   const NewTradeOpportunityMessage({
     required this.analystInfo,
@@ -96,6 +100,8 @@ class NewTradeOpportunityMessage extends ChatMessage {
     this.oldStopLoss = '',
     this.apiMessage = '',
     this.buttonType = '',
+    this.tradeName = '',
+    this.tradeSymbol = '',
     super.messageId,
     super.isUnread,
     super.actionTaken,
@@ -215,6 +221,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
     if (isGttHit && p['trade'] != null && p['trade'] is Map) {
       final tp = Map<String, dynamic>.from(p['trade']);
       final header = (tp['header'] ?? '').toString();
+      final name = (tp['name'] ?? '').toString();
       final symbol = (tp['symbol'] ?? '').toString();
       final exchange = (tp['exchange'] ?? '').toString();
       final entryPrice = (tp['entry_price'] ?? '').toString();
@@ -249,6 +256,8 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         oldStopLoss: oldStopLoss,
         apiMessage: message.trim(),
         buttonType: buttonTypeOuter,
+        tradeName: name,
+        tradeSymbol: symbol,
         messageId: messageId,
         isUnread: isUnread,
         actionTaken: actionTaken,
@@ -308,6 +317,8 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       oldStopLoss: oldStopLoss,
       apiMessage: apiMessage,
       buttonType: buttonTypeOuter,
+      tradeName: name,
+      tradeSymbol: symbol,
       messageId: messageId,
       isUnread: isUnread,
       actionTaken: actionTaken,

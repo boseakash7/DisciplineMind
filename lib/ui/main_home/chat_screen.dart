@@ -19,12 +19,98 @@ class _ChatScreenState extends State<ChatScreen> {
   final ScrollController _scrollController = ScrollController();
   int _lastMessageCount = 0;
   final Set<String> _revealedUnreadMessageIds = <String>{};
+  bool _isLoadingOlder = false;
+  bool _suppressAutoBottomScroll = false;
+  bool _skipNextAutoBottomScroll = false;
+  bool _didInitialBottomSnap = false;
+  String _previousFirstMessageId = '';
+  String _previousLastMessageId = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_handleScrollForOlderMessages);
+  }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_handleScrollForOlderMessages);
     _textController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  bool _isNearBottom() {
+    if (!_scrollController.hasClients) return false;
+    final position = _scrollController.position;
+    return (position.maxScrollExtent - position.pixels) <= 80;
+  }
+
+  String _firstMessageId(List<ChatMessage> list) {
+    for (final m in list) {
+      final id = m.messageId.trim();
+      if (id.isNotEmpty) return id;
+    }
+    return '';
+  }
+
+  String _lastMessageId(List<ChatMessage> list) {
+    for (var i = list.length - 1; i >= 0; i--) {
+      final id = list[i].messageId.trim();
+      if (id.isNotEmpty) return id;
+    }
+    return '';
+  }
+
+  Future<void> _handleScrollForOlderMessages() async {
+    if (_isLoadingOlder) return;
+    if (!_scrollController.hasClients) return;
+    if (_scrollController.position.pixels > 24) return;
+    final controller = Get.find<ChatController>();
+    if (controller.isLoading.value || controller.messages.isEmpty) return;
+    if (!controller.hasMoreOlderMessages.value) return;
+    _isLoadingOlder = true;
+    _suppressAutoBottomScroll = true;
+    _skipNextAutoBottomScroll = true;
+    final beforeIds = controller.messages
+        .map((m) => m.messageId.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    final previousPixels = _scrollController.position.pixels;
+    final previousMax = _scrollController.position.maxScrollExtent;
+    try {
+      await controller.loadOlderMessages();
+      if (mounted) {
+        final prependedUnreadIds = <String>{};
+        for (final m in controller.messages) {
+          final id = m.messageId.trim();
+          if (id.isEmpty) continue;
+          if (beforeIds.contains(id)) break;
+          if (m.isUnread) prependedUnreadIds.add(id);
+        }
+        if (prependedUnreadIds.isNotEmpty) {
+          setState(() {
+            _revealedUnreadMessageIds.addAll(prependedUnreadIds);
+          });
+        }
+      }
+      if (!mounted || !_scrollController.hasClients) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scrollController.hasClients) return;
+        final newMax = _scrollController.position.maxScrollExtent;
+        final addedExtent = (newMax - previousMax).clamp(0.0, double.infinity);
+        final target = previousPixels + addedExtent;
+        final bounded = target.clamp(0.0, newMax);
+        _scrollController.jumpTo(bounded);
+      });
+    } finally {
+      _isLoadingOlder = false;
+      // Keep suppression for this frame so list-length rebuild won't try to
+      // snap to bottom while older messages are being inserted.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _suppressAutoBottomScroll = false;
+      });
+    }
   }
 
   void _scrollToBottom({bool animated = true}) {
@@ -98,6 +184,20 @@ class _ChatScreenState extends State<ChatScreen> {
     return out;
   }
 
+  /// For trade card display: if value ends with `.00`, show whole number.
+  /// Keep non-numeric and mixed values (e.g. `390 - 400`) unchanged.
+  String _formatTradeCardPrice(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty) return raw;
+    final parsed = double.tryParse(value);
+    if (parsed == null) return raw;
+    final fixed = parsed.toStringAsFixed(2);
+    if (fixed.endsWith('.00')) {
+      return parsed.toInt().toString();
+    }
+    return raw;
+  }
+
   @override
   Widget build(BuildContext context) {
     return GetBuilder<ChatController>(
@@ -113,49 +213,84 @@ class _ChatScreenState extends State<ChatScreen> {
                   if (controller.isLoading.value) {
                     return const Center(child: CircularProgressIndicator());
                   }
+                  final currentFirstId = _firstMessageId(controller.messages);
+                  final currentLastId = _lastMessageId(controller.messages);
+                  final wasNearBottom = _isNearBottom();
                   if (_lastMessageCount != controller.messages.length) {
                     _lastMessageCount = controller.messages.length;
-                    _scheduleScrollToBottom();
+                    if (!_didInitialBottomSnap &&
+                        controller.messages.isNotEmpty) {
+                      _didInitialBottomSnap = true;
+                      _scheduleScrollToBottom();
+                    } else if (_skipNextAutoBottomScroll) {
+                      _skipNextAutoBottomScroll = false;
+                    } else if (_previousFirstMessageId.isNotEmpty &&
+                        currentFirstId.isNotEmpty &&
+                        _previousFirstMessageId != currentFirstId &&
+                        _previousLastMessageId == currentLastId) {
+                      // Older history prepended at top -> keep user's viewport.
+                    } else if (!_suppressAutoBottomScroll &&
+                        _previousLastMessageId.isNotEmpty &&
+                        currentLastId.isNotEmpty &&
+                        _previousLastMessageId != currentLastId) {
+                      // New messages appended at bottom -> always take user to latest.
+                      _scheduleScrollToBottom();
+                    } else if (!_suppressAutoBottomScroll &&
+                        wasNearBottom &&
+                        _previousLastMessageId.isEmpty &&
+                        currentLastId.isNotEmpty) {
+                      // Fallback: if IDs were absent previously but user was already at end.
+                      _scheduleScrollToBottom();
+                    }
                   }
-                  return RefreshIndicator(
-                    onRefresh: () => controller.loadMessages(refresh: true),
-                    child: controller.messages.isEmpty
-                        ? ListView(
-                            controller: _scrollController,
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            children: const [
-                              SizedBox(
-                                height: 420,
-                                child: Center(
-                                  child: Text(
-                                    'No messages yet.\nPull down to refresh',
-                                    textAlign: TextAlign.center,
-                                  ),
+                  _previousFirstMessageId = currentFirstId;
+                  _previousLastMessageId = currentLastId;
+                  return controller.messages.isEmpty
+                      ? ListView(
+                          controller: _scrollController,
+                          children: const [
+                            SizedBox(
+                              height: 420,
+                              child: Center(
+                                child: Text(
+                                  'No messages yet.',
+                                  textAlign: TextAlign.center,
                                 ),
                               ),
-                            ],
-                          )
-                        : ListView.builder(
-                            controller: _scrollController,
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
                             ),
-                            itemCount: controller.messages.length,
-                            itemBuilder: (_, i) {
-                              final msg = controller.messages[i];
-                              final bubble = _buildMessage(
-                                context,
-                                msg,
-                                controller,
-                              );
-                              final id = msg.messageId.trim();
-                              if (!msg.isUnread || id.isEmpty) return bubble;
-                              if (_revealedUnreadMessageIds.contains(id)) {
-                                return bubble;
-                              }
-                              return _UnreadRevealGate(
+                          ],
+                        )
+                      : ListView.builder(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          itemCount: controller.messages.length,
+                          itemBuilder: (_, i) {
+                            final msg = controller.messages[i];
+                            final bubble = _buildMessage(
+                              context,
+                              msg,
+                              controller,
+                            );
+                            final rowKey = msg.messageId.trim().isNotEmpty
+                                ? ValueKey(
+                                    'chat_row_${msg.messageId}_${msg.type.name}',
+                                  )
+                                : ValueKey(
+                                    'chat_row_fallback_${msg.type.name}_$i',
+                                  );
+                            final id = msg.messageId.trim();
+                            if (!msg.isUnread || id.isEmpty) {
+                              return KeyedSubtree(key: rowKey, child: bubble);
+                            }
+                            if (_revealedUnreadMessageIds.contains(id)) {
+                              return KeyedSubtree(key: rowKey, child: bubble);
+                            }
+                            return KeyedSubtree(
+                              key: rowKey,
+                              child: _UnreadRevealGate(
                                 messageId: id,
                                 onRevealed: (messageId) {
                                   if (!mounted) return;
@@ -163,10 +298,10 @@ class _ChatScreenState extends State<ChatScreen> {
                                     _revealedUnreadMessageIds.add(messageId);
                                   });
                                 },
-                              );
-                            },
-                          ),
-                  );
+                              ),
+                            );
+                          },
+                        );
                 }),
               ),
               _buildInput(context, controller, _textController),
@@ -178,6 +313,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildHeader(BuildContext context) {
+    final controller = Get.find<ChatController>();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       child: Row(
@@ -186,9 +322,9 @@ class _ChatScreenState extends State<ChatScreen> {
           GestureDetector(
             onTap: widget.onMonkkTap,
             child: const Text(
-              'Monkk',
+              'Discipline Mind',
               style: TextStyle(
-                fontSize: 22,
+                fontSize: 18,
                 fontWeight: FontWeight.bold,
                 color: AppColors.primary,
               ),
@@ -196,6 +332,36 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           Row(
             children: [
+              InkWell(
+                onTap: () => controller.loadNewMessages(silent: false),
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: Row(
+                    children: const [
+                      Icon(Icons.refresh, size: 14, color: AppColors.primary),
+                      SizedBox(width: 4),
+                      Text(
+                        'Sync',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
               const Text(
                 'Credits : 250',
                 style: TextStyle(color: AppColors.primary),
@@ -500,7 +666,10 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Recommendation Stands Invalid', style: titleStyle),
+                    Text(
+                      'Trade recommendation invalid — please delete this trade',
+                      style: titleStyle,
+                    ),
                     const SizedBox(height: 8),
                     _buildTradeOpportunityCard(msg, showInvalidOverlay: true),
                   ],
@@ -618,7 +787,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     _tradePromptPrimaryButton(
                       label: 'SL Trailed',
                       enabled: _showButtons(msg),
-                      onTap: () => controller.acknowledgeSlTrailed(msg),
+                      onTap: () => _showTrailSlDialog(context, msg, controller),
                     ),
                   ],
                 ),
@@ -634,6 +803,12 @@ class _ChatScreenState extends State<ChatScreen> {
     NewTradeOpportunityMessage msg, {
     required bool showInvalidOverlay,
   }) {
+    final tradeName = msg.tradeName.trim().isNotEmpty
+        ? msg.tradeName.trim()
+        : msg.instrument;
+    final tradeSymbol = msg.tradeSymbol.trim().isNotEmpty
+        ? msg.tradeSymbol.trim()
+        : msg.contract;
     final inner = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -657,7 +832,7 @@ class _ChatScreenState extends State<ChatScreen> {
               radius: 20,
               backgroundColor: AppColors.primary.withOpacity(0.2),
               child: Text(
-                msg.instrument.isEmpty ? '?' : msg.instrument[0].toUpperCase(),
+                tradeName.isEmpty ? '?' : tradeName[0].toUpperCase(),
                 style: TextStyle(
                   color: AppColors.primary,
                   fontWeight: FontWeight.bold,
@@ -671,16 +846,16 @@ class _ChatScreenState extends State<ChatScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    msg.instrument,
+                    tradeName,
                     style: TextStyle(
-                      fontSize: 18,
+                      fontSize: 16,
                       fontWeight: FontWeight.bold,
                       color: Colors.grey.shade800,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    msg.contract,
+                    tradeSymbol,
                     style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
                   ),
                 ],
@@ -696,7 +871,9 @@ class _ChatScreenState extends State<ChatScreen> {
           const SizedBox(height: 10),
           Align(
             alignment: Alignment.centerLeft,
-            child: _BlinkingCurrentPriceBadge(price: msg.rtt),
+            child: _BlinkingCurrentPriceBadge(
+              price: _formatTradeCardPrice(msg.rtt),
+            ),
           ),
         ],
       ],
@@ -1034,10 +1211,147 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  void _showTrailSlDialog(
+    BuildContext context,
+    NewTradeOpportunityMessage msg,
+    ChatController controller,
+  ) {
+    final slController = TextEditingController(text: msg.stopLoss);
+    showDialog(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 340),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            color: Colors.white,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(16),
+                  ),
+                ),
+                alignment: Alignment.centerLeft,
+                child: const Text(
+                  'Trail Stop Loss',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CircleAvatar(
+                          radius: 22,
+                          backgroundColor: AppColors.primary.withOpacity(0.2),
+                          child: Text(
+                            (msg.tradeName.trim().isNotEmpty
+                                    ? msg.tradeName.trim()
+                                    : msg.instrument)
+                                .substring(0, 1)
+                                .toUpperCase(),
+                            style: const TextStyle(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 20,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                (msg.tradeName.trim().isNotEmpty
+                                        ? msg.tradeName.trim()
+                                        : msg.instrument)
+                                    .toUpperCase(),
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                msg.tradeSymbol.trim().isNotEmpty
+                                    ? msg.tradeSymbol.trim()
+                                    : msg.contract,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    _popupField('New Stop Loss', slController, ''),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () async {
+                      final v = slController.text.trim();
+                      Navigator.pop(ctx);
+                      await controller.acknowledgeSlTrailed(msg, newSl: v);
+                    },
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: const Text(
+                      'SUBMIT',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildTradeTimeline(NewTradeOpportunityMessage msg) {
     const dotRadius = 6.0;
     final labels = ['SL', 'Entry', 'Target'];
-    final values = [msg.stopLoss, msg.entryRange, msg.frr];
+    final values = [
+      _formatTradeCardPrice(msg.stopLoss),
+      _formatTradeCardPrice(msg.entryRange),
+      _formatTradeCardPrice(msg.frr),
+    ];
 
     double parseNumeric(String raw) {
       final matches = RegExp(r'[\d.]+').allMatches(raw);
@@ -1263,7 +1577,11 @@ class _ChatScreenState extends State<ChatScreen> {
     final oldSl = msg.oldStopLoss.trim().isNotEmpty
         ? msg.oldStopLoss
         : msg.stopLoss;
-    final values = [oldSl, msg.stopLoss, msg.frr];
+    final values = [
+      _formatTradeCardPrice(oldSl),
+      _formatTradeCardPrice(msg.stopLoss),
+      _formatTradeCardPrice(msg.frr),
+    ];
 
     double parseNumeric(String raw) {
       final matches = RegExp(r'[\d.]+').allMatches(raw);
@@ -1350,7 +1668,9 @@ class _ChatScreenState extends State<ChatScreen> {
                         style: TextStyle(
                           height: 1.15,
                           fontSize: 11,
-                          color: Colors.grey.shade700,
+                          color: i == 0
+                              ? Colors.grey.shade500
+                              : Colors.grey.shade700,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -1377,8 +1697,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   ),
                   ...List.generate(3, (i) {
-                    final color = i == 1
-                        ? const Color(0xFF616161)
+                    final color = i == 0
+                        ? Colors.grey.shade400
                         : const Color(0xFF616161);
                     return Positioned(
                       left: (lx[i] - dotRadius).clamp(0.0, w - dotRadius * 2),
@@ -1437,10 +1757,12 @@ class _ChatScreenState extends State<ChatScreen> {
                             : (i == 2 ? TextAlign.right : TextAlign.center),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
-                          color: Color(0xFF424242),
+                          color: i == 0
+                              ? Colors.grey.shade500
+                              : const Color(0xFF424242),
                         ),
                       ),
                     ),
@@ -1665,6 +1987,14 @@ class _ChatScreenState extends State<ChatScreen> {
                   style: TextStyle(fontSize: 14, color: Colors.grey.shade800),
                 ),
                 const SizedBox(height: 12),
+                if (msg.isGttHit) ...[
+                  _tradePromptPrimaryButton(
+                    label: 'Open Trading APP',
+                    enabled: _showButtons(msg),
+                    onTap: () => controller.openTradingApp(),
+                  ),
+                  const SizedBox(height: 10),
+                ],
                 GestureDetector(
                   onTap: _showButtons(msg)
                       ? () {

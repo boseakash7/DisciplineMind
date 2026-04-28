@@ -41,7 +41,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
     ];
 
     return Scaffold(
-      body: screens[currentIndex],
+      body: IndexedStack(index: currentIndex, children: screens),
 
       bottomNavigationBar: SizedBox(
         height: navBarHeight + fabSize / 2 + bottomInset,
