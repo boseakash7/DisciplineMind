@@ -6,6 +6,7 @@ enum ChatMessageType {
   tradeExecuted,
   agentWithButton, // e.g. "Register for Demo" button
   alertHitWithButton, // GTT or upper/lower alert hit - shows text + button to unlock
+  dmtScore, // Daily discipline analysis score card
 }
 
 /// Base chat message
@@ -136,6 +137,32 @@ class TradeExecutionPromptMessage extends ChatMessage {
   }) : super(type: ChatMessageType.tradeExecutionPrompt);
 }
 
+/// Daily DMT discipline score card (`message_type: dmt_score`).
+class DmtScoreMessage extends ChatMessage {
+  final String headline;
+  final String scoreDate;
+  final String instructionsScore;
+  final String commitmentScore;
+  final String patienceScore;
+  final String consistencyScore;
+  final String dmtTotalScore;
+  final String dmtMaxScore;
+
+  const DmtScoreMessage({
+    this.headline = 'DMT Score',
+    this.scoreDate = '',
+    this.instructionsScore = '0',
+    this.commitmentScore = '0',
+    this.patienceScore = '0',
+    this.consistencyScore = '0',
+    this.dmtTotalScore = '0',
+    this.dmtMaxScore = '60',
+    super.messageId,
+    super.isUnread,
+    super.actionTaken,
+  }) : super(type: ChatMessageType.dmtScore);
+}
+
 /// Alert hit (GTT or upper/lower) - text + button to acknowledge and unlock apps
 class AlertHitWithButtonMessage extends ChatMessage {
   final String text;
@@ -199,6 +226,25 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       SimpleTextMessage(
         text: message,
         tradeId: relatedTradeId,
+        messageId: messageId,
+        isUnread: isUnread,
+        actionTaken: actionTaken,
+      ),
+    ];
+  }
+
+  if (messageType == 'dmt_score' || entityType == 'dmt_score') {
+    final p = payloadMap ?? <String, dynamic>{};
+    return [
+      DmtScoreMessage(
+        headline: message.isNotEmpty ? message : 'DMT Score',
+        scoreDate: (p['score_date'] ?? '').toString(),
+        instructionsScore: (p['instructions_score'] ?? '0').toString(),
+        commitmentScore: (p['commitment_score'] ?? '0').toString(),
+        patienceScore: (p['patience_score'] ?? '0').toString(),
+        consistencyScore: (p['consistency_score'] ?? '0').toString(),
+        dmtTotalScore: (p['dmt_total_score'] ?? '0').toString(),
+        dmtMaxScore: (p['dmt_max_score'] ?? '60').toString(),
         messageId: messageId,
         isUnread: isUnread,
         actionTaken: actionTaken,

@@ -2,6 +2,12 @@ class ApiUrl {
   /// Broker apps list for blocking / GTT behaviour (GET, JSON).
   static const String tradingApps = 'trading-apps';
 
+  /// DMT levels for Trades tab dropdown (GET, JSON).
+  static const String dmtLevels = 'dmt-levels';
+
+  /// Hit trades for selected level (POST form: user_id, level_id).
+  static const String dmtLevelUserHitTrades = 'dmt-level/user-hit-trades';
+
   static String loginUrl = "user/login";
   static String sendOtpUrl = "user/send-otp";
   static String verifyOtpUrl = "user/verify-otp";

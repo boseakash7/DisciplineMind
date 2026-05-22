@@ -166,7 +166,9 @@ class AuthController extends GetxController {
       if (response.isSuccess) {
         final raw = response.data;
         if (raw is! Map) {
-          AppToast.showToast("Account created, but login failed. Please login.");
+          AppToast.showToast(
+            "Account created, but login failed. Please login.",
+          );
           Get.offAll(() => PhoneLoginScreen());
           return;
         }
@@ -174,7 +176,9 @@ class AuthController extends GetxController {
         final data = Map<String, dynamic>.from(raw);
         final loginModel = LoginResponseModel.fromJson(data);
         if (loginModel.payload?.id == null || loginModel.payload!.id!.isEmpty) {
-          AppToast.showToast("Account created, but login failed. Please login.");
+          AppToast.showToast(
+            "Account created, but login failed. Please login.",
+          );
           Get.offAll(() => PhoneLoginScreen());
           return;
         }

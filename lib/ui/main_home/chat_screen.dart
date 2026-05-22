@@ -1,6 +1,7 @@
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/controller/chat_controller.dart';
 import 'package:discipline_mind/model/chat_message_model.dart';
+import 'package:discipline_mind/ui/main_home/widgets/dmt_score_popup.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -25,6 +26,8 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _didInitialBottomSnap = false;
   String _previousFirstMessageId = '';
   String _previousLastMessageId = '';
+  /// DMT score popup staged animation shown once per message (while unread).
+  final Set<String> _dmtScorePopupAnimatedIds = <String>{};
 
   @override
   void initState() {
@@ -409,7 +412,80 @@ class _ChatScreenState extends State<ChatScreen> {
           msg as AlertHitWithButtonMessage,
           controller,
         );
+      case ChatMessageType.dmtScore:
+        return _buildDmtScore(context, msg as DmtScoreMessage);
     }
+  }
+
+  Widget _buildDmtScore(BuildContext context, DmtScoreMessage msg) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _monkkSparkleIcon(),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  msg.headline.isNotEmpty
+                      ? msg.headline
+                      : 'Your daily discipline analysis is ready.',
+                  style: TextStyle(
+                    color: Colors.grey.shade800,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      final id = msg.messageId.trim();
+                      final shouldAnimate = msg.isUnread &&
+                          id.isNotEmpty &&
+                          !_dmtScorePopupAnimatedIds.contains(id);
+                      showDmtScorePopup(
+                        context,
+                        scoreDate: msg.scoreDate,
+                        instructionsScore: msg.instructionsScore,
+                        commitmentScore: msg.commitmentScore,
+                        patienceScore: msg.patienceScore,
+                        consistencyScore: msg.consistencyScore,
+                        dmtTotalScore: msg.dmtTotalScore,
+                        dmtMaxScore: msg.dmtMaxScore,
+                        animateReveal: shouldAnimate,
+                      ).then((_) {
+                        if (!mounted || !shouldAnimate || id.isEmpty) return;
+                        setState(() => _dmtScorePopupAnimatedIds.add(id));
+                      });
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text(
+                      'View Discipline Analysis',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildSimpleText(BuildContext context, SimpleTextMessage msg) {
@@ -1042,9 +1118,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final stopLossController = TextEditingController(text: msg.stopLoss);
     final takeProfitController = TextEditingController(text: msg.frr);
 
-    showDialog(
+    showChatFadeDialog(
       context: context,
-      barrierColor: Colors.black54,
       builder: (ctx) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Container(
@@ -1217,9 +1292,8 @@ class _ChatScreenState extends State<ChatScreen> {
     ChatController controller,
   ) {
     final slController = TextEditingController(text: msg.stopLoss);
-    showDialog(
+    showChatFadeDialog(
       context: context,
-      barrierColor: Colors.black54,
       builder: (ctx) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Container(
@@ -1786,9 +1860,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final stopLossController = TextEditingController(text: msg.stopLoss);
     final takeProfitController = TextEditingController(text: msg.frr);
 
-    showDialog(
+    showChatFadeDialog(
       context: context,
-      barrierColor: Colors.black54,
       builder: (ctx) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Container(
@@ -2156,6 +2229,34 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     );
   }
+}
+
+/// Fade-in open animation for chat dialogs (GTT, trail SL, trade details).
+Future<T?> showChatFadeDialog<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  bool barrierDismissible = true,
+}) {
+  return showGeneralDialog<T>(
+    context: context,
+    barrierDismissible: barrierDismissible,
+    barrierLabel: 'Dismiss',
+    barrierColor: Colors.black54,
+    transitionDuration: const Duration(milliseconds: 260),
+    pageBuilder: (dialogContext, animation, secondaryAnimation) {
+      return builder(dialogContext);
+    },
+    transitionBuilder: (context, animation, secondaryAnimation, child) {
+      return FadeTransition(
+        opacity: CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOut,
+          reverseCurve: Curves.easeIn,
+        ),
+        child: child,
+      );
+    },
+  );
 }
 
 class _UnreadRevealGate extends StatefulWidget {

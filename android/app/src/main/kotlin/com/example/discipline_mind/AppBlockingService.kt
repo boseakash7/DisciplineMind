@@ -44,6 +44,7 @@ import java.util.concurrent.TimeUnit
  */
 class AppBlockingService : Service() {
     companion object {
+        private const val API_BASE = "https://api.disciplinedminds.in/api"
         private const val CHANNEL_ID = "AppBlockingServiceChannel"
         private const val NOTIFICATION_ID = 1001
         private const val CHECK_INTERVAL_MS = 50L  // Fast polling for gesture nav responsiveness
@@ -74,6 +75,13 @@ class AppBlockingService : Service() {
     private var stateDecisionApp: String = ""
     private var stateDecisionUnlocked: Boolean? = null
     private var stateDecisionInFlight: Boolean = false
+    /** Avoid duplicate force-unlock reports while the same blocked app stays in foreground. */
+    private var forceUnlockNotifiedPackage: String = ""
+
+    private data class AppStateResult(
+        val unlocked: Boolean,
+        val tradeId: String?,
+    )
 
     override fun onCreate() {
         super.onCreate()
@@ -188,7 +196,14 @@ class AppBlockingService : Service() {
                 AppUsageTracker.recordAppOpened(applicationContext, foregroundApp)
                 onMonitoredAppOpened(foregroundApp)
             }
+            val previousForegroundApp = lastTrackedForegroundApp
             lastTrackedForegroundApp = foregroundApp ?: ""
+            if (foregroundApp != previousForegroundApp &&
+                previousForegroundApp.isNotEmpty() &&
+                forceUnlockNotifiedPackage == previousForegroundApp
+            ) {
+                forceUnlockNotifiedPackage = ""
+            }
             when {
                 foregroundApp == null -> {
                     clearStateDecision()
@@ -268,15 +283,19 @@ class AppBlockingService : Service() {
         stateDecisionUnlocked = null
         stateDecisionInFlight = true
         executor.execute {
-            val shouldUnlock = fetchTradingAppUnlockState()
+            val userId = AppManager.loadUserIdForOverlay(applicationContext)
+            val state = if (userId != null) fetchAppState(userId) else AppStateResult(false, null)
+            if (!state.unlocked && !state.tradeId.isNullOrBlank() && userId != null) {
+                reportLockedAppOpen(userId, state.tradeId, packageName)
+            }
             mainHandler.post {
                 if (lastObservedForegroundApp != packageName) {
                     stateDecisionInFlight = false
                     return@post
                 }
-                stateDecisionUnlocked = shouldUnlock
+                stateDecisionUnlocked = state.unlocked
                 stateDecisionInFlight = false
-                if (shouldUnlock) {
+                if (state.unlocked) {
                     temporaryUnblocked.add(packageName)
                     lastAllowedApp = packageName
                     if (overlayShowing) {
@@ -337,6 +356,7 @@ class AppBlockingService : Service() {
         if (overlayShowing) return
         if (!AppManager.blockedApps.contains(packageName)) return
         if (packageName == applicationContext.packageName) return
+        reportLockedAppOpenIfNeeded(packageName)
         currentForegroundApp = packageName
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -458,10 +478,36 @@ class AppBlockingService : Service() {
         }
     }
 
-    private fun fetchTradingAppUnlockState(): Boolean {
-        val userId = AppManager.loadUserIdForOverlay(applicationContext) ?: return false
+    /**
+     * If overlay is shown for a blocked app we did not already report this foreground session,
+     * fetch app/state and notify backend when locked + trade_id is present.
+     */
+    private fun reportLockedAppOpenIfNeeded(packageName: String) {
+        val userId = AppManager.loadUserIdForOverlay(applicationContext) ?: return
+        executor.execute {
+            synchronized(this@AppBlockingService) {
+                if (forceUnlockNotifiedPackage == packageName) return@execute
+            }
+            val state = fetchAppState(userId)
+            if (!state.unlocked && !state.tradeId.isNullOrBlank()) {
+                reportLockedAppOpen(userId, state.tradeId, packageName)
+            }
+        }
+    }
+
+    private fun reportLockedAppOpen(userId: String, tradeId: String, packageName: String) {
+        synchronized(this) {
+            if (forceUnlockNotifiedPackage == packageName) return
+            val sent = notifyForceUnlockAttempt(userId, tradeId)
+            if (sent) {
+                forceUnlockNotifiedPackage = packageName
+            }
+        }
+    }
+
+    private fun fetchAppState(userId: String): AppStateResult {
         try {
-            val url = URL("http://api.disciplinedminds.in/api/app/state")
+            val url = URL("$API_BASE/app/state")
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
@@ -471,16 +517,53 @@ class AppBlockingService : Service() {
             conn.outputStream.use { os ->
                 os.write("user_id=${java.net.URLEncoder.encode(userId, "UTF-8")}".toByteArray())
             }
-            if (conn.responseCode != 200) return false
+            if (conn.responseCode != 200) return AppStateResult(false, null)
             var body = conn.inputStream.bufferedReader().readText().trim()
             conn.disconnect()
-            // Strip leading HTML (e.g. <br />) before parsing JSON
             val jsonStart = body.indexOf('{')
             if (jsonStart > 0) body = body.substring(jsonStart)
             val json = JSONObject(body)
             val payload = json.optJSONObject("payload")
             val state = (payload?.optString("state", "") ?: "").lowercase()
-            return state == "unlocked"
+            val tradeId = parseTradeId(payload)
+            return AppStateResult(unlocked = state == "unlocked", tradeId = tradeId)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return AppStateResult(false, null)
+        }
+    }
+
+    private fun parseTradeId(payload: JSONObject?): String? {
+        if (payload == null || !payload.has("trade_id") || payload.isNull("trade_id")) {
+            return null
+        }
+        return try {
+            when (val raw = payload.get("trade_id")) {
+                is Number -> raw.toLong().toString()
+                else -> payload.optString("trade_id", "").trim().takeIf { it.isNotEmpty() }
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** POST app/force-unlock so backend knows user tried to open a locked trading app. */
+    private fun notifyForceUnlockAttempt(userId: String, tradeId: String): Boolean {
+        try {
+            val url = URL("$API_BASE/app/force-unlock")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            conn.doOutput = true
+            conn.connectTimeout = 8000
+            conn.readTimeout = 8000
+            val body =
+                "user_id=${java.net.URLEncoder.encode(userId, "UTF-8")}" +
+                    "&trade_id=${java.net.URLEncoder.encode(tradeId, "UTF-8")}"
+            conn.outputStream.use { os -> os.write(body.toByteArray()) }
+            val ok = conn.responseCode in 200..299
+            conn.disconnect()
+            return ok
         } catch (e: Exception) {
             e.printStackTrace()
             return false
