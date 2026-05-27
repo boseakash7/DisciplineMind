@@ -116,7 +116,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  void _scrollToBottom({bool animated = true}) {
+  void _scrollToBottom({bool animated = false}) {
     if (!_scrollController.hasClients) return;
     final target = _scrollController.position.maxScrollExtent;
     if (animated) {
@@ -130,15 +130,44 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  void _scheduleScrollToBottom() {
+  /// Scroll until [maxScrollExtent] stabilizes so tall messages are fully visible.
+  void _scheduleScrollToBottom({int attempt = 0}) {
+    const maxAttempts = 18;
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+
+      final max = _scrollController.position.maxScrollExtent;
       _scrollToBottom(animated: false);
-      // Retry once more in case list size updates after first layout.
-      Future.delayed(const Duration(milliseconds: 50), () {
-        if (!mounted) return;
-        _scrollToBottom(animated: false);
+
+      if (attempt >= maxAttempts) return;
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scrollController.hasClients) return;
+        final nextMax = _scrollController.position.maxScrollExtent;
+        final nextPixels = _scrollController.position.pixels;
+        final stillGrowing = nextMax > max + 0.5;
+        final notFullyScrolled = (nextMax - nextPixels).abs() > 2.0;
+
+        if (stillGrowing || notFullyScrolled) {
+          _scheduleScrollToBottom(attempt: attempt + 1);
+          return;
+        }
+
+        // Late layout (images, rich cards) can still grow after extent looks stable.
+        if (attempt < 8) {
+          Future.delayed(Duration(milliseconds: 40 + attempt * 25), () {
+            if (mounted) _scheduleScrollToBottom(attempt: attempt + 1);
+          });
+        }
       });
     });
+  }
+
+  void _scheduleScrollAfterUnreadReveal(String messageId, ChatController controller) {
+    final isLast = messageId == _lastMessageId(controller.messages);
+    if (isLast || _isNearBottom()) {
+      _scheduleScrollToBottom();
+    }
   }
 
   /// Spreads [lx] so adjacent markers are at least [minSep] apart without
@@ -300,6 +329,10 @@ class _ChatScreenState extends State<ChatScreen> {
                                   setState(() {
                                     _revealedUnreadMessageIds.add(messageId);
                                   });
+                                  _scheduleScrollAfterUnreadReveal(
+                                    messageId,
+                                    controller,
+                                  );
                                 },
                               ),
                             );

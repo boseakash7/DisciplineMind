@@ -8,9 +8,12 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 class TradesScreen extends StatefulWidget {
-  const TradesScreen({super.key, this.onMonkkTap});
+  const TradesScreen({super.key, this.onMonkkTap, this.isActive = true});
 
   final VoidCallback? onMonkkTap;
+
+  /// True when this tab is selected in [MainHomeScreen]'s bottom nav.
+  final bool isActive;
 
   @override
   State<TradesScreen> createState() => _TradesScreenState();
@@ -47,6 +50,21 @@ class _TradesScreenState extends State<TradesScreen>
     });
     _entranceController.forward();
     _levelsService.ensureLoaded();
+  }
+
+  @override
+  void didUpdateWidget(TradesScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      _onTradesTabActivated();
+    }
+  }
+
+  void _onTradesTabActivated() {
+    _replayEntrance();
+    // Tab entrance already animates; skip duplicate replay when fetch completes.
+    _skipNextLoadReplay = true;
+    _levelsService.refreshTabData();
   }
 
   @override

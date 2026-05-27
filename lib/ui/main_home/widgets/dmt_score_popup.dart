@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 /// Testing only: set `true` to run inner reveal animation on every popup open.
 /// Set `false` for production (animate only when [showDmtScorePopup] gets `animateReveal: true`).
-const bool kDmtScoreAlwaysAnimate = true;
+const bool kDmtScoreAlwaysAnimate = false;
 
 /// Opens DMT score analysis popup (fixed size; inner data animates only).
 Future<void> showDmtScorePopup(
@@ -234,6 +234,7 @@ class _DmtScorePopupDialogState extends State<_DmtScorePopupDialog> {
         from: 0,
         to: row.score,
         durationMs: 460,
+        asInteger: true,
         onTick: (v) => setState(() => _rowScores[r] = v),
       );
 
@@ -247,6 +248,7 @@ class _DmtScorePopupDialogState extends State<_DmtScorePopupDialog> {
       from: 0,
       to: _totalTarget,
       durationMs: 800,
+      asInteger: true,
       onTick: (v) => setState(() => _totalDisplayed = v),
     );
   }
@@ -269,7 +271,23 @@ class _DmtScorePopupDialogState extends State<_DmtScorePopupDialog> {
     required double to,
     required int durationMs,
     required ValueChanged<double> onTick,
+    bool asInteger = false,
   }) async {
+    if (asInteger) {
+      final target = to.round();
+      if (target <= 0) {
+        onTick(0);
+        return;
+      }
+      final stepDelay = (durationMs / target).round().clamp(12, 120);
+      for (var v = 1; v <= target; v++) {
+        if (!mounted) return;
+        onTick(v.toDouble());
+        await Future<void>.delayed(Duration(milliseconds: stepDelay));
+      }
+      return;
+    }
+
     const stepCount = 28;
     final stepDelay = (durationMs / stepCount).round();
     for (var s = 0; s <= stepCount; s++) {
@@ -281,8 +299,7 @@ class _DmtScorePopupDialogState extends State<_DmtScorePopupDialog> {
   }
 
   String _formatScore(double value) {
-    if (value == value.roundToDouble()) return value.round().toString();
-    return value.toStringAsFixed(1);
+    return value.round().toString();
   }
 
   String _rowScoreLabel(int index) {

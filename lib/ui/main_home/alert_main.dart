@@ -251,7 +251,10 @@ class _AlertsMainScreenState extends State<AlertsMainScreen> {
                     const SizedBox(height: 2),
                     Text(
                       alert.exchange ?? '-',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
                     ),
                   ],
                 ),
@@ -286,7 +289,10 @@ class _AlertsMainScreenState extends State<AlertsMainScreen> {
             const SizedBox(height: 10),
           ] else
             const SizedBox(height: 4),
-          _kv('Trade ID', alert.tradeId?.isNotEmpty == true ? alert.tradeId! : '-'),
+          _kv(
+            'Trade ID',
+            alert.tradeId?.isNotEmpty == true ? alert.tradeId! : '-',
+          ),
           if (isGtt)
             _kv('GTT', '₹$gtt', valueColor: Colors.purple.shade700)
           else ...[

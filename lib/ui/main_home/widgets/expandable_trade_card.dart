@@ -169,37 +169,24 @@ class _ExpandableTradeCardState extends State<ExpandableTradeCard> {
 
   Widget _apiTradeDetails(DmtHitTrade t) {
     final d = t.trade;
+    final name = d?.name.trim() ?? '';
+    final exchange = (d?.exchange ?? t.exchange).trim();
+    final nameWithExchange = name.isNotEmpty
+        ? (exchange.isNotEmpty ? '$name ($exchange)' : name)
+        : (exchange.isNotEmpty ? exchange : t.tradingsymbol);
+    final entryPrice = d?.entryPrice ?? t.gttPrice;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle('Alert'),
-        _detailRow('Alert ID', '${t.alertId}'),
-        _detailRow('Trade ID', '${t.tradeId}'),
-        _detailRow('Exchange', t.exchange),
+        _detailRow('Name', nameWithExchange),
         _detailRow('Symbol', t.tradingsymbol),
-        _detailRow('Status', t.status),
-        _detailRow('Hit type', t.hitType),
         _detailRow('Hit price', _fmt(t.hitPrice)),
         _detailRow('Hit at', t.hitAtFormatted),
         _detailRow('Created at', t.createdAtFormatted),
-        _detailRow('Current price', _fmt(t.currentPrice)),
-        _detailRow('Upper price', _fmt(t.upperPrice)),
-        _detailRow('Lower price', _fmt(t.lowerPrice)),
-        _detailRow('GTT price', _fmt(t.gttPrice)),
-        if (d != null) ...[
-          const SizedBox(height: 10),
-          const _SectionTitle('Trade'),
-          _detailRow('Name', d.name),
-          _detailRow('Header', d.header),
-          _detailRow('Symbol', d.symbol),
-          _detailRow('Trade UID', d.tradeUid),
-          _detailRow('Direction', d.direction),
-          _detailRow('Entry price', _fmt(d.entryPrice)),
-          _detailRow('Stop loss', _fmt(d.stopLoss)),
-          _detailRow('Take profit', _fmt(d.takeProfit)),
-          _detailRow('Current price', _fmt(d.currentPrice)),
-          _detailRow('Status', d.status),
-        ],
+        _detailRow('Target price', _fmt(t.upperPrice)),
+        _detailRow('Stop loss', _fmt(t.lowerPrice)),
+        _detailRow('Entry price', _fmt(entryPrice)),
       ],
     );
   }
@@ -208,12 +195,9 @@ class _ExpandableTradeCardState extends State<ExpandableTradeCard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle('Trade details'),
-        _detailRow('Instrument', widget.title),
+        _detailRow('Name', widget.title),
         _detailRow('Date', widget.date),
         _detailRow('Return', widget.returnLabel),
-        _detailRow('Exchange', 'NSE'),
-        _detailRow('Status', 'completed'),
       ],
     );
   }
@@ -228,27 +212,6 @@ class _ExpandableTradeCardState extends State<ExpandableTradeCard> {
           SizedBox(width: 108, child: Text(label, style: _labelStyle)),
           Expanded(child: Text(value, style: _valueStyle)),
         ],
-      ),
-    );
-  }
-}
-
-class _SectionTitle extends StatelessWidget {
-  final String text;
-
-  const _SectionTitle(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8, top: 4),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 13,
-          fontWeight: FontWeight.bold,
-        ),
       ),
     );
   }

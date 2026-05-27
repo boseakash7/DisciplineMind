@@ -66,8 +66,12 @@ class DmtLevelsService extends GetxService {
   String get displayFrr => _fallbackFrr;
   String get displayRtt => _fallbackRtt;
 
-  List<DmtHitTrade> get displayTrades =>
-      hitTrades.value?.trades ?? const <DmtHitTrade>[];
+  List<DmtHitTrade> get displayTrades {
+    final trades = hitTrades.value?.trades ?? const <DmtHitTrade>[];
+    return trades
+        .where((t) => t.status.toLowerCase() == 'completed')
+        .toList();
+  }
 
   /// True after a successful `user-hit-trades` response (including empty `trades`).
   bool get hasLoadedHitTrades => hitTrades.value != null;
@@ -135,14 +139,14 @@ class DmtLevelsService extends GetxService {
     }
   }
 
-  Future<bool> fetchUserHitTrades(int levelId) async {
+  Future<bool> fetchUserHitTrades(int levelId, {bool force = false}) async {
     final userId = Common.userData.value?.payload?.id?.toString();
     if (userId == null || userId.isEmpty) {
       tradesError.value = 'Please log in to view trades';
       return false;
     }
 
-    if (_tradesFetchInFlight && _lastFetchedLevelId == levelId) {
+    if (!force && _tradesFetchInFlight && _lastFetchedLevelId == levelId) {
       return hitTrades.value != null;
     }
 
@@ -206,6 +210,15 @@ class DmtLevelsService extends GetxService {
       await refreshLevels();
     } else if (selectedLevel.value != null) {
       await fetchUserHitTrades(selectedLevel.value!.id);
+    }
+  }
+
+  /// Reload levels and hit-trades for the current selection (e.g. Trades tab focused).
+  Future<void> refreshTabData() async {
+    await refreshLevels();
+    final level = selectedLevel.value;
+    if (level != null) {
+      await fetchUserHitTrades(level.id, force: true);
     }
   }
 

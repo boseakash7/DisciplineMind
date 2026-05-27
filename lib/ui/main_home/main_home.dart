@@ -34,7 +34,10 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
 
     final screens = [
       BmScreen(onMonkkTap: _openMoreTab),
-      TradesScreen(onMonkkTap: _openMoreTab),
+      TradesScreen(
+        onMonkkTap: _openMoreTab,
+        isActive: currentIndex == 1,
+      ),
       ChatScreen(onMonkkTap: _openMoreTab),
       const Center(child: Text("Analysis")),
       const MoreScreen(),
