@@ -10,6 +10,7 @@ import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:discipline_mind/ui/onboarding/post_login_trading_block_screen.dart';
 import 'package:discipline_mind/ui/android_app_block/blocked_app_overlay_page.dart';
+import 'package:discipline_mind/ui/main_home/main_home.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -40,15 +41,40 @@ Future<void> _enforceAndroidTradingPermissionsIfLoggedIn() async {
   });
 }
 
-void _refreshUserAlertsOnNotification() {
+void _refreshUserAlertsOnNotification({int attempt = 0}) {
   final userId = Common.userData.value?.payload?.id?.toString();
-  if (userId == null) return;
-  if (Get.isRegistered<AlertController>()) {
-    Get.find<AlertController>().fetchUserAlerts(userId);
+  // When app is opened from a killed state via notification, autoLogin may not
+  // have restored the session yet. Retry briefly so the refresh still happens.
+  if (userId == null || userId.isEmpty) {
+    if (attempt < 6) {
+      Future.delayed(Duration(milliseconds: 350 + attempt * 250), () {
+        _refreshUserAlertsOnNotification(attempt: attempt + 1);
+      });
+    }
+    return;
   }
-  if (Get.isRegistered<ChatController>()) {
-    Get.find<ChatController>().loadNewMessages(silent: true);
+
+  // Ensure controllers exist so refresh never no-ops.
+  final alertController = Get.isRegistered<AlertController>()
+      ? Get.find<AlertController>()
+      : Get.put(AlertController(), permanent: true);
+  final chatController = Get.isRegistered<ChatController>()
+      ? Get.find<ChatController>()
+      : Get.put(ChatController(), permanent: true);
+
+  // If this notification was a DMT score tap/open, ensure we land on Chat tab.
+  if (NotificationHandler.dmtScoreAutoOpenPending) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Get.offAll(() => MainHomeScreen(initialIndex: 2));
+    });
+    // Also refresh chat after navigation.
+    Future.delayed(const Duration(milliseconds: 350), () {
+      chatController.loadNewMessages(silent: true);
+    });
   }
+
+  alertController.fetchUserAlerts(userId);
+  chatController.loadNewMessages(silent: true);
 }
 
 /// After minimize → reopen: pull latest chat if user is logged in and chat was opened once.
@@ -113,12 +139,14 @@ Future<void> main() async {
     }
   }
 
+  // Register callback as early as possible so notification open events
+  // (especially from killed state) don't miss the handler.
+  NotificationHandler.onNotificationReceived = _refreshUserAlertsOnNotification;
+
   runApp(const MyApp());
 
   // Init notifications after first frame so release startup is not blocked
   WidgetsBinding.instance.addPostFrameCallback((_) async {
-    NotificationHandler.onNotificationReceived =
-        _refreshUserAlertsOnNotification;
     try {
       await NotificationHandler.initialize();
     } catch (e) {

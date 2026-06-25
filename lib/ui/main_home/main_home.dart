@@ -1,4 +1,5 @@
 import 'package:discipline_mind/common/app_colors.dart';
+import 'package:discipline_mind/ui/main_home/analysis_screen.dart';
 import 'package:discipline_mind/ui/main_home/chat_screen.dart';
 import 'package:discipline_mind/ui/main_home/more_screen.dart';
 import 'package:discipline_mind/ui/main_home/trade_screen.dart';
@@ -33,13 +34,22 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
     final bottomInset = MediaQuery.of(context).padding.bottom;
 
     final screens = [
-      BmScreen(onMonkkTap: _openMoreTab),
+      BmScreen(
+        onMonkkTap: _openMoreTab,
+        isActive: currentIndex == 0,
+      ),
       TradesScreen(
         onMonkkTap: _openMoreTab,
         isActive: currentIndex == 1,
       ),
-      ChatScreen(onMonkkTap: _openMoreTab),
-      const Center(child: Text("Analysis")),
+      ChatScreen(
+        onMonkkTap: _openMoreTab,
+        isActive: currentIndex == 2,
+      ),
+      AnalysisScreen(
+        onMonkkTap: _openMoreTab,
+        isActive: currentIndex == 3,
+      ),
       const MoreScreen(),
     ];
 

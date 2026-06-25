@@ -112,6 +112,7 @@ class DmtHitTrade {
   final double? gttPrice;
   final String hitType;
   final double? hitPrice;
+  final double? returnPercentage;
   final String hitAtFormatted;
   final String status;
   final String createdAtFormatted;
@@ -130,6 +131,7 @@ class DmtHitTrade {
     this.gttPrice,
     this.hitType = '',
     this.hitPrice,
+    this.returnPercentage,
     this.hitAtFormatted = '',
     this.status = '',
     this.createdAtFormatted = '',
@@ -151,6 +153,7 @@ class DmtHitTrade {
       gttPrice: _parseDouble(json['gtt_price']),
       hitType: json['hit_type']?.toString() ?? '',
       hitPrice: _parseDouble(json['hit_price']),
+      returnPercentage: _parseDouble(json['return_percentage']),
       hitAtFormatted: json['hit_at_formatted']?.toString() ?? '',
       status: json['status']?.toString() ?? '',
       createdAtFormatted: json['created_at_formatted']?.toString() ?? '',
@@ -168,13 +171,20 @@ class DmtHitTrade {
   }
 
   String get displayDate {
-    if (hitAtFormatted.isNotEmpty) return hitAtFormatted;
-    if (createdAtFormatted.isNotEmpty) return createdAtFormatted;
-    return '20-04-2026';
+    if (hitAtFormatted.isNotEmpty) return formatTradeTabDate(hitAtFormatted);
+    if (createdAtFormatted.isNotEmpty) {
+      return formatTradeTabDate(createdAtFormatted);
+    }
+    return '';
   }
 
-  /// Estimated return % from entry → hit; null if not computable.
+  String get displayHitAt => formatTradeTabDate(hitAtFormatted);
+
+  String get displayCreatedAt => formatTradeTabDate(createdAtFormatted);
+
+  /// Return % from API, or estimated from entry → hit when API omits it.
   double? get returnPercent {
+    if (returnPercentage != null) return returnPercentage;
     final entry = trade?.entryPrice;
     final hit = hitPrice;
     if (entry == null || hit == null || entry == 0) return null;
@@ -192,7 +202,7 @@ class DmtHitTrade {
 
   String get displayReturn {
     final pct = returnPercent;
-    if (pct == null) return isProfitable ? '12.5%' : '-14.25%';
+    if (pct == null) return '—';
     return '${pct.toStringAsFixed(2)}%';
   }
 }
@@ -241,6 +251,74 @@ class DmtHitTradeDetail {
       currentPrice: _parseDouble(json['current_price']),
       status: json['status']?.toString() ?? '',
     );
+  }
+}
+
+/// Trades tab date: day + month + optional time, e.g. `22-May 11:19 AM` (year removed).
+String formatTradeTabDate(String raw) {
+  final trimmed = raw.trim();
+  if (trimmed.isEmpty) return trimmed;
+
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+
+  String monthLabel(String month) {
+    if (month.length < 2) return month;
+    return '${month[0].toUpperCase()}${month.substring(1).toLowerCase()}';
+  }
+
+  String withTime(String datePart, String? timePart) {
+    final time = timePart?.trim() ?? '';
+    if (time.isEmpty) return datePart;
+    return '$datePart $time';
+  }
+
+  // e.g. 22-May-2026 11:19 AM
+  final namedMonth = RegExp(
+    r'^(\d{1,2})-([A-Za-z]+)-\d{4}(?:\s+(.+))?$',
+  ).firstMatch(trimmed);
+  if (namedMonth != null) {
+    final day = namedMonth.group(1)!.padLeft(2, '0');
+    final datePart = '$day-${monthLabel(namedMonth.group(2)!)}';
+    return withTime(datePart, namedMonth.group(3));
+  }
+
+  // e.g. 22-05-2026 11:19 AM
+  final numericMonth = RegExp(
+    r'^(\d{1,2})-(\d{1,2})-\d{4}(?:\s+(.+))?$',
+  ).firstMatch(trimmed);
+  if (numericMonth != null) {
+    final day = numericMonth.group(1)!.padLeft(2, '0');
+    final monthIndex = int.tryParse(numericMonth.group(2)!) ?? 0;
+    if (monthIndex >= 1 && monthIndex <= 12) {
+      final datePart = '$day-${months[monthIndex - 1]}';
+      return withTime(datePart, numericMonth.group(3));
+    }
+  }
+
+  try {
+    final parsed = DateTime.parse(trimmed);
+    final day = parsed.day.toString().padLeft(2, '0');
+    final datePart = '$day-${months[parsed.month - 1]}';
+    final hour = parsed.hour;
+    final minute = parsed.minute.toString().padLeft(2, '0');
+    final period = hour >= 12 ? 'PM' : 'AM';
+    final hour12 = hour % 12 == 0 ? 12 : hour % 12;
+    return '$datePart $hour12:$minute $period';
+  } catch (_) {
+    return trimmed.replaceAll(RegExp(r'-\d{4}'), '').trim();
   }
 }
 

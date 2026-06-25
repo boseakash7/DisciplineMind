@@ -8,6 +8,17 @@ class ApiUrl {
   /// Hit trades for selected level (POST form: user_id, level_id).
   static const String dmtLevelUserHitTrades = 'dmt-level/user-hit-trades';
 
+  /// DMT score history for Analysis tab (POST form: user_id).
+  static const String dmtScoreHistory = 'dmt-score/history';
+
+  /// User return percentages for Analysis tab (POST form: user_id, level_id).
+  static const String dmtLevelUserReturnPercentages =
+      'dmt-level/user-return-percentages';
+
+  /// User levels summary for BM tab (POST form: user_id).
+  static const String dmtLevelUserLevelsSummary =
+      'dmt-level/user-levels-summary';
+
   static String loginUrl = "user/login";
   static String sendOtpUrl = "user/send-otp";
   static String verifyOtpUrl = "user/verify-otp";
@@ -33,6 +44,6 @@ class ApiUrl {
   /// Confirms user trailed the SL in the broker app (form: trade_id, user_id).
   static const String editTrade = "edit/trade";
 
-  /// Confirms target hit / trade executed from chat button.
+  /// Confirms target hit (form: trade_id, user_id, hit_price).
   static const String tradeExecuted = "trade/executed";
 }

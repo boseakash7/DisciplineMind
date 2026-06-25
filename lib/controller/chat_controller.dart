@@ -89,6 +89,120 @@ class ChatController extends GetxController {
     return [...base, ...filteredIncoming];
   }
 
+  bool _isDeleteTradeRequestMessage(ChatMessage m) {
+    if (m is! NewTradeOpportunityMessage) return false;
+    if (m.action.toLowerCase() != 'delete') return false;
+    // These are the two bubbles used in the delete flow (combined UI).
+    return m.buttonType == 'open_app_button' || m.buttonType == 'delete_button';
+  }
+
+  bool _incomingHasDeleteTradeRequest(List<ChatMessage> incoming) {
+    for (final m in incoming) {
+      if (_isDeleteTradeRequestMessage(m) && m.actionTaken == null) return true;
+    }
+    return false;
+  }
+
+  ChatMessage _withActionTaken(ChatMessage m, dynamic actionTaken) {
+    switch (m.type) {
+      case ChatMessageType.simpleText:
+        final x = m as SimpleTextMessage;
+        return SimpleTextMessage(
+          text: x.text,
+          tradeId: x.tradeId,
+          isFromUser: x.isFromUser,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          actionTaken: actionTaken,
+        );
+      case ChatMessageType.agentWithButton:
+        final x = m as AgentWithButtonMessage;
+        return AgentWithButtonMessage(
+          text: x.text,
+          buttonLabel: x.buttonLabel,
+          actionTaken: actionTaken,
+        );
+      case ChatMessageType.newTradeOpportunity:
+        final x = m as NewTradeOpportunityMessage;
+        return NewTradeOpportunityMessage(
+          analystInfo: x.analystInfo,
+          instrument: x.instrument,
+          contract: x.contract,
+          stopLoss: x.stopLoss,
+          entryRange: x.entryRange,
+          frr: x.frr,
+          rtt: x.rtt,
+          frrRatio: x.frrRatio,
+          rttRatio: x.rttRatio,
+          lotNumbers: x.lotNumbers,
+          action: x.action,
+          exchange: x.exchange,
+          tradeId: x.tradeId,
+          oldStopLoss: x.oldStopLoss,
+          apiMessage: x.apiMessage,
+          buttonType: x.buttonType,
+          tradeName: x.tradeName,
+          tradeSymbol: x.tradeSymbol,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          actionTaken: actionTaken,
+        );
+      case ChatMessageType.tradeExecutionPrompt:
+        final x = m as TradeExecutionPromptMessage;
+        return TradeExecutionPromptMessage(
+          tradeData: x.tradeData,
+          text: x.text,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          actionTaken: actionTaken,
+        );
+      case ChatMessageType.tradeExecuted:
+        final x = m as TradeExecutedMessage;
+        return TradeExecutedMessage(
+          text: x.text,
+          buttonLabel: x.buttonLabel,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          actionTaken: actionTaken,
+        );
+      case ChatMessageType.alertHitWithButton:
+        final x = m as AlertHitWithButtonMessage;
+        return AlertHitWithButtonMessage(
+          text: x.text,
+          buttonLabel: x.buttonLabel,
+          buttonType: x.buttonType,
+          tradeId: x.tradeId,
+          isGttHit: x.isGttHit,
+          targetHitPrice: x.targetHitPrice,
+          tradeData: x.tradeData,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          actionTaken: actionTaken,
+        );
+      case ChatMessageType.dmtScore:
+        final x = m as DmtScoreMessage;
+        return DmtScoreMessage(
+          headline: x.headline,
+          scoreDate: x.scoreDate,
+          instructionsScore: x.instructionsScore,
+          commitmentScore: x.commitmentScore,
+          patienceScore: x.patienceScore,
+          consistencyScore: x.consistencyScore,
+          dmtTotalScore: x.dmtTotalScore,
+          dmtMaxScore: x.dmtMaxScore,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          actionTaken: actionTaken,
+        );
+    }
+  }
+
+  List<ChatMessage> _markAllActionsTaken(List<ChatMessage> list) {
+    return list
+        .map((m) => m.actionTaken == null ? _withActionTaken(m, 1) : m)
+        .toList();
+  }
+
   /// Fetch messages from API
   /// [refresh] - use isRefreshing (pull-to-refresh indicator)
   /// [silent] - no loader at all, use when e.g. notification received
@@ -162,12 +276,22 @@ class ChatController extends GetxController {
       if (response.isSuccess && response.data != null) {
         final incoming = _parseDisplayMessages(response.data['payload']);
         if (incoming.isNotEmpty) {
+          final base = messages.toList();
+          final hasDeleteRequest = _incomingHasDeleteTradeRequest(incoming);
           final merged = _mergeUniqueMessages(
-            base: messages.toList(),
+            base: hasDeleteRequest ? _markAllActionsTaken(base) : base,
             incoming: incoming,
             prepend: false,
           );
           messages.assignAll(merged);
+
+          // After disabling old actions locally, refresh from backend so older messages
+          // load with correct `action_taken` state.
+          if (hasDeleteRequest) {
+            Future.delayed(const Duration(milliseconds: 250), () {
+              loadMessages(silent: true);
+            });
+          }
         }
       } else if (!silent && response.errorMessage != null) {
         AppToast.showToast(response.errorMessage!);
@@ -570,8 +694,11 @@ class ChatController extends GetxController {
     }
   }
 
-  /// POST `trade/executed` (trade_id + user_id) after user confirms target hit.
-  Future<void> acknowledgeTradeExecuted(AlertHitWithButtonMessage msg) async {
+  /// POST `trade/executed` after user confirms target hit (optional [hitPrice]).
+  Future<void> acknowledgeTradeExecuted(
+    AlertHitWithButtonMessage msg, {
+    String? hitPrice,
+  }) async {
     final userId = Common.userData.value?.payload?.id?.toString();
     if (userId == null || userId.isEmpty) {
       AppToast.showToast('Please sign in to confirm');
@@ -581,6 +708,15 @@ class ChatController extends GetxController {
       AppToast.showToast('Missing trade id');
       return;
     }
+    final trimmedPrice = (hitPrice ?? '').trim();
+    if (trimmedPrice.isEmpty) {
+      AppToast.showToast('Please enter hit price');
+      return;
+    }
+    if (double.tryParse(trimmedPrice) == null) {
+      AppToast.showToast('Please enter a valid price');
+      return;
+    }
     try {
       final api = Get.isRegistered<ApiService>()
           ? Get.find<ApiService>()
@@ -588,6 +724,7 @@ class ChatController extends GetxController {
       final response = await api.postFormData(ApiUrl.tradeExecuted, {
         'trade_id': msg.tradeId,
         'user_id': userId,
+        'user_hit_price': trimmedPrice,
       });
       if (response.isSuccess) {
         AppToast.showToast('Trade execution confirmed');

@@ -170,6 +170,7 @@ class AlertHitWithButtonMessage extends ChatMessage {
   final String buttonType;
   final String tradeId;
   final bool isGttHit;
+  final String targetHitPrice;
   final NewTradeOpportunityMessage? tradeData;
 
   const AlertHitWithButtonMessage({
@@ -178,11 +179,32 @@ class AlertHitWithButtonMessage extends ChatMessage {
     this.buttonType = '',
     this.tradeId = '',
     this.isGttHit = false,
+    this.targetHitPrice = '',
     this.tradeData,
     super.messageId,
     super.isUnread,
     super.actionTaken,
   }) : super(type: ChatMessageType.alertHitWithButton);
+}
+
+String _targetHitPriceFromPayload(Map<String, dynamic> p) {
+  for (final key in ['hit_price', 'upper_price', 'gtt_price', 'price']) {
+    final v = p[key];
+    if (v != null && v.toString().trim().isNotEmpty) {
+      return v.toString().trim();
+    }
+  }
+  final trade = p['trade'];
+  if (trade is Map) {
+    final tp = Map<String, dynamic>.from(trade);
+    for (final key in ['take_profit', 'current_price', 'entry_price']) {
+      final v = tp[key];
+      if (v != null && v.toString().trim().isNotEmpty) {
+        return v.toString().trim();
+      }
+    }
+  }
+  return '';
 }
 
 /// Parse API message JSON into one or more chat messages.
@@ -317,6 +339,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         buttonType: buttonType,
         tradeId: tradeId,
         isGttHit: isGttHit,
+        targetHitPrice: _targetHitPriceFromPayload(p),
         tradeData: tradeData,
         messageId: messageId,
         isUnread: isUnread,

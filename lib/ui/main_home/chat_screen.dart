@@ -1,15 +1,19 @@
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/controller/chat_controller.dart';
 import 'package:discipline_mind/model/chat_message_model.dart';
+import 'package:discipline_mind/services/notification/notification_handler.dart';
 import 'package:discipline_mind/ui/main_home/widgets/dmt_score_popup.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, this.onMonkkTap});
+  const ChatScreen({super.key, this.onMonkkTap, this.isActive = true});
 
   final VoidCallback? onMonkkTap;
+
+  /// True when this tab is selected in `MainHomeScreen` bottom nav.
+  final bool isActive;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -26,6 +30,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _didInitialBottomSnap = false;
   String _previousFirstMessageId = '';
   String _previousLastMessageId = '';
+
   /// DMT score popup staged animation shown once per message (while unread).
   final Set<String> _dmtScorePopupAnimatedIds = <String>{};
 
@@ -33,6 +38,20 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _scrollController.addListener(_handleScrollForOlderMessages);
+  }
+
+  @override
+  void didUpdateWidget(ChatScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      _syncOnTabFocus();
+    }
+  }
+
+  void _syncOnTabFocus() {
+    if (!Get.isRegistered<ChatController>()) return;
+    // Same effect as Sync button, but without UI noise.
+    Get.find<ChatController>().loadNewMessages(silent: true);
   }
 
   @override
@@ -69,6 +88,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_isLoadingOlder) return;
     if (!_scrollController.hasClients) return;
     if (_scrollController.position.pixels > 24) return;
+    if (!Get.isRegistered<ChatController>()) return;
     final controller = Get.find<ChatController>();
     if (controller.isLoading.value || controller.messages.isEmpty) return;
     if (!controller.hasMoreOlderMessages.value) return;
@@ -163,7 +183,10 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  void _scheduleScrollAfterUnreadReveal(String messageId, ChatController controller) {
+  void _scheduleScrollAfterUnreadReveal(
+    String messageId,
+    ChatController controller,
+  ) {
     final isLast = messageId == _lastMessageId(controller.messages);
     if (isLast || _isNearBottom()) {
       _scheduleScrollToBottom();
@@ -239,7 +262,7 @@ class _ChatScreenState extends State<ChatScreen> {
         body: SafeArea(
           child: Column(
             children: [
-              _buildHeader(context),
+              _buildHeader(context, controller),
               Expanded(
                 child: Obx(() {
                   if (controller.isLoading.value) {
@@ -277,6 +300,49 @@ class _ChatScreenState extends State<ChatScreen> {
                   }
                   _previousFirstMessageId = currentFirstId;
                   _previousLastMessageId = currentLastId;
+
+                  // If user tapped a "DMT score" notification, auto-open the
+                  // unread DMT score popup for the matching (or latest) message.
+                  if (NotificationHandler.dmtScoreAutoOpenPending) {
+                    final pendingDate =
+                        NotificationHandler.dmtScoreAutoOpenScoreDate;
+                    DmtScoreMessage? target;
+                    for (var i = controller.messages.length - 1; i >= 0; i--) {
+                      final msg = controller.messages[i];
+                      if (msg is! DmtScoreMessage) continue;
+                      final id = msg.messageId.trim();
+                      if (id.isEmpty) continue;
+                      if (!msg.isUnread) continue;
+                      if (_dmtScorePopupAnimatedIds.contains(id)) continue;
+                      if (pendingDate != null && pendingDate.isNotEmpty) {
+                        if (msg.scoreDate.trim() != pendingDate.trim())
+                          continue;
+                      }
+                      target = msg;
+                      break;
+                    }
+
+                    if (target != null) {
+                      final t = target;
+                      NotificationHandler.clearDmtScoreAutoOpen();
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (!mounted) return;
+                        final id = t.messageId.trim();
+                        setState(() => _dmtScorePopupAnimatedIds.add(id));
+                        showDmtScorePopup(
+                          context,
+                          scoreDate: t.scoreDate,
+                          instructionsScore: t.instructionsScore,
+                          commitmentScore: t.commitmentScore,
+                          patienceScore: t.patienceScore,
+                          consistencyScore: t.consistencyScore,
+                          dmtTotalScore: t.dmtTotalScore,
+                          dmtMaxScore: t.dmtMaxScore,
+                          animateReveal: true,
+                        );
+                      });
+                    }
+                  }
                   return controller.messages.isEmpty
                       ? ListView(
                           controller: _scrollController,
@@ -348,8 +414,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
-    final controller = Get.find<ChatController>();
+  Widget _buildHeader(BuildContext context, ChatController controller) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       child: Row(
@@ -368,36 +433,6 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           Row(
             children: [
-              InkWell(
-                onTap: () => controller.loadNewMessages(silent: false),
-                borderRadius: BorderRadius.circular(14),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: Colors.grey.shade300),
-                  ),
-                  child: Row(
-                    children: const [
-                      Icon(Icons.refresh, size: 14, color: AppColors.primary),
-                      SizedBox(width: 4),
-                      Text(
-                        'Sync',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
               const Text(
                 'Credits : 250',
                 style: TextStyle(color: AppColors.primary),
@@ -478,7 +513,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   child: ElevatedButton(
                     onPressed: () {
                       final id = msg.messageId.trim();
-                      final shouldAnimate = msg.isUnread &&
+                      final shouldAnimate =
+                          msg.isUnread &&
                           id.isNotEmpty &&
                           !_dmtScorePopupAnimatedIds.contains(id);
                       showDmtScorePopup(
@@ -2060,6 +2096,26 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  void _showTargetHitConfirmDialog(
+    BuildContext context,
+    AlertHitWithButtonMessage msg,
+    ChatController controller,
+  ) {
+    final rawPrice = msg.targetHitPrice.trim();
+    final initialPrice = rawPrice.isNotEmpty
+        ? _formatTradeCardPrice(rawPrice)
+        : '';
+
+    showChatFadeDialog(
+      context: context,
+      builder: (ctx) => _TargetHitConfirmDialog(
+        msg: msg,
+        controller: controller,
+        initialPrice: initialPrice,
+      ),
+    );
+  }
+
   Widget _buildAlertHitWithButton(
     BuildContext context,
     AlertHitWithButtonMessage msg,
@@ -2105,7 +2161,11 @@ class _ChatScreenState extends State<ChatScreen> {
                   onTap: _showButtons(msg)
                       ? () {
                           if (msg.buttonType == 'trade_executed') {
-                            controller.acknowledgeTradeExecuted(msg);
+                            _showTargetHitConfirmDialog(
+                              context,
+                              msg,
+                              controller,
+                            );
                           } else if (msg.isGttHit && msg.tradeData != null) {
                             _showTradeParamsPopup(
                               context,
@@ -2259,6 +2319,134 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _TargetHitConfirmDialog extends StatefulWidget {
+  const _TargetHitConfirmDialog({
+    required this.msg,
+    required this.controller,
+    required this.initialPrice,
+  });
+
+  final AlertHitWithButtonMessage msg;
+  final ChatController controller;
+  final String initialPrice;
+
+  @override
+  State<_TargetHitConfirmDialog> createState() =>
+      _TargetHitConfirmDialogState();
+}
+
+class _TargetHitConfirmDialogState extends State<_TargetHitConfirmDialog> {
+  late final TextEditingController _priceController;
+
+  @override
+  void initState() {
+    super.initState();
+    _priceController = TextEditingController(text: widget.initialPrice);
+  }
+
+  @override
+  void dispose() {
+    _priceController.dispose();
+    super.dispose();
+  }
+
+  void _onConfirm() {
+    final price = _priceController.text.trim();
+    Navigator.of(context).pop();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.controller.acknowledgeTradeExecuted(widget.msg, hitPrice: price);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 340),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Confirm target hit',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Target hit on this price',
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _priceController,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: AppColors.primary,
+              ),
+              textAlign: TextAlign.center,
+              decoration: InputDecoration(
+                hintText: 'Enter price',
+                filled: true,
+                fillColor: AppColors.backgroundGray,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 14,
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: FilledButton(
+                    onPressed: _onConfirm,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: const Text(
+                      'CONFIRM',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -56,8 +56,6 @@ class DmtLevel {
         'name': name,
         'short_name': shortName,
       };
-
-  /// Primary label for dropdowns and headers.
   String get displayLabel =>
       name.isNotEmpty ? name : (shortName.isNotEmpty ? shortName : code);
 

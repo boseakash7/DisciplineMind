@@ -89,7 +89,7 @@ class _ExpandableTradeCardState extends State<ExpandableTradeCard> {
                               ),
                               Flexible(
                                 child: Text(
-                                  widget.date,
+                                  formatTradeTabDate(widget.date),
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.normal,
@@ -180,10 +180,9 @@ class _ExpandableTradeCardState extends State<ExpandableTradeCard> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _detailRow('Name', nameWithExchange),
-        _detailRow('Symbol', t.tradingsymbol),
         _detailRow('Hit price', _fmt(t.hitPrice)),
-        _detailRow('Hit at', t.hitAtFormatted),
-        _detailRow('Created at', t.createdAtFormatted),
+        _detailRow('Hit at', t.displayHitAt),
+        _detailRow('Created at', t.displayCreatedAt),
         _detailRow('Target price', _fmt(t.upperPrice)),
         _detailRow('Stop loss', _fmt(t.lowerPrice)),
         _detailRow('Entry price', _fmt(entryPrice)),
@@ -196,7 +195,7 @@ class _ExpandableTradeCardState extends State<ExpandableTradeCard> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _detailRow('Name', widget.title),
-        _detailRow('Date', widget.date),
+        _detailRow('Date', formatTradeTabDate(widget.date)),
         _detailRow('Return', widget.returnLabel),
       ],
     );

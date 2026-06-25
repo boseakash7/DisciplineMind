@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -36,6 +37,33 @@ class NotificationHandler {
 
   /// Called when a notification is received (foreground, background tap, or opened from terminated).
   static void Function()? onNotificationReceived;
+
+  // Set when user taps a DMT score notification (or opens it from terminated state).
+  // ChatScreen reads this flag to auto-open the DMT score popup.
+  static bool _dmtScoreAutoOpenPending = false;
+  static String? _dmtScoreAutoOpenScoreDate;
+
+  static bool get dmtScoreAutoOpenPending => _dmtScoreAutoOpenPending;
+
+  static String? get dmtScoreAutoOpenScoreDate => _dmtScoreAutoOpenScoreDate;
+
+  static void clearDmtScoreAutoOpen() {
+    _dmtScoreAutoOpenPending = false;
+    _dmtScoreAutoOpenScoreDate = null;
+  }
+
+  static void _maybeMarkDmtScoreAutoOpen(Map<String, dynamic> data) {
+    final type = (data['type'] ??
+            data['notification_type'] ??
+            data['category'] ??
+            '')
+        .toString()
+        .toLowerCase();
+    if (type != 'dmt_score') return;
+    _dmtScoreAutoOpenPending = true;
+    _dmtScoreAutoOpenScoreDate =
+        data['score_date']?.toString() ?? data['scoreDate']?.toString();
+  }
 
   /// Initialize FCM and local notifications. Call from main() after Firebase.initializeApp().
   static Future<void> initialize() async {
@@ -92,6 +120,20 @@ class NotificationHandler {
   }
 
   static void _onNotificationTapped(NotificationResponse response) {
+    // Local notifications provide the payload on tap.
+    try {
+      final payload = response.payload;
+      if (payload != null && payload.isNotEmpty) {
+        final decoded = jsonDecode(payload);
+        if (decoded is Map) {
+          _maybeMarkDmtScoreAutoOpen(
+            decoded.map((k, v) => MapEntry(k.toString(), v)),
+          );
+        }
+      }
+    } catch (_) {
+      // Ignore payload parse issues.
+    }
     onNotificationReceived?.call();
   }
 
@@ -110,6 +152,7 @@ class NotificationHandler {
     FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       _logNotificationData(source: 'onMessageOpenedApp', message: message);
+      _maybeMarkDmtScoreAutoOpen(message.data);
       onNotificationReceived?.call();
     });
     _firebaseInited = true;
@@ -153,7 +196,7 @@ class NotificationHandler {
             presentSound: true,
           ),
         ),
-        payload: message.data.toString(),
+        payload: jsonEncode(message.data),
       );
     }
   }
@@ -229,28 +272,40 @@ class NotificationHandler {
     ) {
       if (message != null) {
         _logNotificationData(source: 'getInitialMessage', message: message);
+        _maybeMarkDmtScoreAutoOpen(message.data);
         onNotificationReceived?.call();
       }
     });
   }
 
   static const String tradeAlertsTopic = 'trade_alerts';
+  static const String dmtScoreTopic = 'dmt_score';
 
-  /// Subscribe to trade_alerts topic. Call on login.
+  /// Subscribe to FCM topics. Call on login.
   static Future<void> subscribeToTradeAlerts() async {
     try {
       await FirebaseMessaging.instance.subscribeToTopic(tradeAlertsTopic);
+      await FirebaseMessaging.instance.subscribeToTopic(dmtScoreTopic);
+      if (kDebugMode) {
+        debugPrint('Subscribed to FCM topics: $tradeAlertsTopic, $dmtScoreTopic');
+      }
     } catch (e) {
-      if (kDebugMode) debugPrint('Subscribe to trade_alerts failed: $e');
+      if (kDebugMode) debugPrint('Subscribe to FCM topics failed: $e');
     }
   }
 
-  /// Unsubscribe from trade_alerts topic. Call on logout.
+  /// Unsubscribe from FCM topics. Call on logout.
   static Future<void> unsubscribeFromTradeAlerts() async {
     try {
       await FirebaseMessaging.instance.unsubscribeFromTopic(tradeAlertsTopic);
+      await FirebaseMessaging.instance.unsubscribeFromTopic(dmtScoreTopic);
+      if (kDebugMode) {
+        debugPrint(
+          'Unsubscribed from FCM topics: $tradeAlertsTopic, $dmtScoreTopic',
+        );
+      }
     } catch (e) {
-      if (kDebugMode) debugPrint('Unsubscribe from trade_alerts failed: $e');
+      if (kDebugMode) debugPrint('Unsubscribe from FCM topics failed: $e');
     }
   }
 }
