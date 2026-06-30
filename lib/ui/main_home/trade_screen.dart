@@ -107,6 +107,7 @@ class _TradesScreenState extends State<TradesScreen>
   }
 
   Widget overviewCard({
+    required Color cardColor,
     required int totalTrades,
     required int totalWins,
     required String tradeAccuracy,
@@ -117,28 +118,51 @@ class _TradesScreenState extends State<TradesScreen>
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade300),
-        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        color: cardColor,
       ),
       child: Column(
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Total Trades : $totalTrades'),
-              Text('Total Wins : $totalWins'),
+              Text(
+                'Total Trades : $totalTrades',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              Text(
+                'Total Wins : $totalWins',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 10),
           Container(
             padding: const EdgeInsets.all(12),
-            color: Colors.grey.shade200,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(.18),
+              borderRadius: BorderRadius.circular(12),
+            ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Trade Accuracy : $tradeAccuracy'),
-                TradeAccuracyRing(percent: tradeAccuracyPercent),
+                Text(
+                  'Trade Accuracy : $tradeAccuracy',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                TradeAccuracyRing(
+                  percent: tradeAccuracyPercent,
+                  color: cardColor, // FIX: ring ab selected mode ka color use karega
+                ),
               ],
             ),
           ),
@@ -146,8 +170,8 @@ class _TradesScreenState extends State<TradesScreen>
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: AppColors.primary,
-              borderRadius: BorderRadius.circular(6),
+              color: Colors.white.withOpacity(.15),
+              borderRadius: BorderRadius.circular(10),
             ),
             child: Column(
               children: [
@@ -174,6 +198,21 @@ class _TradesScreenState extends State<TradesScreen>
     );
   }
 
+  Color _selectedColor() {
+    final code = _levelsService.selectedLevel.value?.code?.toUpperCase();
+
+    switch (code) {
+      case "BM":
+        return const Color(0xFF1DA1F2);
+      case "AM":
+        return const Color(0xFFA855F7);
+      case "LM":
+        return const Color(0xFF10B981);
+      default:
+        return AppColors.primary;
+    }
+  }
+
   List<Widget> _tradeCardsFromApi(List<DmtHitTrade> trades, {int baseIndex = 6}) {
     return trades
         .asMap()
@@ -182,6 +221,7 @@ class _TradesScreenState extends State<TradesScreen>
           (entry) => _entranceSection(
             baseIndex + entry.key.clamp(0, 6),
             ExpandableTradeCard(
+              cardColor: _selectedColor(),
               key: ValueKey('hit_trade_${entry.value.alertId}_${entry.value.tradeId}'),
               title: entry.value.displayTitle,
               date: entry.value.displayDate,
@@ -196,29 +236,39 @@ class _TradesScreenState extends State<TradesScreen>
 
   Widget _buildLevelDropdown() {
     return Obx(() {
-      final isLoading = _levelsService.isLoadingLevels.value &&
-          _levelsService.levels.isEmpty;
-      final hasError = _levelsService.levelsError.value != null &&
-          _levelsService.levels.isEmpty;
+      final isLoading =
+          _levelsService.isLoadingLevels.value && _levelsService.levels.isEmpty;
+
+      final hasError =
+          _levelsService.levelsError.value != null && _levelsService.levels.isEmpty;
+
       final selected = _levelsService.selectedLevel.value;
+      final selectedColor = _selectedColor();
+      final isDark = Theme.of(context).brightness == Brightness.dark;
 
       return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        height: 52,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
-          border: Border.all(color: AppColors.primary),
-          borderRadius: BorderRadius.circular(4),
+          color: isDark ? const Color(0xFF161616) : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: selectedColor, width: 1.4),
         ),
         child: DropdownButtonHideUnderline(
           child: DropdownButton<int>(
             isExpanded: true,
             value: selected?.id,
+            dropdownColor: isDark ? const Color(0xFF1F1F1F) : Colors.white,
             hint: Text(
               isLoading
                   ? 'Loading levels...'
                   : hasError
                       ? 'Could not load levels'
                       : 'Select level',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+              style: TextStyle(
+                color: isDark ? Colors.white70 : Colors.black54,
+                fontSize: 14,
+              ),
             ),
             icon: isLoading
                 ? const SizedBox(
@@ -226,25 +276,43 @@ class _TradesScreenState extends State<TradesScreen>
                     height: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.keyboard_arrow_down),
-            items: _levelsService.levels
-                .map(
-                  (DmtLevel level) => DropdownMenuItem<int>(
-                    value: level.id,
-                    child: Text(
-                      level.displayLabel,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: AppColors.textBlack,
-                      ),
-                    ),
-                  ),
-                )
-                .toList(),
-            onChanged: isLoading || _levelsService.levels.isEmpty
-                ? null
-                : (id) => _levelsService.selectById(id),
+                : Icon(Icons.keyboard_arrow_down, color: selectedColor),
+            style: TextStyle(
+              color: selectedColor,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+            items: _levelsService.levels.map((DmtLevel level) {
+              Color itemColor;
+              switch (level.code.toUpperCase()) {
+                case "BM":
+                  itemColor = const Color(0xFF1DA1F2);
+                  break;
+                case "AM":
+                  itemColor = const Color(0xFFA855F7);
+                  break;
+                case "LM":
+                  itemColor = const Color(0xFF10B981);
+                  break;
+                default:
+                  itemColor = AppColors.primary;
+              }
+
+              return DropdownMenuItem<int>(
+                value: level.id,
+                child: Text(
+                  level.displayLabel,
+                  style: TextStyle(color: itemColor, fontWeight: FontWeight.w600),
+                ),
+              );
+            }).toList(),
+
+            // FIX: removed `.refresh()` call which was forcing an extra
+            // notify with the stale value and causing duplicate fetches.
+            onChanged: (id) {
+              if (id == null) return;
+              _levelsService.selectById(id);
+            },
           ),
         ),
       );
@@ -259,182 +327,207 @@ class _TradesScreenState extends State<TradesScreen>
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: AnimatedBuilder(
-          animation: _entranceController,
-          builder: (context, _) {
-            return ListView(
-              children: [
-                _entranceSection(
-                  0,
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const SizedBox(height: 10),
-                      _TradesHeaderRow(onMonkkTap: widget.onMonkkTap),
-                    ],
+    return Obx(() {
+      final selectedColor = _selectedColor();
+
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: AnimatedBuilder(
+            animation: _entranceController,
+            builder: (context, _) {
+              return ListView(
+                children: [
+                  _entranceSection(
+                    0,
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const SizedBox(height: 10),
+                        _TradesHeaderRow(
+                          onMonkkTap: widget.onMonkkTap,
+                          color: selectedColor,
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                _entranceSection(
-                  1,
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const SizedBox(height: 20),
-                      _buildLevelDropdown(),
-                      Obx(() {
-                        final err = _levelsService.levelsError.value;
-                        if (err == null || _levelsService.levels.isNotEmpty) {
-                          return const SizedBox.shrink();
-                        }
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  err,
-                                  style: TextStyle(
-                                    color: Colors.red.shade700,
-                                    fontSize: 12,
+                  _entranceSection(
+                    1,
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const SizedBox(height: 20),
+                        _buildLevelDropdown(),
+                        Obx(() {
+                          final err = _levelsService.levelsError.value;
+                          if (err == null || _levelsService.levels.isNotEmpty) {
+                            return const SizedBox.shrink();
+                          }
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    err,
+                                    style: TextStyle(
+                                      color: Colors.red.shade700,
+                                      fontSize: 12,
+                                    ),
                                   ),
                                 ),
-                              ),
-                              TextButton(
-                                onPressed: _levelsService.refreshLevels,
-                                child: const Text('Retry'),
-                              ),
-                            ],
-                          ),
-                        );
-                      }),
-                    ],
-                  ),
-                ),
-                _entranceSection(
-                  2,
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const SizedBox(height: 20),
-                      Obx(
-                        () => Text(
-                          _overviewTitle(),
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                _entranceSection(
-                  3,
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const SizedBox(height: 10),
-                      Obx(
-                        () => overviewCard(
-                          totalTrades: _levelsService.displayTotalTrades,
-                          totalWins: _levelsService.displayTotalWins,
-                          tradeAccuracy: _levelsService.displayTradeAccuracy,
-                          tradeAccuracyPercent:
-                              _levelsService.displayTradeAccuracyPercent,
-                          frr: _levelsService.displayFrr,
-                          rtt: _levelsService.displayRtt,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                _entranceSection(
-                  4,
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      SizedBox(height: 25),
-                      Text(
-                        'Per Trade Details',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      SizedBox(height: 10),
-                    ],
-                  ),
-                ),
-                _entranceSection(
-                  5,
-                  Obx(() {
-                    if (_levelsService.isLoadingTrades.value) {
-                      return const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 24),
-                        child: Center(child: CircularProgressIndicator()),
-                      );
-                    }
-
-                    final err = _levelsService.tradesError.value;
-                    if (!_levelsService.hasLoadedHitTrades) {
-                      if (err != null) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          child: Column(
-                            children: [
-                              Text(
-                                err,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: Colors.red.shade700,
-                                  fontSize: 13,
+                                TextButton(
+                                  onPressed: _levelsService.refreshLevels,
+                                  child: const Text('Retry'),
                                 ),
-                              ),
-                              TextButton(
-                                onPressed: () {
-                                  final level =
-                                      _levelsService.selectedLevel.value;
-                                  if (level != null) {
-                                    _levelsService.fetchUserHitTrades(level.id);
-                                  }
-                                },
-                                child: const Text('Retry'),
-                              ),
-                            ],
+                              ],
+                            ),
+                          );
+                        }),
+                      ],
+                    ),
+                  ),
+                  _entranceSection(
+                    2,
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const SizedBox(height: 20),
+                        Obx(
+                          () => Text(
+                            _overviewTitle(),
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: selectedColor,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _entranceSection(
+                    3,
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const SizedBox(height: 10),
+                        Obx(
+                          () => overviewCard(
+                            cardColor: selectedColor,
+                            totalTrades: _levelsService.displayTotalTrades,
+                            totalWins: _levelsService.displayTotalWins,
+                            tradeAccuracy: _levelsService.displayTradeAccuracy,
+                            tradeAccuracyPercent:
+                                _levelsService.displayTradeAccuracyPercent,
+                            frr: _levelsService.displayFrr,
+                            rtt: _levelsService.displayRtt,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _entranceSection(
+                    4,
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const SizedBox(height: 25),
+                        Text(
+                          'Per Trade Details',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: selectedColor,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                    ),
+                  ),
+                  _entranceSection(
+                    5,
+                    Obx(() {
+                      if (_levelsService.isLoadingTrades.value) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 24),
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
+
+                      final err = _levelsService.tradesError.value;
+                      if (!_levelsService.hasLoadedHitTrades) {
+                        if (err != null) {
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            child: Column(
+                              children: [
+                                Text(
+                                  err,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.red.shade700,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: () {
+                                    final level = _levelsService.selectedLevel.value;
+                                    if (level != null) {
+                                      _levelsService.fetchUserHitTrades(level.id);
+                                    }
+                                  },
+                                  child: const Text('Retry'),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+                        return const SizedBox.shrink();
+                      }
+
+                      final trades = _levelsService.displayTrades;
+                      if (trades.isEmpty) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 24),
+                          child: Text(
+                            'No trades for this level yet.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 14,
+                            ),
                           ),
                         );
                       }
-                      return const SizedBox.shrink();
-                    }
 
-                    final trades = _levelsService.displayTrades;
-                    if (trades.isEmpty) {
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 24),
-                        child: Text(
-                          'No trades for this level yet.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 14,
-                          ),
-                        ),
+                      // FIX: removed the redundant nested Obx here.
+                      // The outer Obx (at line 5 / _entranceSection(5, Obx(...)))
+                      // already rebuilds this whole block whenever
+                      // isLoadingTrades / tradesError / displayTrades change,
+                      // so wrapping the Column in a second Obx was causing
+                      // an extra, separate rebuild pass on every level switch.
+                      return Column(
+                        children: _tradeCardsFromApi(trades),
                       );
-                    }
-
-                    return Column(children: _tradeCardsFromApi(trades));
-                  }),
-                ),
-              ],
-            );
-          },
+                    }),
+                  ),
+                ],
+              );
+            },
+          ),
         ),
-      ),
-    );
+      );
+    });
   }
 }
 
 class _TradesHeaderRow extends StatelessWidget {
-  const _TradesHeaderRow({this.onMonkkTap});
-
   final VoidCallback? onMonkkTap;
+  final Color color;
+
+  const _TradesHeaderRow({
+    this.onMonkkTap,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -443,24 +536,18 @@ class _TradesHeaderRow extends StatelessWidget {
       children: [
         GestureDetector(
           onTap: onMonkkTap,
-          child: const Text(
-            'Discipline Mind',
+          child: Text(
+            'Monkk AI',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: AppColors.primary,
+              color: color,
             ),
           ),
         ),
-        const Row(
-          children: [
-            Text(
-              'Credits : 250',
-              style: TextStyle(color: AppColors.primary),
-            ),
-            SizedBox(width: 10),
-            CircleAvatar(radius: 12),
-          ],
+        Text(
+          'Credits : 250',
+          style: TextStyle(color: color),
         ),
       ],
     );

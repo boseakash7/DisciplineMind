@@ -1,8 +1,6 @@
-import 'package:discipline_mind/common/app_colors.dart';
-import 'package:discipline_mind/model/dmt_user_hit_trades_model.dart';
 import 'package:flutter/material.dart';
+import 'package:discipline_mind/model/dmt_user_hit_trades_model.dart';
 
-/// Per-trade row in Trades tab — tap arrow to expand full hit/trade details.
 class ExpandableTradeCard extends StatefulWidget {
   final String title;
   final String date;
@@ -10,206 +8,384 @@ class ExpandableTradeCard extends StatefulWidget {
   final String returnLabel;
   final DmtHitTrade? trade;
 
+  /// Pass selected level color
+  final Color cardColor;
+
   const ExpandableTradeCard({
     super.key,
     required this.title,
     required this.date,
     required this.profit,
     required this.returnLabel,
+    required this.cardColor,
     this.trade,
   });
 
   @override
-  State<ExpandableTradeCard> createState() => _ExpandableTradeCardState();
+  State<ExpandableTradeCard> createState() =>
+      _ExpandableTradeCardState();
 }
 
-class _ExpandableTradeCardState extends State<ExpandableTradeCard> {
-  bool _expanded = false;
+class _ExpandableTradeCardState
+    extends State<ExpandableTradeCard> {
+  bool expanded = false;
 
-  static const _labelStyle = TextStyle(
-    color: Color(0xCCFFFFFF),
-    fontSize: 12,
-    fontWeight: FontWeight.w500,
-  );
+  void toggle() {
+    setState(() {
+      expanded = !expanded;
+    });
+  }
 
-  static const _valueStyle = TextStyle(
-    color: Colors.white,
-    fontSize: 12,
-    fontWeight: FontWeight.w600,
-  );
-
-  String _fmt(double? v) => v == null ? '—' : v.toStringAsFixed(2);
-
-  void _toggle() => setState(() => _expanded = !_expanded);
+  String fmt(double? v) {
+    if (v == null) return '-';
+    return v.toStringAsFixed(2);
+  }
 
   @override
   Widget build(BuildContext context) {
+    final dark =
+        Theme.of(context).brightness ==
+        Brightness.dark;
+
+    final bg =
+        widget.cardColor;
+
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.primary,
-        borderRadius: BorderRadius.circular(30),
+      margin:
+          const EdgeInsets.only(
+        bottom: 14,
       ),
-      clipBehavior: Clip.antiAlias,
+
+      decoration:
+          BoxDecoration(
+        color: bg,
+
+        borderRadius:
+            BorderRadius.circular(
+          14,
+        ),
+
+        boxShadow: [
+          BoxShadow(
+            blurRadius: 10,
+
+            color: bg.withOpacity(
+              .25,
+            ),
+          ),
+        ],
+      ),
+
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: _toggle,
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    const CircleAvatar(
-                      radius: 18,
-                      backgroundColor: Colors.white,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            widget.title,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          Row(
-                            children: [
-                              const Text(
-                                'Date - ',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              Flexible(
-                                child: Text(
-                                  formatTradeTabDate(widget.date),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.normal,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+          InkWell(
+            borderRadius:
+                BorderRadius.circular(
+              14,
+            ),
+
+            onTap: toggle,
+
+            child: Padding(
+              padding:
+                  const EdgeInsets.all(
+                14,
+              ),
+
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 16,
+
+                    backgroundColor:
+                        dark
+                            ? Colors
+                                .white24
+                            : Colors
+                                .white,
+
+                    child: Text(
+                      widget.title
+                          .substring(
+                        0,
+                        1,
+                      ),
+
+                      style:
+                          TextStyle(
+                        color:
+                            widget
+                                .cardColor,
+
+                        fontWeight:
+                            FontWeight
+                                .bold,
                       ),
                     ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
+                  ),
+
+                  const SizedBox(
+                    width: 10,
+                  ),
+
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment
+                              .start,
+
                       children: [
-                        const Text(
-                          'Return',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
+                        Text(
+                          widget.title,
+
+                          style:
+                              const TextStyle(
+                            color:
+                                Colors
+                                    .white,
+
+                            fontWeight:
+                                FontWeight
+                                    .w700,
                           ),
                         ),
+
+                        const SizedBox(
+                          height: 4,
+                        ),
+
                         Text(
-                          widget.returnLabel,
-                          style: TextStyle(
-                            color: widget.profit
-                                ? Colors.green.shade800
-                                : Colors.red.shade800,
-                            fontWeight: FontWeight.bold,
+                          'Date - ${formatTradeTabDate(widget.date)}',
+
+                          style:
+                              TextStyle(
+                            color:
+                                Colors
+                                    .white
+                                    .withOpacity(
+                                      .8,
+                                    ),
+
+                            fontSize:
+                                12,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(width: 5),
-                    AnimatedRotation(
-                      turns: _expanded ? 0.5 : 0,
-                      duration: const Duration(milliseconds: 220),
-                      child: const Icon(
-                        Icons.keyboard_arrow_down,
-                        color: Colors.white,
+                  ),
+
+                  Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment
+                            .end,
+
+                    children: [
+                      const Text(
+                        'Return',
+
+                        style:
+                            TextStyle(
+                          color:
+                              Colors
+                                  .white,
+                        ),
                       ),
+
+                      Text(
+                        widget.returnLabel,
+
+                        style:
+                            TextStyle(
+                          fontWeight:
+                              FontWeight
+                                  .bold,
+
+                          color:
+                              widget.profit
+                                  ? Colors
+                                      .limeAccent
+                                  : Colors
+                                      .redAccent,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  AnimatedRotation(
+                    turns:
+                        expanded
+                            ? .5
+                            : 0,
+
+                    duration:
+                        const Duration(
+                      milliseconds:
+                          250,
                     ),
-                  ],
-                ),
+
+                    child:
+                        const Icon(
+                      Icons
+                          .keyboard_arrow_down,
+
+                      color:
+                          Colors
+                              .white,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
+
           AnimatedCrossFade(
-            firstChild: const SizedBox.shrink(),
-            secondChild: _buildExpandedDetails(),
-            crossFadeState: _expanded
-                ? CrossFadeState.showSecond
-                : CrossFadeState.showFirst,
-            duration: const Duration(milliseconds: 220),
-            sizeCurve: Curves.easeOut,
+            duration:
+                const Duration(
+              milliseconds:
+                  250,
+            ),
+
+            crossFadeState:
+                expanded
+                    ? CrossFadeState
+                        .showSecond
+                    : CrossFadeState
+                        .showFirst,
+
+            firstChild:
+                const SizedBox(),
+
+            secondChild:
+                Container(
+              width:
+                  double.infinity,
+
+              padding:
+                  const EdgeInsets
+                      .all(
+                16,
+              ),
+
+              decoration:
+                  BoxDecoration(
+                color:
+                    Colors.black
+                        .withOpacity(
+                          .12,
+                        ),
+
+                borderRadius:
+                    const BorderRadius.vertical(
+                  bottom:
+                      Radius.circular(
+                    14,
+                  ),
+                ),
+              ),
+
+              child:
+                  widget.trade ==
+                          null
+                      ? Column(
+                          children: [
+                            row(
+                              'Date',
+                              formatTradeTabDate(
+                                widget
+                                    .date,
+                              ),
+                            ),
+
+                            row(
+                              'Return',
+                              widget
+                                  .returnLabel,
+                            ),
+                          ],
+                        )
+                      : Column(
+                          children: [
+                            row(
+                              'Hit Price',
+                              fmt(
+                                widget
+                                    .trade
+                                    ?.hitPrice,
+                              ),
+                            ),
+
+                            row(
+                              'Target',
+                              fmt(
+                                widget
+                                    .trade
+                                    ?.upperPrice,
+                              ),
+                            ),
+
+                            row(
+                              'Stop Loss',
+                              fmt(
+                                widget
+                                    .trade
+                                    ?.lowerPrice,
+                              ),
+                            ),
+
+                            row(
+                              'Created',
+                              widget
+                                      .trade
+                                      ?.displayCreatedAt ??
+                                  '',
+                            ),
+                          ],
+                        ),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildExpandedDetails() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.12),
-        border: Border(
-          top: BorderSide(color: Colors.white.withOpacity(0.25)),
-        ),
-      ),
-      child: widget.trade != null
-          ? _apiTradeDetails(widget.trade!)
-          : _fallbackDetails(),
-    );
-  }
-
-  Widget _apiTradeDetails(DmtHitTrade t) {
-    final d = t.trade;
-    final name = d?.name.trim() ?? '';
-    final exchange = (d?.exchange ?? t.exchange).trim();
-    final nameWithExchange = name.isNotEmpty
-        ? (exchange.isNotEmpty ? '$name ($exchange)' : name)
-        : (exchange.isNotEmpty ? exchange : t.tradingsymbol);
-    final entryPrice = d?.entryPrice ?? t.gttPrice;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _detailRow('Name', nameWithExchange),
-        _detailRow('Hit price', _fmt(t.hitPrice)),
-        _detailRow('Hit at', t.displayHitAt),
-        _detailRow('Created at', t.displayCreatedAt),
-        _detailRow('Target price', _fmt(t.upperPrice)),
-        _detailRow('Stop loss', _fmt(t.lowerPrice)),
-        _detailRow('Entry price', _fmt(entryPrice)),
-      ],
-    );
-  }
-
-  Widget _fallbackDetails() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _detailRow('Name', widget.title),
-        _detailRow('Date', formatTradeTabDate(widget.date)),
-        _detailRow('Return', widget.returnLabel),
-      ],
-    );
-  }
-
-  Widget _detailRow(String label, String value) {
-    if (value.isEmpty) return const SizedBox.shrink();
+  Widget row(
+    String l,
+    String v,
+  ) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding:
+          const EdgeInsets.only(
+        bottom: 8,
+      ),
+
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: 108, child: Text(label, style: _labelStyle)),
-          Expanded(child: Text(value, style: _valueStyle)),
+          SizedBox(
+            width: 100,
+
+            child: Text(
+              l,
+
+              style:
+                  const TextStyle(
+                color:
+                    Colors
+                        .white70,
+              ),
+            ),
+          ),
+
+          Expanded(
+            child: Text(
+              v,
+
+              style:
+                  const TextStyle(
+                color:
+                    Colors.white,
+              ),
+            ),
+          ),
         ],
       ),
     );

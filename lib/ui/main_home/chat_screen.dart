@@ -34,6 +34,56 @@ class _ChatScreenState extends State<ChatScreen> {
   /// DMT score popup staged animation shown once per message (while unread).
   final Set<String> _dmtScorePopupAnimatedIds = <String>{};
 
+  // ==================== Theme-aware color helpers ====================
+  // Centralised so light/dark variants stay consistent across every bubble,
+  // card, dialog and input in this screen.
+
+  bool _isDark(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark;
+
+  /// Screen / scaffold background.
+  Color _screenBg(bool isDark) =>
+      isDark ? const Color(0xFF12151B) : AppColors.backgroundGray;
+
+  /// Bottom input bar background.
+  Color _bottomBarBg(bool isDark) =>
+      isDark ? const Color(0xFF12151B) : Colors.white;
+
+  /// Incoming (assistant) plain text bubble background.
+  Color _bubbleBg(bool isDark) =>
+      isDark ? const Color(0xFF1E222A) : Colors.grey.shade200;
+
+  /// Incoming bubble main text.
+  Color _bubbleText(bool isDark) => isDark ? Colors.white : Colors.black87;
+
+  /// Headline / primary body text outside bubbles (was Colors.grey.shade800).
+  Color _headlineText(bool isDark) =>
+      isDark ? Colors.white : Colors.grey.shade800;
+
+  /// Secondary text (was Colors.grey.shade700).
+  Color _secondaryText(bool isDark) =>
+      isDark ? Colors.white70 : Colors.grey.shade700;
+
+  /// Tertiary / muted text (was Colors.grey.shade600).
+  Color _tertiaryText(bool isDark) =>
+      isDark ? Colors.white60 : Colors.grey.shade600;
+
+  /// Dialog / popup surface background (was Colors.white).
+  Color _dialogBg(bool isDark) =>
+      isDark ? const Color(0xFF1B1F27) : Colors.white;
+
+  /// Text field fill inside dialogs / input bar (was AppColors.backgroundGray
+  /// or Colors.grey.shade100).
+  Color _fieldFill(bool isDark) =>
+      isDark ? const Color(0xFF22262F) : AppColors.backgroundGray;
+
+  /// Generic border color for fields/cards in dialogs.
+  Color _fieldBorder(bool isDark) =>
+      isDark ? Colors.white24 : Colors.grey.shade400;
+
+  /// Divider color used inside the (always-white) trade card stays the same
+  /// in both themes since the card itself stays white per design.
+
   @override
   void initState() {
     super.initState();
@@ -255,14 +305,15 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = _isDark(context);
     return GetBuilder<ChatController>(
       init: Get.put(ChatController(), permanent: true),
       builder: (controller) => Scaffold(
-        backgroundColor: AppColors.backgroundGray,
+        backgroundColor: _screenBg(isDark),
         body: SafeArea(
           child: Column(
             children: [
-              _buildHeader(context, controller),
+              // _buildHeader(context, controller),
               Expanded(
                 child: Obx(() {
                   if (controller.isLoading.value) {
@@ -346,13 +397,16 @@ class _ChatScreenState extends State<ChatScreen> {
                   return controller.messages.isEmpty
                       ? ListView(
                           controller: _scrollController,
-                          children: const [
+                          children: [
                             SizedBox(
                               height: 420,
                               child: Center(
                                 child: Text(
                                   'No messages yet.',
                                   textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: _secondaryText(isDark),
+                                  ),
                                 ),
                               ),
                             ),
@@ -423,7 +477,7 @@ class _ChatScreenState extends State<ChatScreen> {
           GestureDetector(
             onTap: widget.onMonkkTap,
             child: const Text(
-              'Discipline Mind',
+              'Monkk AI',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
@@ -486,6 +540,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildDmtScore(BuildContext context, DmtScoreMessage msg) {
+    final isDark = _isDark(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
@@ -502,7 +557,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       ? msg.headline
                       : 'Your daily discipline analysis is ready.',
                   style: TextStyle(
-                    color: Colors.grey.shade800,
+                    color: _headlineText(isDark),
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
                   ),
@@ -558,6 +613,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildSimpleText(BuildContext context, SimpleTextMessage msg) {
+    final isDark = _isDark(context);
     if (msg.isFromUser) {
       return Align(
         alignment: Alignment.centerRight,
@@ -598,12 +654,12 @@ class _ChatScreenState extends State<ChatScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: Colors.grey.shade200,
+                color: _bubbleBg(isDark),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
                 msg.text,
-                style: const TextStyle(color: Colors.black87, fontSize: 15),
+                style: TextStyle(color: _bubbleText(isDark), fontSize: 15),
               ),
             ),
           ),
@@ -616,6 +672,7 @@ class _ChatScreenState extends State<ChatScreen> {
     BuildContext context,
     AgentWithButtonMessage msg,
   ) {
+    final isDark = _isDark(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -639,7 +696,7 @@ class _ChatScreenState extends State<ChatScreen> {
             child: Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.grey.shade200,
+                color: _bubbleBg(isDark),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Column(
@@ -647,7 +704,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 children: [
                   Text(
                     msg.text,
-                    style: const TextStyle(color: Colors.black87, fontSize: 15),
+                    style: TextStyle(color: _bubbleText(isDark), fontSize: 15),
                   ),
                   if (msg.actionTaken == null) ...[
                     const SizedBox(height: 12),
@@ -729,6 +786,7 @@ class _ChatScreenState extends State<ChatScreen> {
     NewTradeOpportunityMessage msg,
     ChatController controller,
   ) {
+    final isDark = _isDark(context);
     if (_isEditTradeAction(msg) && msg.buttonType == 'edit_button') {
       return _buildTradeEditCombinedMessage(context, msg, controller);
     }
@@ -754,13 +812,17 @@ class _ChatScreenState extends State<ChatScreen> {
                       ? msg.apiMessage
                       : 'New Trade Opportunity is spotted for you',
                   style: TextStyle(
-                    color: Colors.grey.shade800,
+                    color: _headlineText(isDark),
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
                 const SizedBox(height: 8),
-                _buildTradeOpportunityCard(msg, showInvalidOverlay: false),
+                _buildTradeOpportunityCard(
+                  context,
+                  msg,
+                  showInvalidOverlay: false,
+                ),
               ],
             ),
           ),
@@ -787,13 +849,14 @@ class _ChatScreenState extends State<ChatScreen> {
     NewTradeOpportunityMessage msg,
     ChatController controller,
   ) {
+    final isDark = _isDark(context);
     final stepStyle = TextStyle(
       fontSize: 13,
-      color: Colors.grey.shade800,
+      color: _headlineText(isDark),
       height: 1.35,
     );
     final titleStyle = TextStyle(
-      color: Colors.grey.shade800,
+      color: _headlineText(isDark),
       fontSize: 14,
       fontWeight: FontWeight.bold,
     );
@@ -816,7 +879,11 @@ class _ChatScreenState extends State<ChatScreen> {
                       style: titleStyle,
                     ),
                     const SizedBox(height: 8),
-                    _buildTradeOpportunityCard(msg, showInvalidOverlay: true),
+                    _buildTradeOpportunityCard(
+                      context,
+                      msg,
+                      showInvalidOverlay: true,
+                    ),
                   ],
                 ),
               ),
@@ -865,13 +932,14 @@ class _ChatScreenState extends State<ChatScreen> {
     NewTradeOpportunityMessage msg,
     ChatController controller,
   ) {
+    final isDark = _isDark(context);
     final stepStyle = TextStyle(
       fontSize: 13,
-      color: Colors.grey.shade800,
+      color: _headlineText(isDark),
       height: 1.35,
     );
     final titleStyle = TextStyle(
-      color: Colors.grey.shade800,
+      color: _headlineText(isDark),
       fontSize: 14,
       fontWeight: FontWeight.bold,
     );
@@ -895,7 +963,11 @@ class _ChatScreenState extends State<ChatScreen> {
                   children: [
                     Text('SL Edited', style: titleStyle),
                     const SizedBox(height: 8),
-                    _buildTradeOpportunityCard(msg, showInvalidOverlay: false),
+                    _buildTradeOpportunityCard(
+                      context,
+                      msg,
+                      showInvalidOverlay: false,
+                    ),
                   ],
                 ),
               ),
@@ -944,95 +1016,35 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  /// Trade card now follows the theme: white surface in light mode, dark
+  /// surface in dark mode — including text, divider, and timeline colors.
+    /// Trade card now matches the design in the reference image.
   Widget _buildTradeOpportunityCard(
+    BuildContext context,
     NewTradeOpportunityMessage msg, {
     required bool showInvalidOverlay,
   }) {
+    final isDark = _isDark(context);
+    final cardBg = const Color(0xFF1B1F27); // Dark as in image
+    final cardBorder = Colors.white12;
+    final analystInfoColor = Colors.white54;
+
     final tradeName = msg.tradeName.trim().isNotEmpty
         ? msg.tradeName.trim()
         : msg.instrument;
     final tradeSymbol = msg.tradeSymbol.trim().isNotEmpty
         ? msg.tradeSymbol.trim()
         : msg.contract;
-    final inner = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: double.infinity,
-          child: Text(
-            msg.analystInfo,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 11,
-              color: Colors.grey.shade600,
-              height: 1.25,
-            ),
-          ),
-        ),
-        Divider(height: 18, color: Colors.grey.shade300, thickness: 1),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            CircleAvatar(
-              radius: 20,
-              backgroundColor: AppColors.primary.withOpacity(0.2),
-              child: Text(
-                tradeName.isEmpty ? '?' : tradeName[0].toUpperCase(),
-                style: TextStyle(
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    tradeName,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey.shade800,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    tradeSymbol,
-                    style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        (_isEditTradeAction(msg) && msg.buttonType == 'edit_button')
-            ? _buildTradeTimelineForEdit(msg)
-            : _buildTradeTimeline(msg),
-        if (msg.rtt.trim().isNotEmpty) ...[
-          const SizedBox(height: 10),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: _BlinkingCurrentPriceBadge(
-              price: _formatTradeCardPrice(msg.rtt),
-            ),
-          ),
-        ],
-      ],
-    );
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardBg,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300),
+        border: Border.all(color: cardBorder),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withOpacity(0.25),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -1042,13 +1054,249 @@ class _ChatScreenState extends State<ChatScreen> {
           ? Stack(
               clipBehavior: Clip.hardEdge,
               children: [
-                inner,
+                _buildCardContent(context, msg, tradeName, tradeSymbol),
                 Positioned.fill(
-                  child: CustomPaint(painter: _InvalidTradeCrossPainter()),
+                  child: CustomPaint(
+                    painter: _InvalidTradeCrossPainter(isDark: isDark),
+                  ),
                 ),
               ],
             )
-          : inner,
+          : _buildCardContent(context, msg, tradeName, tradeSymbol),
+    );
+  }
+
+  Widget _buildCardContent(
+    BuildContext context,
+    NewTradeOpportunityMessage msg,
+    String tradeName,
+    String tradeSymbol,
+  ) {
+    final isDark = _isDark(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header: Analyst + Symbol + CMP
+        Row(
+          children: [
+            // SEBI REG ANALYST avatar + label
+            CircleAvatar(
+              radius: 18,
+              backgroundImage: const NetworkImage(
+                'https://i.pravatar.cc/150?u=analyst', // placeholder; replace with real if available
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              'SEBI REG ANALYST',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const Spacer(),
+            // CMP badge
+            if (msg.rtt.trim().isNotEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2A2F3A),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Text(
+                  'CMP : ${_formatTradeCardPrice(msg.rtt)}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+
+        // Main Symbol Section
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: Colors.white10,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Center(
+                child: Text(
+                  tradeName.isNotEmpty ? tradeName[0].toUpperCase() : 'S',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    tradeName,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    msg.apiMessage.isNotEmpty ? msg.apiMessage : tradeSymbol,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+
+        // Timeline - matches image exactly
+        _buildImageStyleTimeline(context, msg),
+      ],
+    );
+  }
+
+  /// New timeline that closely matches the image design
+  Widget _buildImageStyleTimeline(
+    BuildContext context,
+    NewTradeOpportunityMessage msg,
+  ) {
+    final isDark = _isDark(context);
+    final lineColor = Colors.white24;
+    final dotColor = Colors.white38;
+    final activeDotColor = const Color(0xFF8B5CF6); // Purple like image
+    final labelColor = Colors.white60;
+    final valueColor = Colors.white;
+
+    final sl = _formatTradeCardPrice(msg.stopLoss);
+    final entry = _formatTradeCardPrice(msg.entryRange);
+    final target = _formatTradeCardPrice(msg.frr);
+    final current = msg.rtt.trim().isNotEmpty ? _formatTradeCardPrice(msg.rtt) : null;
+
+    double parseNum(String raw) {
+      final matches = RegExp(r'[\d.]+').allMatches(raw);
+      final nums = matches
+          .map((m) => double.tryParse(m.group(0) ?? '0'))
+          .whereType<double>()
+          .toList();
+      return nums.isEmpty ? 0 : nums.reduce((a, b) => a + b) / nums.length;
+    }
+
+    final numeric = [parseNum(sl), parseNum(entry), parseNum(target)];
+    final minV = numeric.reduce((a, b) => a < b ? a : b);
+    final maxV = numeric.reduce((a, b) => a > b ? a : b);
+    final denom = maxV - minV;
+
+    final fractions = denom < 0.0001
+        ? const [0.0, 0.5, 1.0]
+        : numeric.map((v) => ((v - minV) / denom).clamp(0.0, 1.0)).toList();
+
+    final currentFrac = current != null && denom > 0.0001
+        ? ((parseNum(current) - minV) / denom).clamp(0.0, 1.0)
+        : null;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final positions = fractions.map((f) => w * f).toList();
+
+        return Column(
+          children: [
+            // Labels
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: const [
+                Text('SI', style: TextStyle(color: Colors.white60, fontSize: 12)),
+                Text('ENTRY', style: TextStyle(color: Colors.white60, fontSize: 12)),
+                Text('TARGET', style: TextStyle(color: Colors.white60, fontSize: 12)),
+              ],
+            ),
+            const SizedBox(height: 8),
+
+            // Line + Dots
+            SizedBox(
+              height: 28,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  // Dotted line
+                  Positioned(
+                    top: 11,
+                    left: 0,
+                    right: 0,
+                    child: CustomPaint(
+                      size: Size(w, 2),
+                      painter: _DottedLinePainter(isDark: true),
+                    ),
+                  ),
+
+                  // Dots
+                  ...List.generate(3, (i) {
+                    return Positioned(
+                      left: (positions[i] - 6).clamp(0.0, w - 12),
+                      top: 5,
+                      child: Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: i == 1 ? activeDotColor : dotColor,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white24, width: 1.5),
+                        ),
+                      ),
+                    );
+                  }),
+
+                  // Current price dot (purple highlight)
+                  if (currentFrac != null)
+                    Positioned(
+                      left: (w * currentFrac - 6).clamp(0.0, w - 12),
+                      top: 5,
+                      child: Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: activeDotColor,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+
+            // Values
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(sl, style: TextStyle(color: valueColor, fontSize: 13, fontWeight: FontWeight.w600)),
+                Text(entry, style: TextStyle(color: valueColor, fontSize: 13, fontWeight: FontWeight.w600)),
+                Text(target, style: TextStyle(color: valueColor, fontSize: 13, fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -1073,11 +1321,12 @@ class _ChatScreenState extends State<ChatScreen> {
     String? text,
     ChatMessage? sourceMessage,
   }) {
+    final isDark = _isDark(context);
     final actionSource = sourceMessage ?? msg;
-    final bodyStyle = TextStyle(fontSize: 14, color: Colors.grey.shade800);
+    final bodyStyle = TextStyle(fontSize: 14, color: _headlineText(isDark));
     final stepStyle = TextStyle(
       fontSize: 13,
-      color: Colors.grey.shade800,
+      color: _headlineText(isDark),
       height: 1.35,
     );
     return Padding(
@@ -1180,6 +1429,7 @@ class _ChatScreenState extends State<ChatScreen> {
     NewTradeOpportunityMessage msg,
     ChatController controller,
   ) {
+    final isDark = _isDark(context);
     final useExtendedFields = controller.shouldUseExtendedGttInputs();
     final gttPriceController = TextEditingController(
       text: ChatController.getDefaultGttPrice(msg.entryRange),
@@ -1195,7 +1445,7 @@ class _ChatScreenState extends State<ChatScreen> {
           constraints: const BoxConstraints(maxWidth: 340),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            color: Colors.white,
+            color: _dialogBg(isDark),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1246,10 +1496,10 @@ class _ChatScreenState extends State<ChatScreen> {
                             children: [
                               Text(
                                 msg.instrument.toUpperCase(),
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.black87,
+                                  color: _bubbleText(isDark),
                                 ),
                               ),
                               const SizedBox(height: 2),
@@ -1257,7 +1507,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                 msg.contract,
                                 style: TextStyle(
                                   fontSize: 14,
-                                  color: Colors.grey.shade700,
+                                  color: _secondaryText(isDark),
                                 ),
                               ),
                             ],
@@ -1274,7 +1524,7 @@ class _ChatScreenState extends State<ChatScreen> {
                             'GTT is set at',
                             style: TextStyle(
                               fontSize: 14,
-                              color: Colors.grey.shade700,
+                              color: _secondaryText(isDark),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -1282,13 +1532,14 @@ class _ChatScreenState extends State<ChatScreen> {
                             child: TextField(
                               controller: gttPriceController,
                               keyboardType: TextInputType.number,
+                              style: TextStyle(color: _bubbleText(isDark)),
                               decoration: InputDecoration(
                                 filled: true,
-                                fillColor: Colors.grey.shade100,
+                                fillColor: _fieldFill(isDark),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(8),
                                   borderSide: BorderSide(
-                                    color: Colors.grey.shade400,
+                                    color: _fieldBorder(isDark),
                                   ),
                                 ),
                                 contentPadding: const EdgeInsets.symmetric(
@@ -1303,11 +1554,11 @@ class _ChatScreenState extends State<ChatScreen> {
                     else
                       Column(
                         children: [
-                          _popupField('GTT is set at', gttPriceController, ''),
+                          _popupField('GTT is set at', gttPriceController, '', isDark),
                           const SizedBox(height: 12),
-                          _popupField('Stop Loss', stopLossController, ''),
+                          _popupField('Stop Loss', stopLossController, '', isDark),
                           const SizedBox(height: 12),
-                          _popupField('Target', takeProfitController, ''),
+                          _popupField('Target', takeProfitController, '', isDark),
                         ],
                       ),
                   ],
@@ -1360,6 +1611,7 @@ class _ChatScreenState extends State<ChatScreen> {
     NewTradeOpportunityMessage msg,
     ChatController controller,
   ) {
+    final isDark = _isDark(context);
     final slController = TextEditingController(text: msg.stopLoss);
     showChatFadeDialog(
       context: context,
@@ -1369,7 +1621,7 @@ class _ChatScreenState extends State<ChatScreen> {
           constraints: const BoxConstraints(maxWidth: 340),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            color: Colors.white,
+            color: _dialogBg(isDark),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1427,10 +1679,10 @@ class _ChatScreenState extends State<ChatScreen> {
                                         ? msg.tradeName.trim()
                                         : msg.instrument)
                                     .toUpperCase(),
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.black87,
+                                  color: _bubbleText(isDark),
                                 ),
                               ),
                               const SizedBox(height: 2),
@@ -1440,7 +1692,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                     : msg.contract,
                                 style: TextStyle(
                                   fontSize: 13,
-                                  color: Colors.grey.shade700,
+                                  color: _secondaryText(isDark),
                                 ),
                               ),
                             ],
@@ -1449,7 +1701,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       ],
                     ),
                     const SizedBox(height: 18),
-                    _popupField('New Stop Loss', slController, ''),
+                    _popupField('New Stop Loss', slController, '', isDark),
                   ],
                 ),
               ),
@@ -1487,7 +1739,11 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildTradeTimeline(NewTradeOpportunityMessage msg) {
+  Widget _buildTradeTimeline(BuildContext context, NewTradeOpportunityMessage msg) {
+    final isDark = _isDark(context);
+    final labelColor = isDark ? Colors.white60 : Colors.grey.shade700;
+    final valueColor = isDark ? Colors.white : const Color(0xFF424242);
+    final dotColor = isDark ? Colors.white38 : const Color(0xFF616161);
     const dotRadius = 6.0;
     final labels = ['SL', 'Entry', 'Target'];
     final values = [
@@ -1580,7 +1836,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         style: TextStyle(
                           height: 1.1,
                           fontSize: 11,
-                          color: Colors.grey.shade700,
+                          color: labelColor,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -1628,7 +1884,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     height: 2,
                     child: CustomPaint(
                       size: Size(w, 2),
-                      painter: _DottedLinePainter(),
+                      painter: _DottedLinePainter(isDark: isDark),
                     ),
                   ),
                   ...List.generate(3, (i) {
@@ -1638,8 +1894,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       child: Container(
                         width: dotRadius * 2,
                         height: dotRadius * 2,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF616161),
+                        decoration: BoxDecoration(
+                          color: dotColor,
                           shape: BoxShape.circle,
                         ),
                       ),
@@ -1696,11 +1952,11 @@ class _ChatScreenState extends State<ChatScreen> {
                             : (i == 2 ? TextAlign.right : TextAlign.center),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           height: 1.1,
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
-                          color: Color(0xFF424242),
+                          color: valueColor,
                         ),
                       ),
                     ),
@@ -1714,7 +1970,14 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildTradeTimelineForEdit(NewTradeOpportunityMessage msg) {
+  Widget _buildTradeTimelineForEdit(BuildContext context, NewTradeOpportunityMessage msg) {
+    final isDark = _isDark(context);
+    final dimLabelColor = isDark ? Colors.white38 : Colors.grey.shade500;
+    final labelColor = isDark ? Colors.white60 : Colors.grey.shade700;
+    final dimValueColor = isDark ? Colors.white38 : Colors.grey.shade500;
+    final valueColor = isDark ? Colors.white : const Color(0xFF424242);
+    final dimDotColor = isDark ? Colors.white24 : Colors.grey.shade400;
+    final dotColor = isDark ? Colors.white38 : const Color(0xFF616161);
     const dotRadius = 6.0;
     final labels = ['Stop Loss', 'Trail SL', 'Target'];
     final oldSl = msg.oldStopLoss.trim().isNotEmpty
@@ -1811,9 +2074,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         style: TextStyle(
                           height: 1.15,
                           fontSize: 11,
-                          color: i == 0
-                              ? Colors.grey.shade500
-                              : Colors.grey.shade700,
+                          color: i == 0 ? dimLabelColor : labelColor,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -1836,13 +2097,11 @@ class _ChatScreenState extends State<ChatScreen> {
                     height: 2,
                     child: CustomPaint(
                       size: Size(w, 2),
-                      painter: _DottedLinePainter(),
+                      painter: _DottedLinePainter(isDark: isDark),
                     ),
                   ),
                   ...List.generate(3, (i) {
-                    final color = i == 0
-                        ? Colors.grey.shade400
-                        : const Color(0xFF616161);
+                    final color = i == 0 ? dimDotColor : dotColor;
                     return Positioned(
                       left: (lx[i] - dotRadius).clamp(0.0, w - dotRadius * 2),
                       top: 1,
@@ -1903,9 +2162,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
-                          color: i == 0
-                              ? Colors.grey.shade500
-                              : const Color(0xFF424242),
+                          color: i == 0 ? dimValueColor : valueColor,
                         ),
                       ),
                     ),
@@ -1924,6 +2181,7 @@ class _ChatScreenState extends State<ChatScreen> {
     NewTradeOpportunityMessage msg,
     ChatController controller,
   ) {
+    final isDark = _isDark(context);
     // From API: entry_price, stop_loss, take_profit
     final entryPriceController = TextEditingController(text: msg.entryRange);
     final stopLossController = TextEditingController(text: msg.stopLoss);
@@ -1936,6 +2194,10 @@ class _ChatScreenState extends State<ChatScreen> {
         child: Container(
           constraints: const BoxConstraints(maxWidth: 340),
           padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: _dialogBg(isDark),
+            borderRadius: BorderRadius.circular(16),
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1961,16 +2223,17 @@ class _ChatScreenState extends State<ChatScreen> {
                       children: [
                         Text(
                           msg.instrument,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
+                            color: _bubbleText(isDark),
                           ),
                         ),
                         Text(
                           msg.contract,
                           style: TextStyle(
                             fontSize: 13,
-                            color: Colors.grey.shade600,
+                            color: _tertiaryText(isDark),
                           ),
                         ),
                       ],
@@ -1983,23 +2246,26 @@ class _ChatScreenState extends State<ChatScreen> {
                 'Entry Price',
                 entryPriceController,
                 '${msg.lotNumbers[1]} Lots',
+                isDark,
               ),
               const SizedBox(height: 16),
               _popupField(
                 'Stop Loss',
                 stopLossController,
                 '${msg.lotNumbers[0]} Lots',
+                isDark,
               ),
               const SizedBox(height: 16),
               _popupField(
                 'Take Profit',
                 takeProfitController,
                 '${msg.lotNumbers[2]} Lots',
+                isDark,
               ),
               const SizedBox(height: 14),
               Text(
                 '1 lot is preferred to be under RTT mode',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                style: TextStyle(fontSize: 12, color: _tertiaryText(isDark)),
               ),
               const SizedBox(height: 20),
               Row(
@@ -2052,6 +2318,7 @@ class _ChatScreenState extends State<ChatScreen> {
     String label,
     TextEditingController controller,
     String suffix,
+    bool isDark,
   ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2061,7 +2328,7 @@ class _ChatScreenState extends State<ChatScreen> {
           style: TextStyle(
             fontWeight: FontWeight.w600,
             fontSize: 13,
-            color: Colors.grey.shade800,
+            color: _headlineText(isDark),
           ),
         ),
         const SizedBox(height: 6),
@@ -2071,9 +2338,10 @@ class _ChatScreenState extends State<ChatScreen> {
               child: TextField(
                 controller: controller,
                 keyboardType: TextInputType.number,
+                style: TextStyle(color: _bubbleText(isDark)),
                 decoration: InputDecoration(
                   filled: true,
-                  fillColor: AppColors.backgroundGray,
+                  fillColor: _fieldFill(isDark),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
                     borderSide: BorderSide.none,
@@ -2088,7 +2356,7 @@ class _ChatScreenState extends State<ChatScreen> {
             const SizedBox(width: 10),
             Text(
               suffix,
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+              style: TextStyle(fontSize: 13, color: _tertiaryText(isDark)),
             ),
           ],
         ),
@@ -2121,6 +2389,7 @@ class _ChatScreenState extends State<ChatScreen> {
     AlertHitWithButtonMessage msg,
     ChatController controller,
   ) {
+    final isDark = _isDark(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -2146,7 +2415,7 @@ class _ChatScreenState extends State<ChatScreen> {
               children: [
                 Text(
                   msg.text,
-                  style: TextStyle(fontSize: 14, color: Colors.grey.shade800),
+                  style: TextStyle(fontSize: 14, color: _headlineText(isDark)),
                 ),
                 const SizedBox(height: 12),
                 if (msg.isGttHit) ...[
@@ -2211,9 +2480,10 @@ class _ChatScreenState extends State<ChatScreen> {
     TradeExecutedMessage msg,
     ChatController controller,
   ) {
+    final isDark = _isDark(context);
     final stepStyle = TextStyle(
       fontSize: 13,
-      color: Colors.grey.shade800,
+      color: _headlineText(isDark),
       height: 1.35,
     );
     return Padding(
@@ -2241,7 +2511,7 @@ class _ChatScreenState extends State<ChatScreen> {
               children: [
                 Text(
                   msg.text,
-                  style: TextStyle(fontSize: 14, color: Colors.grey.shade800),
+                  style: TextStyle(fontSize: 14, color: _headlineText(isDark)),
                 ),
                 const SizedBox(height: 14),
                 Text('1. Go to Trading APP and apply Levels', style: stepStyle),
@@ -2272,19 +2542,21 @@ class _ChatScreenState extends State<ChatScreen> {
     ChatController controller,
     TextEditingController textController,
   ) {
+    final isDark = _isDark(context);
     return Container(
       padding: const EdgeInsets.all(12),
-      color: Colors.white,
+      color: _bottomBarBg(isDark),
       child: Row(
         children: [
           Expanded(
             child: TextField(
               controller: textController,
+              style: TextStyle(color: _bubbleText(isDark)),
               decoration: InputDecoration(
                 hintText: 'Send a message',
-                hintStyle: TextStyle(color: Colors.grey.shade500),
+                hintStyle: TextStyle(color: _tertiaryText(isDark)),
                 filled: true,
-                fillColor: AppColors.backgroundGray,
+                fillColor: _fieldFill(isDark),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(24),
                   borderSide: BorderSide.none,
@@ -2365,8 +2637,15 @@ class _TargetHitConfirmDialogState extends State<_TargetHitConfirmDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final dialogBg = isDark ? const Color(0xFF1B1F27) : Colors.white;
+    final titleColor = isDark ? Colors.white : Colors.black87;
+    final bodyColor = isDark ? Colors.white70 : Colors.grey.shade700;
+    final fieldFill = isDark ? const Color(0xFF22262F) : AppColors.backgroundGray;
+
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      backgroundColor: dialogBg,
       child: Container(
         constraints: const BoxConstraints(maxWidth: 340),
         padding: const EdgeInsets.all(20),
@@ -2374,18 +2653,18 @@ class _TargetHitConfirmDialogState extends State<_TargetHitConfirmDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
+            Text(
               'Confirm target hit',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: Colors.black87,
+                color: titleColor,
               ),
             ),
             const SizedBox(height: 12),
             Text(
               'Target hit on this price',
-              style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+              style: TextStyle(fontSize: 14, color: bodyColor),
             ),
             const SizedBox(height: 16),
             TextField(
@@ -2402,7 +2681,7 @@ class _TargetHitConfirmDialogState extends State<_TargetHitConfirmDialog> {
               decoration: InputDecoration(
                 hintText: 'Enter price',
                 filled: true,
-                fillColor: AppColors.backgroundGray,
+                fillColor: fieldFill,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
                   borderSide: BorderSide.none,
@@ -2537,6 +2816,10 @@ class _TypingDotsState extends State<_TypingDots>
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? const Color(0xFF1E222A) : Colors.white;
+    final dotColor = isDark ? Colors.white60 : const Color(0xFF9E9E9E);
+
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, _) {
@@ -2550,8 +2833,8 @@ class _TypingDotsState extends State<_TypingDots>
           child: Container(
             width: 6,
             height: 6,
-            decoration: const BoxDecoration(
-              color: Color(0xFF9E9E9E),
+            decoration: BoxDecoration(
+              color: dotColor,
               shape: BoxShape.circle,
             ),
           ),
@@ -2560,7 +2843,7 @@ class _TypingDotsState extends State<_TypingDots>
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: bg,
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
@@ -2581,10 +2864,16 @@ class _TypingDotsState extends State<_TypingDots>
 
 /// Large “X” over invalidated trade cards (delete / recommendation void).
 class _InvalidTradeCrossPainter extends CustomPainter {
+  const _InvalidTradeCrossPainter({this.isDark = false});
+
+  final bool isDark;
+
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.grey.shade500.withOpacity(0.65)
+      ..color = (isDark ? Colors.white54 : Colors.grey.shade500).withOpacity(
+        0.65,
+      )
       ..strokeWidth = 3.5
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
@@ -2602,14 +2891,19 @@ class _InvalidTradeCrossPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _InvalidTradeCrossPainter oldDelegate) =>
+      oldDelegate.isDark != isDark;
 }
 
 class _DottedLinePainter extends CustomPainter {
+  const _DottedLinePainter({this.isDark = false});
+
+  final bool isDark;
+
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.grey.shade400
+      ..color = isDark ? Colors.white24 : Colors.grey.shade400
       ..strokeWidth = 2
       ..style = PaintingStyle.stroke;
     const dashWidth = 6.0;
@@ -2626,7 +2920,8 @@ class _DottedLinePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _DottedLinePainter oldDelegate) =>
+      oldDelegate.isDark != isDark;
 }
 
 class _BlinkingCurrentPriceBadge extends StatefulWidget {
@@ -2662,6 +2957,8 @@ class _BlinkingCurrentPriceBadgeState extends State<_BlinkingCurrentPriceBadge>
 
   @override
   Widget build(BuildContext context) {
+    // Kept identical in both themes (matches screenshots — red badge sits on
+    // the always-white trade card, so it doesn't need a dark variant).
     return FadeTransition(
       opacity: _controller,
       child: Container(

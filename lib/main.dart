@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:discipline_mind/common/ThemeService.dart';
+import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/controller/alert_controller.dart';
 import 'package:discipline_mind/controller/chat_controller.dart';
@@ -30,7 +32,6 @@ void _onAppResumed() {
   } catch (_) {}
 }
 
-/// Logged-in Android users cannot use the app without overlay + usage access.
 Future<void> _enforceAndroidTradingPermissionsIfLoggedIn() async {
   if (!Platform.isAndroid) return;
   final uid = Common.userData.value?.payload?.id?.toString();
@@ -43,8 +44,6 @@ Future<void> _enforceAndroidTradingPermissionsIfLoggedIn() async {
 
 void _refreshUserAlertsOnNotification({int attempt = 0}) {
   final userId = Common.userData.value?.payload?.id?.toString();
-  // When app is opened from a killed state via notification, autoLogin may not
-  // have restored the session yet. Retry briefly so the refresh still happens.
   if (userId == null || userId.isEmpty) {
     if (attempt < 6) {
       Future.delayed(Duration(milliseconds: 350 + attempt * 250), () {
@@ -54,7 +53,6 @@ void _refreshUserAlertsOnNotification({int attempt = 0}) {
     return;
   }
 
-  // Ensure controllers exist so refresh never no-ops.
   final alertController = Get.isRegistered<AlertController>()
       ? Get.find<AlertController>()
       : Get.put(AlertController(), permanent: true);
@@ -62,12 +60,10 @@ void _refreshUserAlertsOnNotification({int attempt = 0}) {
       ? Get.find<ChatController>()
       : Get.put(ChatController(), permanent: true);
 
-  // If this notification was a DMT score tap/open, ensure we land on Chat tab.
   if (NotificationHandler.dmtScoreAutoOpenPending) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Get.offAll(() => MainHomeScreen(initialIndex: 2));
     });
-    // Also refresh chat after navigation.
     Future.delayed(const Duration(milliseconds: 350), () {
       chatController.loadNewMessages(silent: true);
     });
@@ -77,7 +73,6 @@ void _refreshUserAlertsOnNotification({int attempt = 0}) {
   chatController.loadNewMessages(silent: true);
 }
 
-/// After minimize → reopen: pull latest chat if user is logged in and chat was opened once.
 void _refreshChatOnAppResumed() {
   final userId = Common.userData.value?.payload?.id?.toString();
   if (userId == null || userId.isEmpty) return;
@@ -90,13 +85,13 @@ bool _initialMessageCheckDone = false;
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Surface errors in release (otherwise blank screen with no message)
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.presentError(details);
     if (kReleaseMode) {
       debugPrint('FlutterError: ${details.exception} ${details.stack}');
     }
   };
+
   ErrorWidget.builder = (FlutterErrorDetails details) => Material(
     child: Container(
       color: Colors.white,
@@ -139,13 +134,10 @@ Future<void> main() async {
     }
   }
 
-  // Register callback as early as possible so notification open events
-  // (especially from killed state) don't miss the handler.
   NotificationHandler.onNotificationReceived = _refreshUserAlertsOnNotification;
 
   runApp(const MyApp());
 
-  // Init notifications after first frame so release startup is not blocked
   WidgetsBinding.instance.addPostFrameCallback((_) async {
     try {
       await NotificationHandler.initialize();
@@ -186,7 +178,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    // Safe theme: Google Fonts can fail in release (font not found / load error)
+    // Safe Google Fonts fallback
     TextTheme textTheme;
     try {
       textTheme = GoogleFonts.nunitoTextTheme(Theme.of(context).textTheme);
@@ -196,29 +188,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
     return GetMaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Discipline Mind',
-      theme: ThemeData(
-        scaffoldBackgroundColor: Colors.white,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blue,
-          background: Colors.white,
-          surface: Colors.white,
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.transparent,
-          elevation: 0,
-          centerTitle: false,
-          iconTheme: IconThemeData(color: Colors.black),
-          titleTextStyle: TextStyle(
-            color: Colors.black,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        useMaterial3: true,
-        textTheme: textTheme,
-      ),
+      title: 'Monkk AI',
+      theme: _lightTheme(textTheme),
+      darkTheme: _darkTheme(textTheme),
+      themeMode: ThemeService().themeMode,   // ← This enables theme switching
       builder: (context, child) {
         final fToast = FToast();
         fToast.init(context);
@@ -231,13 +204,74 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         return child!;
       },
       home: SplashScreen(),
-      // Route for native overlay when user opens a blocked app
       getPages: [
         GetPage(
           name: '/appBlockingOverlay',
           page: () => const BlockedAppOverlayPage(),
         ),
       ],
+    );
+  }
+
+  ThemeData _lightTheme(TextTheme textTheme) {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.light,
+      primaryColor: AppColors.primary,
+      scaffoldBackgroundColor: AppColors.lightBackground,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: AppColors.primary,
+        brightness: Brightness.light,
+      ),
+      appBarTheme: AppBarTheme(
+        backgroundColor: AppColors.lightSurface,
+        foregroundColor: AppColors.lightTextPrimary,
+        elevation: 0,
+        centerTitle: false,
+        iconTheme: IconThemeData(color: AppColors.lightTextPrimary),
+        titleTextStyle: TextStyle(
+          color: AppColors.lightTextPrimary,
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      cardTheme: CardThemeData(
+        color: AppColors.lightSurface,
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      textTheme: textTheme,
+    );
+  }
+
+  ThemeData _darkTheme(TextTheme textTheme) {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      primaryColor: AppColors.primary,
+      scaffoldBackgroundColor: AppColors.darkBackground,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: AppColors.primary,
+        brightness: Brightness.dark,
+      ),
+      appBarTheme: AppBarTheme(
+        backgroundColor: AppColors.darkSurface,
+        foregroundColor: AppColors.darkTextPrimary,
+        elevation: 0,
+        centerTitle: false,
+        iconTheme: IconThemeData(color: AppColors.darkTextPrimary),
+        titleTextStyle: TextStyle(
+          color: AppColors.darkTextPrimary,
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      cardTheme: CardThemeData(
+        color: AppColors.darkSurface,
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      textTheme: textTheme,
     );
   }
 }

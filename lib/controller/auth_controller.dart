@@ -115,6 +115,8 @@ class AuthController extends GetxController {
         return null;
       }
       final data = Map<String, dynamic>.from(response.data as Map);
+      AppToast.showToast("OTP verified successfully");
+
       return VerifyOtpResponse.fromJson(data).payload;
     } catch (e) {
       isLoading.value = false;

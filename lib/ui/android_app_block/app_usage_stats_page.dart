@@ -35,11 +35,12 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
       return;
     }
     final data = await _blockService.getBlockedAppUsageStats();
-    if (mounted)
+    if (mounted) {
       setState(() {
         _stats = data;
         _isLoading = false;
       });
+    }
   }
 
   String _formatDuration(int ms) {
@@ -53,33 +54,41 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
   }
 
   int _totalOpens() => _stats.fold(
-    0,
-    (s, e) =>
-        s + ((e['openCount'] is num) ? (e['openCount'] as num).toInt() : 0),
-  );
+        0,
+        (s, e) => s + ((e['openCount'] is num) ? (e['openCount'] as num).toInt() : 0),
+      );
 
   int _totalBlocked() => _stats.fold(
-    0,
-    (s, e) =>
-        s +
-        ((e['openedWhenBlockedCount'] is num)
-            ? (e['openedWhenBlockedCount'] as num).toInt()
-            : 0),
-  );
+        0,
+        (s, e) =>
+            s +
+            ((e['openedWhenBlockedCount'] is num)
+                ? (e['openedWhenBlockedCount'] as num).toInt()
+                : 0),
+      );
 
   int _totalUsageMs() => _stats.fold(
-    0,
-    (s, e) =>
-        s +
-        ((e['totalUsageTimeMs'] is num)
-            ? (e['totalUsageTimeMs'] as num).toInt()
-            : 0),
-  );
+        0,
+        (s, e) =>
+            s +
+            ((e['totalUsageTimeMs'] is num)
+                ? (e['totalUsageTimeMs'] as num).toInt()
+                : 0),
+      );
+
+  // Theme Helpers
+  bool get _isDark => Theme.of(context).brightness == Brightness.dark;
+
+  Color get _backgroundColor => Theme.of(context).scaffoldBackgroundColor;
+  Color get _cardColor => Theme.of(context).cardColor;
+  Color get _textColor =>  (_isDark ? Colors.white : Colors.black87);
+  Color get _secondaryTextColor => (_isDark ? Colors.grey.shade400 : Colors.grey.shade600);
+  Color get _shadowColor => Colors.black.withOpacity(_isDark ? 0.4 : 0.07);
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.backgroundGray,
+      backgroundColor: _backgroundColor,
       body: CustomScrollView(
         slivers: [
           _buildHeader(),
@@ -108,19 +117,15 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
     return SliverAppBar(
       expandedHeight: 140,
       pinned: true,
-      backgroundColor: Colors.white,
+      backgroundColor: _cardColor,
       elevation: 0,
       leading: IconButton(
-        icon: Icon(
-          Icons.arrow_back_ios_new_rounded,
-          color: AppColors.textBlack,
-          size: 20,
-        ),
+        icon: Icon(Icons.arrow_back_ios_new_rounded, color: _textColor, size: 20),
         onPressed: () => Navigator.of(context).pop(),
       ),
       actions: [
         IconButton(
-          icon: const Icon(Icons.refresh_rounded, color: AppColors.textGrey),
+          icon: Icon(Icons.refresh_rounded, color: _secondaryTextColor),
           onPressed: () {
             setState(() => _isLoading = true);
             _load();
@@ -145,20 +150,12 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
             children: [
               const Text(
                 'App Usage Insights',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.2,
-                ),
+                style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 0.2),
               ),
               const SizedBox(height: 4),
               Text(
                 'Track how you interact with blocked apps',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.75),
-                  fontSize: 13,
-                ),
+                style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 13),
               ),
             ],
           ),
@@ -176,45 +173,24 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardColor,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        boxShadow: [BoxShadow(color: _shadowColor, blurRadius: 12, offset: const Offset(0, 4))],
       ),
       child: Row(
         children: [
-          _summaryTile(
-            icon: Icons.open_in_new_rounded,
-            label: 'Total Opens',
-            value: '$opens',
-            color: AppColors.primary,
-          ),
+          _summaryTile(icon: Icons.open_in_new_rounded, label: 'Total Opens', value: '$opens', color: AppColors.primary),
           _summaryDivider(),
-          _summaryTile(
-            icon: Icons.block_rounded,
-            label: 'Blocked',
-            value: '$blocked',
-            color: AppColors.actionRed,
-          ),
+          _summaryTile(icon: Icons.block_rounded, label: 'Blocked', value: '$blocked', color: AppColors.actionRed),
           _summaryDivider(),
-          _summaryTile(
-            icon: Icons.schedule_rounded,
-            label: 'Total Time',
-            value: _formatDuration(usageMs),
-            color: AppColors.primaryGreen,
-          ),
+          _summaryTile(icon: Icons.schedule_rounded, label: 'Total Time', value: _formatDuration(usageMs), color: AppColors.primaryGreen),
         ],
       ),
     );
   }
 
   Widget _summaryDivider() {
-    return Container(width: 1, height: 40, color: Colors.black12);
+    return Container(width: 1, height: 40, color: _isDark ? Colors.white24 : Colors.black12);
   }
 
   Widget _summaryTile({
@@ -228,16 +204,9 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
         children: [
           Icon(icon, color: color, size: 20),
           const SizedBox(height: 6),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: AppColors.textBlack,
-            ),
-          ),
+          Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _textColor)),
           const SizedBox(height: 2),
-          Text(label, style: TextStyle(fontSize: 11, color: Colors.black45)),
+          Text(label, style: TextStyle(fontSize: 11, color: _secondaryTextColor)),
         ],
       ),
     );
@@ -249,37 +218,24 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
     final name = meta?['name'] as String? ?? pkg;
     final color = meta?['color'] as Color? ?? Colors.blueGrey;
 
-    final opens = (stat['openCount'] is num)
-        ? (stat['openCount'] as num).toInt()
-        : 0;
-    final blocked = (stat['openedWhenBlockedCount'] is num)
-        ? (stat['openedWhenBlockedCount'] as num).toInt()
-        : 0;
-    final usageMs = (stat['usageTimeMs'] is num)
-        ? (stat['usageTimeMs'] as num).toInt()
-        : 0;
-    final totalMs = (stat['totalUsageTimeMs'] is num)
-        ? (stat['totalUsageTimeMs'] as num).toInt()
-        : 0;
+    final opens = (stat['openCount'] is num) ? (stat['openCount'] as num).toInt() : 0;
+    final blocked = (stat['openedWhenBlockedCount'] is num) ? (stat['openedWhenBlockedCount'] as num).toInt() : 0;
+    final usageMs = (stat['usageTimeMs'] is num) ? (stat['usageTimeMs'] as num).toInt() : 0;
+    final totalMs = (stat['totalUsageTimeMs'] is num) ? (stat['totalUsageTimeMs'] as num).toInt() : 0;
 
     final blockRate = opens > 0 ? blocked / opens : 0.0;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardColor,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.07),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        boxShadow: [BoxShadow(color: _shadowColor, blurRadius: 16, offset: const Offset(0, 6))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // App header
+          // App Header
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -288,97 +244,49 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(20),
-              ),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
             ),
             child: Row(
               children: [
                 Container(
                   width: 48,
                   height: 48,
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.18),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
+                  decoration: BoxDecoration(color: color.withOpacity(0.18), borderRadius: BorderRadius.circular(14)),
                   alignment: Alignment.center,
-                  child: Text(
-                    name[0],
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  child: Text(name.isNotEmpty ? name[0] : '?', style: TextStyle(color: color, fontSize: 22, fontWeight: FontWeight.bold)),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        name,
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.textBlack,
-                        ),
-                      ),
+                      Text(name, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _textColor)),
                       const SizedBox(height: 3),
-                      Text(
-                        pkg,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: AppColors.textGrey,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      Text(pkg, style: TextStyle(fontSize: 11, color: _secondaryTextColor), overflow: TextOverflow.ellipsis),
                     ],
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    '${(blockRate * 100).toStringAsFixed(0)}% blocked',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: color,
-                    ),
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(20)),
+                  child: Text('${(blockRate * 100).toStringAsFixed(0)}% blocked',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color)),
                 ),
               ],
             ),
           ),
 
-          // Stats grid
+          // Stats Grid
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: Row(
               children: [
                 Expanded(
-                  child: _statTile(
-                    icon: Icons.open_in_new_rounded,
-                    label: 'Total Opens',
-                    value: '$opens',
-                    color: AppColors.primary,
-                  ),
+                  child: _statTile(icon: Icons.open_in_new_rounded, label: 'Total Opens', value: '$opens', color: AppColors.primary),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: _statTile(
-                    icon: Icons.block_rounded,
-                    label: 'Blocked Opens',
-                    value: '$blocked',
-                    color: AppColors.actionRed,
-                  ),
+                  child: _statTile(icon: Icons.block_rounded, label: 'Blocked Opens', value: '$blocked', color: AppColors.actionRed),
                 ),
               ],
             ),
@@ -388,27 +296,17 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
             child: Row(
               children: [
                 Expanded(
-                  child: _statTile(
-                    icon: Icons.schedule_rounded,
-                    label: 'Total Usage',
-                    value: _formatDuration(totalMs),
-                    color: AppColors.primaryGreen,
-                  ),
+                  child: _statTile(icon: Icons.schedule_rounded, label: 'Total Usage', value: _formatDuration(totalMs), color: AppColors.primaryGreen),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: _statTile(
-                    icon: Icons.warning_amber_rounded,
-                    label: 'Blocked Usage',
-                    value: _formatDuration(usageMs),
-                    color: AppColors.actionRed,
-                  ),
+                  child: _statTile(icon: Icons.warning_amber_rounded, label: 'Blocked Usage', value: _formatDuration(usageMs), color: AppColors.actionRed),
                 ),
               ],
             ),
           ),
 
-          // Block rate progress bar
+          // Block Rate Progress
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
             child: Column(
@@ -417,18 +315,8 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'Block Rate',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textGrey,
-                      ),
-                    ),
-                    Text(
-                      '$blocked / $opens opens blocked',
-                      style: TextStyle(fontSize: 12, color: AppColors.textGrey),
-                    ),
+                    Text('Block Rate', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _secondaryTextColor)),
+                    Text('$blocked / $opens opens blocked', style: TextStyle(fontSize: 12, color: _secondaryTextColor)),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -437,10 +325,8 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
                   child: LinearProgressIndicator(
                     value: blockRate.clamp(0.0, 1.0),
                     minHeight: 8,
-                    backgroundColor: Colors.black.withOpacity(0.06),
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      blockRate > 0.5 ? AppColors.actionRed : AppColors.primary,
-                    ),
+                    backgroundColor: _isDark ? Colors.white24 : Colors.black.withOpacity(0.06),
+                    valueColor: AlwaysStoppedAnimation<Color>(blockRate > 0.5 ? AppColors.actionRed : AppColors.primary),
                   ),
                 ),
               ],
@@ -457,12 +343,10 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
     required String value,
     required Color color,
   }) {
-    final tileBg = color.withOpacity(0.06);
-
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: tileBg,
+        color: color.withOpacity(_isDark ? 0.15 : 0.06),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -470,10 +354,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
           Container(
             width: 32,
             height: 32,
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(8),
-            ),
+            decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
             child: Icon(icon, color: color, size: 16),
           ),
           const SizedBox(width: 10),
@@ -481,18 +362,8 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textBlack,
-                  ),
-                ),
-                Text(
-                  label,
-                  style: TextStyle(fontSize: 10, color: Colors.black45),
-                ),
+                Text(value, style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: _textColor)),
+                Text(label, style: TextStyle(fontSize: 10, color: _secondaryTextColor)),
               ],
             ),
           ),
@@ -502,27 +373,21 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
   }
 
   Widget _buildShimmer() {
-    final base = Colors.grey.shade300;
+    final base = _isDark ? Colors.grey.shade800 : Colors.grey.shade300;
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: 3,
       itemBuilder: (_, __) => Container(
         height: 260,
         margin: const EdgeInsets.only(bottom: 16),
-        decoration: BoxDecoration(
-          color: base,
-          borderRadius: BorderRadius.circular(20),
-        ),
+        decoration: BoxDecoration(color: base, borderRadius: BorderRadius.circular(20)),
       ),
     );
   }
 
   Widget _buildNotSupported() {
-    return const Center(
-      child: Text(
-        'Available on Android only',
-        style: TextStyle(color: Colors.grey),
-      ),
+    return Center(
+      child: Text('Available on Android only', style: TextStyle(color: _secondaryTextColor)),
     );
   }
 }

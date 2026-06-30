@@ -9,12 +9,14 @@ class TradeAccuracyRing extends StatelessWidget {
     this.size = 40,
     this.strokeWidth = 6,
     this.duration = const Duration(milliseconds: 900),
+    this.color, // NEW: optional override color
   });
 
   final double percent;
   final double size;
   final double strokeWidth;
   final Duration duration;
+  final Color? color; // NEW
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +35,7 @@ class TradeAccuracyRing extends StatelessWidget {
             value: value,
             strokeWidth: strokeWidth,
             backgroundColor: Colors.grey.shade300,
-            color: AppColors.primary,
+            color: color ?? AppColors.primary, // use passed color, fallback primary
             strokeCap: StrokeCap.round,
           ),
         );

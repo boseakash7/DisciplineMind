@@ -5,18 +5,22 @@ import '../../common/app_colors.dart';
 
 class CustomTextField extends StatelessWidget {
   final String hint;
-  final IconData icon;
+   IconData? icon;
+  List<TextInputFormatter>? inputFormatters;
   final bool isPassword;
+  Widget? prefixIcon;Widget? prefix;
   final TextEditingController? controller;
   final String? Function(String?)? validator;
   final TextInputType keyboardType; // Added keyboardType
   final int? maxLength;
 
-  const CustomTextField({
+   CustomTextField({
     super.key,
     required this.hint,
-    required this.icon,
+     this.icon,this.prefix,
+     this.prefixIcon,
     this.isPassword = false,
+    this.inputFormatters,
     this.controller,
     this.validator,
     this.maxLength,
@@ -29,11 +33,11 @@ class CustomTextField extends StatelessWidget {
       maxLength: maxLength,
       controller: controller,
       obscureText: isPassword,
-      validator: validator,
+      validator: validator,inputFormatters:inputFormatters,
       keyboardType: keyboardType, // Set keyboard type
       decoration: InputDecoration(
-        hintText: hint,
-        prefixIcon: Icon(icon, color: AppColors.primaryGreen),
+        hintText: hint,prefix:prefix ,
+        prefixIcon:prefixIcon?? Icon( icon, color: AppColors.primaryGreen),
         filled: true,
         fillColor: AppColors.backgroundGray,
         border: OutlineInputBorder(

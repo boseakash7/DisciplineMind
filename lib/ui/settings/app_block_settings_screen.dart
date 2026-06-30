@@ -7,6 +7,7 @@ import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:discipline_mind/ui/main_home/main_home.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 
 class AppBlockSettingsScreen extends StatefulWidget {
@@ -25,6 +26,10 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
 
   /// Single selected package from API list.
   String? _selectedPackage;
+
+  /// True once the user has manually tapped a card/radio.
+  /// Prevents the async _loadApps() refresh from overwriting their choice.
+  bool _userInteracted = false;
 
   String? get _userId => Common.userData.value?.payload?.id?.toString();
 
@@ -48,6 +53,11 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
   Future<void> _loadApps() async {
     await _tradingApps.refresh();
     if (!mounted) return;
+
+    // Don't override what the user already picked while the
+    // network call was still in flight.
+    if (_userInteracted) return;
+
     final userId = _userId;
     if (userId == null) return;
     final saved = _prefs.getSelectedPackage(userId: userId);
@@ -58,6 +68,13 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
         _tradingApps.apps.every((a) => a.packageName != _selectedPackage)) {
       setState(() => _selectedPackage = null);
     }
+  }
+
+  void _onSelectApp(String packageName) {
+    setState(() {
+      _userInteracted = true;
+      _selectedPackage = packageName;
+    });
   }
 
   Future<void> _onSave() async {
@@ -100,116 +117,249 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
     }
   }
 
+  /// Brand color + logo asset per broker, matched by package name / app name.
+  /// Falls back to [AppColors.primary] + a generic icon if unmatched.
+  ({Color color, String asset}) _brandFor(String packageName, String appName) {
+    final key = packageName.toLowerCase();
+    final name = appName.toLowerCase();
+
+    if (key.contains('zerodha') || name.contains('zerodha') || name.contains('kite')) {
+      return (color: const Color(0xFFF6461A), asset: 'assets/ZerodhaKite.png');
+    }
+    if (key.contains('upstox') || name.contains('upstox')) {
+      return (color: const Color(0xFF5B298C), asset: 'assets/upsocks.png');
+    }
+    if (key.contains('groww') || name.contains('groww')) {
+      return (color: const Color(0xFF5367FF), asset: 'assets/groww.png');
+    }
+    return (color: AppColors.primary, asset: '');
+  }
+
+  Widget _buildAppLogo(String asset, Color brandColor) {
+    return Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(11),
+      ),
+      padding: const EdgeInsets.all(7),
+      child: asset.isNotEmpty
+          ? Image.asset(asset, fit: BoxFit.contain)
+          : Icon(Icons.show_chart, color: brandColor),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final title =
-        widget.isFirstSetup ? 'Select trading app' : 'Blocked trading app';
-    final subtitle = widget.isFirstSetup
-        ? 'Choose one broker app to lock. You can change it later in settings.'
-        : 'Choose one broker app to lock when alerts or GTT are active.';
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
-    return WillPopScope(
-      onWillPop: () async => !widget.isFirstSetup,
-      child: Scaffold(
-        appBar: AppBar(
-          automaticallyImplyLeading: !widget.isFirstSetup,
-          title: Text(title),
-        ),
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  subtitle,
-                  style: TextStyle(color: Colors.grey.shade700, fontSize: 14),
-                ),
-                const SizedBox(height: 16),
-                Expanded(
-                  child: Obx(() {
-                    final svc = _tradingApps;
-                    if (svc.isLoading.value && svc.apps.isEmpty) {
-                      return const Center(
-                        child: CircularProgressIndicator(),
-                      );
-                    }
-                    if (svc.apps.isEmpty) {
-                      return Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              svc.lastError.value ??
-                                  'Could not load apps. Check your connection.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.grey.shade700),
-                            ),
-                            const SizedBox(height: 16),
-                            FilledButton(
-                              onPressed: _loadApps,
-                              child: const Text('Retry'),
-                            ),
-                          ],
+    final scaffoldBg = isDark ? const Color(0xFF000000) : const Color(0xFFF5F6FA);
+    final cardBg = isDark ? const Color(0xFF121212) : Colors.white;
+    final unselectedBorder = isDark ? Colors.white24 : Colors.grey.shade300;
+    final titleColor = isDark ? Colors.white : Colors.black87;
+    final subtitleColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
+    final packageTextColor = isDark ? Colors.grey.shade500 : Colors.grey.shade600;
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+        statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+        systemNavigationBarColor: scaffoldBg,
+        systemNavigationBarIconBrightness:
+            isDark ? Brightness.light : Brightness.dark,
+        systemNavigationBarDividerColor: Colors.transparent,
+      ),
+      child: WillPopScope(
+        onWillPop: () async => !widget.isFirstSetup,
+        child: Scaffold(
+          backgroundColor: scaffoldBg,
+          body: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'Select ',
+                        style: TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.bold,
+                          color: titleColor,
                         ),
-                      );
-                    }
-                    return ListView(
-                      children: svc.apps.map((app) {
-                        final selected =
-                            _selectedPackage == app.packageName;
-                        return Card(
-                          color: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            side: BorderSide(
-                              color: selected
-                                  ? AppColors.primary
-                                  : Colors.grey.shade300,
-                            ),
-                          ),
-                          child: RadioListTile<String>(
-                            value: app.packageName,
-                            groupValue: _selectedPackage,
-                            activeColor: AppColors.primary,
-                            title: Text(app.name),
-                            subtitle: Text(
-                              app.packageName,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade600,
-                              ),
-                            ),
-                            onChanged: (v) {
-                              if (v != null) {
-                                setState(() => _selectedPackage = v);
-                              }
-                            },
+                      ),
+                      Text(
+                        'trading app',
+                        style: TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Subtitle
+                  Center(
+                    child: Text(
+                      'Choose one broker app to lock. you can\nchange it later in settings',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: subtitleColor,
+                        height: 1.5,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 50),
+                  Expanded(
+                    child: Obx(() {
+                      final svc = _tradingApps;
+                      if (svc.isLoading.value && svc.apps.isEmpty) {
+                        return Center(
+                          child: CircularProgressIndicator(
+                            color: AppColors.primary,
                           ),
                         );
-                      }).toList(),
-                    );
-                  }),
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: _isSaving ? null : _onSave,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    child: _isSaving
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Text(widget.isFirstSetup ? 'CONTINUE' : 'SAVE'),
+                      }
+                      if (svc.apps.isEmpty) {
+                        return Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                svc.lastError.value ??
+                                    'Could not load apps. Check your connection.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: subtitleColor),
+                              ),
+                              const SizedBox(height: 16),
+                              FilledButton(
+                                onPressed: _loadApps,
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: AppColors.primary,
+                                ),
+                                child: const Text('Retry'),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+                      return ListView.separated(
+                        itemCount: svc.apps.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (context, index) {
+                          final app = svc.apps[index];
+                          final selected = _selectedPackage == app.packageName;
+                          final brand = _brandFor(app.packageName, app.name);
+
+                          return InkWell(
+                            borderRadius: BorderRadius.circular(14),
+                            onTap: () => _onSelectApp(app.packageName),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: cardBg,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: selected ? brand.color : unselectedBorder,
+                                  width: selected ? 1.4 : 1,
+                                ),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              child: Row(
+                                children: [
+                                  _buildAppLogo(brand.asset, brand.color),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          app.name,
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 14,
+                                            color: titleColor,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          app.packageName,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: packageTextColor,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Radio<String>(
+                                    value: app.packageName,
+                                    groupValue: _selectedPackage,
+                                    activeColor: brand.color,
+                                    onChanged: (v) {
+                                      if (v != null) _onSelectApp(v);
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    }),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: _isSaving ? null : _onSave,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                      ),
+                      child: _isSaving
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  widget.isFirstSetup ? 'CONTINUE' : 'SAVE',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                const Icon(Icons.arrow_forward, size: 18),
+                              ],
+                            ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

@@ -48,13 +48,13 @@ class SetNewPasswordScreen extends StatelessWidget {
               style: TextStyle(color: AppColors.textGrey, fontSize: 16),
             ),
             const SizedBox(height: 40),
-            const CustomTextField(
+             CustomTextField(
               hint: "New Password",
               icon: Icons.lock_outline,
               isPassword: true,
             ),
-            const SizedBox(height: 16),
-            const CustomTextField(
+             SizedBox(height: 16),
+             CustomTextField(
               hint: "Confirm New Password",
               icon: Icons.lock_reset_outlined,
               isPassword: true,

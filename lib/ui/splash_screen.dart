@@ -47,15 +47,11 @@ class _SplashScreenState extends State<SplashScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const CircleAvatar(
-              radius: 55,
-              backgroundColor: AppColors.primary,
-              child: Icon(Icons.psychology, size: 65, color: AppColors.white),
-            ),
+            Image.asset("assets/logo.png",height: 100),
             const SizedBox(height: 20),
 
             const Text(
-              "Disciplined Minds",
+              "Monkk AI",
               style: TextStyle(
                 fontSize: 26,
                 fontWeight: FontWeight.bold,

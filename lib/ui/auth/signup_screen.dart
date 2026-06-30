@@ -58,7 +58,7 @@ class SignUpScreen extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               const Text(
-                "Join the Disciplined Minds community",
+                "Join the Monkk AI community",
                 style: TextStyle(color: AppColors.textGrey),
               ),
               const SizedBox(height: 32),

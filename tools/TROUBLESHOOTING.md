@@ -22,7 +22,7 @@ The app needs:
 2. **Usage Stats Permission** (PACKAGE_USAGE_STATS)
 
 When you create an alert, the app should request these. If not:
-- Go to Android Settings → Apps → Discipline Mind → Special access
+- Go to Android Settings → Apps → Monkk AI → Special access
 - Enable "Display over other apps"
 - Enable "Usage access"
 

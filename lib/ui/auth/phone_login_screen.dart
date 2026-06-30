@@ -15,8 +15,14 @@ class PhoneLoginScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final backgroundColor = isDark ? const Color(0xFF121212) : AppColors.white;
+    final textColor = isDark ? Colors.white : AppColors.textBlack;
+    final secondaryTextColor = isDark ? Colors.grey.shade400 : AppColors.textGrey;
+
     return Scaffold(
-      backgroundColor: AppColors.white,
+      backgroundColor: backgroundColor,
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
         child: Form(
@@ -24,33 +30,39 @@ class PhoneLoginScreen extends StatelessWidget {
           child: Column(
             children: [
               const SizedBox(height: 80),
-              const CircleAvatar(
-                radius: 45,
-                backgroundColor: AppColors.primary,
-                child: Icon(Icons.psychology, size: 55, color: AppColors.white),
-              ),
+              Image.asset("assets/logo.png", height: 100),
               const SizedBox(height: 16),
-              const Text(
-                "Disciplined Minds",
+              Text(
+                "Monkk AI",
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
-                  color: AppColors.textBlack,
+                  color: textColor,
                 ),
               ),
               const SizedBox(height: 8),
-              const Text(
+              Text(
                 "Enter your phone number to sign in or create an account",
                 textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.textGrey, fontSize: 14),
+                style: TextStyle(color: secondaryTextColor, fontSize: 14),
               ),
               const SizedBox(height: 48),
               CustomTextField(
                 hint: "Phone number",
-                icon: Icons.phone_outlined,
+                inputFormatters: [LengthLimitingTextInputFormatter(15)],
+                icon: null,
                 controller: phoneController,
                 keyboardType: TextInputType.phone,
-                maxLength: 15,
+                prefixIcon: Padding(
+                  padding: const EdgeInsets.only(top: 13, left: 4),
+                  child: Text(
+                    "+91",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.black : AppColors.textBlack,
+                    ),
+                  ),
+                ),
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) {
                     return "Phone number is required";
@@ -70,9 +82,7 @@ class PhoneLoginScreen extends StatelessWidget {
                   isLoading: authController.isLoading.value,
                   onPressed: () async {
                     if (!_formKey.currentState!.validate()) return;
-                    final phone = phoneController.text
-                        .trim()
-                        .replaceAll(RegExp(r'\s+'), '');
+                    final phone = phoneController.text.trim().replaceAll(RegExp(r'\s+'), '');
                     final ok = await authController.sendOtp(phone);
                     if (ok) {
                       Get.to(() => OtpVerifyScreen(phone: phone));

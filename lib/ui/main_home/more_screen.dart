@@ -1,3 +1,4 @@
+import 'package:discipline_mind/common/ThemeService.dart';
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/ui/android_app_block/app_usage_stats_page.dart';
@@ -12,81 +13,170 @@ class MoreScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.backgroundGray,
-      body: SafeArea(
+    return Obx(() {                    // ← This makes it reactive
+      final isDark = ThemeService().isDarkMode;
+
+      return Scaffold(
+        backgroundColor: isDark ? AppColors.darkBackground : AppColors.lightBackground,
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'More',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Manage your account and app preferences',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isDark ? AppColors.darkTextSecondary : Colors.grey.shade700,
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                _buildTile(
+                  icon: Icons.notifications_outlined,
+                  title: 'Price Alerts',
+                  subtitle: 'Manage your alert list and statuses',
+                  onTap: () => Navigator.push(
+                      context, MaterialPageRoute(builder: (_) => AlertsMainScreen())),
+                ),
+                const SizedBox(height: 12),
+
+                _buildTile(
+                  icon: Icons.shield_outlined,
+                  title: 'Blocked Apps',
+                  subtitle: 'Choose which trading app should stay locked',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const AppBlockSettingsScreen()),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                _buildTile(
+                  icon: Icons.analytics_outlined,
+                  title: 'App Tracking',
+                  subtitle: 'View tracked usage and blocking activity',
+                  onTap: () {
+                    if (defaultTargetPlatform == TargetPlatform.android) {
+                      Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const AppUsageStatsPage()));
+                    } else {
+                      Get.snackbar('Not Available', 'App tracking is available on Android only');
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+
+                // Theme Switcher
+                _themeTile(isDark: isDark),
+
+                const SizedBox(height: 12),
+
+                _buildTile(
+                  icon: Icons.logout,
+                  title: 'Logout',
+                  subtitle: 'Sign out from your account',
+                  danger: true,
+                  onTap: Common.logout,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
+  // Regular menu tile
+  Widget _buildTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+    bool danger = false,
+  }) {
+    final isDark = ThemeService().isDarkMode;
+
+    final bgColor = isDark ? AppColors.darkSurface : Colors.white;
+    final borderColor = danger
+        ? Colors.red.shade200
+        : (isDark ? AppColors.darkBorder : Colors.grey.shade300);
+
+    final iconBg = danger
+        ? Colors.red.shade50
+        : AppColors.primary.withOpacity(0.1);
+
+    final iconColor = danger ? Colors.red.shade600 : AppColors.primary;
+    final titleColor = danger
+        ? Colors.red.shade700
+        : (isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary);
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: Ink(
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: borderColor),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isDark ? 0.3 : 0.03),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
         child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          child: Row(
             children: [
-              const Text(
-                'More',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textBlack,
+              Container(
+                height: 42,
+                width: 42,
+                decoration: BoxDecoration(
+                  color: iconBg,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: iconColor),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.w700,
+                        color: titleColor,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: isDark ? AppColors.darkTextSecondary : Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 6),
-              Text(
-                'Manage your account and app preferences',
-                style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-              ),
-              const SizedBox(height: 18),
-              _tile(
-                icon: Icons.notifications_outlined,
-                title: 'Price Alerts',
-                subtitle: 'Manage your alert list and statuses',
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => AlertsMainScreen()),
-                  );
-                },
-              ),
-              const SizedBox(height: 10),
-              _tile(
-                icon: Icons.shield_outlined,
-                title: 'Blocked Apps',
-                subtitle: 'Choose which trading app should stay locked',
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const AppBlockSettingsScreen(),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 10),
-              _tile(
-                icon: Icons.analytics_outlined,
-                title: 'App Tracking',
-                subtitle: 'View tracked usage and blocking activity',
-                onTap: () {
-                  if (defaultTargetPlatform == TargetPlatform.android) {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const AppUsageStatsPage(),
-                      ),
-                    );
-                    return;
-                  }
-                  Get.snackbar(
-                    'Not Available',
-                    'App tracking is available on Android only',
-                  );
-                },
-              ),
-              const SizedBox(height: 10),
-              _tile(
-                icon: Icons.logout,
-                title: 'Logout',
-                subtitle: 'Sign out from your account',
-                danger: true,
-                onTap: Common.logout,
+              Icon(
+                Icons.chevron_right_rounded,
+                color: danger ? Colors.red.shade400 : Colors.grey.shade500,
               ),
             ],
           ),
@@ -95,29 +185,24 @@ class MoreScreen extends StatelessWidget {
     );
   }
 
-  Widget _tile({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-    bool danger = false,
-  }) {
-    final borderColor = danger ? Colors.red.shade200 : Colors.grey.shade300;
-    final iconBg = danger ? Colors.red.shade50 : AppColors.primary.withOpacity(0.1);
-    final iconColor = danger ? Colors.red.shade600 : AppColors.primary;
-    final titleColor = danger ? Colors.red.shade700 : AppColors.textBlack;
+  // Beautiful Theme Tile with Switch
+  Widget _themeTile({required bool isDark}) {
+    final cardBg = isDark ? AppColors.darkSurface : Colors.white;
+    final cardBorder = isDark ? AppColors.darkBorder : Colors.grey.shade300;
+    final titleCol = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final subtitleCol = isDark ? AppColors.darkTextSecondary : Colors.grey.shade600;
 
     return InkWell(
       borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
+      onTap: () => ThemeService().switchTheme(),
       child: Ink(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: cardBg,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: borderColor),
+          border: Border.all(color: cardBorder),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.03),
+              color: Colors.black.withOpacity(isDark ? 0.3 : 0.03),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -131,10 +216,13 @@ class MoreScreen extends StatelessWidget {
                 height: 38,
                 width: 38,
                 decoration: BoxDecoration(
-                  color: iconBg,
+                  color: AppColors.primary.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(icon, color: iconColor),
+                child: Icon(
+                  isDark ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
+                  color: AppColors.primary,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -142,27 +230,28 @@ class MoreScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      title,
+                      'Appearance',
                       style: TextStyle(
                         fontSize: 14.5,
                         fontWeight: FontWeight.w700,
-                        color: titleColor,
+                        color: titleCol,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      subtitle,
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        color: Colors.grey.shade600,
-                      ),
+                      isDark ? 'Dark mode is on' : 'Light mode is on',
+                      style: TextStyle(fontSize: 12.5, color: subtitleCol),
                     ),
                   ],
                 ),
               ),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: danger ? Colors.red.shade400 : Colors.grey.shade500,
+              Transform.scale(
+                scale: 0.85,
+                child: Switch.adaptive(
+                  value: isDark,
+                  activeColor: AppColors.primary,
+                  onChanged: (_) => ThemeService().switchTheme(),
+                ),
               ),
             ],
           ),

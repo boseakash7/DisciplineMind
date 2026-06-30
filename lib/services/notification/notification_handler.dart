@@ -165,7 +165,7 @@ class NotificationHandler {
 
     if (Platform.isAndroid) {
       final notification = message.notification;
-      final title = notification?.title ?? 'Discipline Mind';
+      final title = notification?.title ?? 'Monkk AI';
       final body = notification?.body ?? 'You have a new alert update';
       final isTradeOpportunity = _isNewTradeOpportunity(message);
       final channel = isTradeOpportunity
