@@ -69,7 +69,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
               final subTextColor = isDark ? Colors.white60 : Colors.black54;
 
               return Container(
-                color: theme.scaffoldBackgroundColor,
+                color:isDark?Colors.black:Colors.white,
                 child: SafeArea(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),

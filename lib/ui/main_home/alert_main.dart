@@ -222,7 +222,7 @@ class _AlertsMainScreenState extends State<AlertsMainScreen> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerLowest, // or surfaceVariant
+        color: isDark?Color(0XFF1E282A):colorScheme.surfaceContainerLow, // or surfaceVariant
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(

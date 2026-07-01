@@ -22,10 +22,12 @@ class OtpVerifyScreen extends StatefulWidget {
 class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   final AuthController authController = Get.find<AuthController>();
 
-  final List<TextEditingController> _digitControllers =
-      List.generate(4, (_) => TextEditingController());
+  static const int _otpLength = 4;
 
-  final List<FocusNode> _focusNodes = List.generate(4, (_) => FocusNode());
+  final List<TextEditingController> _digitControllers =
+      List.generate(_otpLength, (_) => TextEditingController());
+
+  final List<FocusNode> _focusNodes = List.generate(_otpLength, (_) => FocusNode());
 
   @override
   void initState() {
@@ -49,14 +51,28 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
 
     if (cleanValue.isEmpty) {
       _digitControllers[index].clear();
-      if (index > 0) _focusNodes[index - 1].requestFocus();
+      if (index > 0) {
+        _focusNodes[index - 1].requestFocus();
+      }
       setState(() {});
       return;
     }
 
-    _digitControllers[index].text = cleanValue.substring(cleanValue.length - 1);
+    // === PASTE SUPPORT ===
+    // Because maxLength is no longer capped at 1, a pasted string like
+    // "1234" arrives here in full instead of being truncated beforehand.
+    if (cleanValue.length > 1) {
+      _handlePaste(cleanValue, startIndex: index);
+      return;
+    }
 
-    if (index < 3) {
+    // Single digit typed normally
+    _digitControllers[index].text = cleanValue;
+    _digitControllers[index].selection = TextSelection.fromPosition(
+      const TextPosition(offset: 1),
+    );
+
+    if (index < _otpLength - 1) {
       _focusNodes[index + 1].requestFocus();
     } else {
       _focusNodes[index].unfocus();
@@ -64,8 +80,29 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
     setState(() {});
   }
 
+  void _handlePaste(String pastedOtp, {int startIndex = 0}) {
+    // Fill starting from startIndex, but if more digits were pasted than fit,
+    // it still fills from the beginning of the row for a natural OTP-paste feel.
+    final digits = pastedOtp.length >= _otpLength
+        ? pastedOtp.substring(0, _otpLength).split('')
+        : pastedOtp.split('');
+
+    for (int i = 0; i < _otpLength; i++) {
+      _digitControllers[i].text = digits.length > i ? digits[i] : '';
+    }
+
+    // Focus last filled field or unfocus if complete
+    if (digits.length >= _otpLength) {
+      _focusNodes[_otpLength - 1].unfocus();
+    } else {
+      _focusNodes[digits.length].requestFocus();
+    }
+
+    setState(() {});
+  }
+
   Future<void> _verify() async {
-    if (_otp.length != 4) return;
+    if (_otp.length != _otpLength) return;
 
     final payload = await authController.verifyOtp(widget.phone, _otp);
     if (!mounted || payload == null) return;
@@ -113,13 +150,19 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
           focusNode: _focusNodes[index],
           keyboardType: TextInputType.number,
           textAlign: TextAlign.center,
-          maxLength: 1,
+          // NOTE: no `maxLength` here anymore. With maxLength: 1, Flutter
+          // truncated a pasted "1234" down to "1" before onChanged ever saw
+          // it, so paste never worked. We now allow the field to receive
+          // up to `_otpLength` digits and trim it ourselves in code.
           style: TextStyle(
             fontSize: 22,
             fontWeight: FontWeight.bold,
             color: !_isDark ? Colors.white : AppColors.textBlack,
           ),
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly,
+            LengthLimitingTextInputFormatter(_otpLength),
+          ],
           decoration: InputDecoration(
             counterText: "",
             filled: true,
@@ -176,7 +219,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
             const SizedBox(height: 40),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: List.generate(4, (i) => _buildOtpField(i)),
+              children: List.generate(_otpLength, (i) => _buildOtpField(i)),
             ),
             const SizedBox(height: 32),
             Obx(
@@ -184,7 +227,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
                 text: "VERIFY",
                 color: AppColors.primary,
                 isLoading: authController.isLoading.value,
-                onPressed: _otp.length == 4 ? _verify : null,
+                onPressed: _otp.length == _otpLength ? _verify : null,
               ),
             ),
             const SizedBox(height: 20),

@@ -11,8 +11,6 @@ class TradesScreen extends StatefulWidget {
   const TradesScreen({super.key, this.onMonkkTap, this.isActive = true});
 
   final VoidCallback? onMonkkTap;
-
-  /// True when this tab is selected in [MainHomeScreen]'s bottom nav.
   final bool isActive;
 
   @override
@@ -30,16 +28,24 @@ class _TradesScreenState extends State<TradesScreen>
   static const double _sectionSpan = 0.22;
   static const double _staggerStep = 0.09;
 
+  // ===== Custom "always opens below" dropdown state =====
+  final LayerLink _levelDropdownLink = LayerLink();
+  final GlobalKey _levelFieldKey = GlobalKey();
+  OverlayEntry? _levelDropdownOverlay;
+  bool _levelDropdownOpen = false;
+
   @override
   void initState() {
     super.initState();
     _levelsService = Get.isRegistered<DmtLevelsService>()
         ? Get.find<DmtLevelsService>()
         : Get.put(DmtLevelsService(), permanent: true);
+
     _entranceController = AnimationController(
       vsync: this,
       duration: _entranceDuration,
     );
+
     _tradesLoadWorker = ever<bool>(_levelsService.isLoadingTrades, (loading) {
       if (loading || !mounted) return;
       if (_skipNextLoadReplay) {
@@ -48,6 +54,7 @@ class _TradesScreenState extends State<TradesScreen>
       }
       _replayEntrance();
     });
+
     _entranceController.forward();
     _levelsService.ensureLoaded();
   }
@@ -68,6 +75,7 @@ class _TradesScreenState extends State<TradesScreen>
 
   @override
   void dispose() {
+    _closeLevelDropdown();
     _tradesLoadWorker?.dispose();
     _entranceController.dispose();
     super.dispose();
@@ -115,6 +123,7 @@ class _TradesScreenState extends State<TradesScreen>
       case "BM": // Believe Mode
         return const Color(0xFF00BCD4);
       case "AM": // Achieve Purple
+      case "AP":
         return const Color(0xFFAB47BC);
       case "AO": // Achieve Olive
         return const Color(0xFF4CAF50);
@@ -134,6 +143,7 @@ class _TradesScreenState extends State<TradesScreen>
     return _getLevelColor(code);
   }
 
+  // Full overviewCard without placeholder
   Widget overviewCard({
     required Color cardColor,
     required int totalTrades,
@@ -174,7 +184,7 @@ class _TradesScreenState extends State<TradesScreen>
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(.18),
+              color: Colors.white.withOpacity(0.18),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
@@ -198,7 +208,7 @@ class _TradesScreenState extends State<TradesScreen>
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(.15),
+              color: Colors.white.withOpacity(0.15),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Column(
@@ -247,6 +257,112 @@ class _TradesScreenState extends State<TradesScreen>
         .toList();
   }
 
+  // =============================================
+  // CUSTOM DROPDOWN (always opens BELOW the field)
+  // =============================================
+  void _closeLevelDropdown() {
+    _levelDropdownOverlay?.remove();
+    _levelDropdownOverlay = null;
+    if (mounted) setState(() => _levelDropdownOpen = false);
+  }
+
+  void _toggleLevelDropdown() {
+    if (_levelDropdownOverlay != null) {
+      _closeLevelDropdown();
+    } else {
+      _openLevelDropdown();
+    }
+  }
+
+  void _openLevelDropdown() {
+    if (_levelDropdownOverlay != null) return;
+    if (_levelsService.levels.isEmpty) return;
+
+    final renderBox = _levelFieldKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+    final fieldSize = renderBox.size;
+    final overlayState = Overlay.of(context);
+
+    _levelDropdownOverlay = OverlayEntry(
+      builder: (overlayContext) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+
+        return Stack(
+          children: [
+            // Tap outside to close
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: _closeLevelDropdown,
+              ),
+            ),
+            // Menu ALWAYS below the field: offset uses +fieldSize.height
+            CompositedTransformFollower(
+              link: _levelDropdownLink,
+              showWhenUnlinked: false,
+              offset: Offset(0, fieldSize.height + 6),
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: Material(
+                  elevation: 6,
+                  color: isDark ? const Color(0xFF1F1F1F) : Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minWidth: fieldSize.width,
+                      maxWidth: fieldSize.width,
+                      maxHeight: 300,
+                    ),
+                    child: Obx(() {
+                      final levels = _levelsService.levels;
+                      return ListView.builder(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        itemCount: levels.length,
+                        itemBuilder: (context, i) {
+                          final level = levels[i];
+                          final itemColor = _getLevelColor(level.code);
+                          final isSelected =
+                              _levelsService.selectedLevel.value?.id == level.id;
+                          return InkWell(
+                            onTap: () {
+                              _levelsService.selectById(level.id);
+                              _closeLevelDropdown();
+                            },
+                            child: Container(
+                              width: double.infinity,
+                              color: isSelected
+                                  ? itemColor.withOpacity(0.12)
+                                  : Colors.transparent,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 12,
+                              ),
+                              child: Text(
+                                level.displayLabel,
+                                style: TextStyle(
+                                  color: itemColor,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    }),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    overlayState.insert(_levelDropdownOverlay!);
+    setState(() => _levelDropdownOpen = true);
+  }
+
   Widget _buildLevelDropdown() {
     return Obx(() {
       final isLoading = _levelsService.isLoadingLevels.value && _levelsService.levels.isEmpty;
@@ -255,49 +371,56 @@ class _TradesScreenState extends State<TradesScreen>
       final selectedColor = _selectedColor();
       final isDark = Theme.of(context).brightness == Brightness.dark;
 
-      return Container(
-        height: 52,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF161616) : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: selectedColor, width: 1.4),
-        ),
-        child: DropdownButtonHideUnderline(
-          child: DropdownButton<int>(
-            isExpanded: true,
-            value: selected?.id,
-            dropdownColor: isDark ? const Color(0xFF1F1F1F) : Colors.white,
-            hint: Text(
-              isLoading ? 'Loading levels...' : hasError ? 'Could not load levels' : 'Select level',
-              style: TextStyle(
-                color: isDark ? Colors.white70 : Colors.black54,
-                fontSize: 14,
-              ),
-            ),
-            icon: isLoading
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                : Icon(Icons.keyboard_arrow_down, color: selectedColor),
-            style: TextStyle(
-              color: selectedColor,
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-            ),
-            items: _levelsService.levels.map((DmtLevel level) {
-              final itemColor = _getLevelColor(level.code);
+      final label = isLoading
+          ? 'Loading levels...'
+          : hasError
+              ? 'Could not load levels'
+              : (selected?.displayLabel ?? 'Select level');
 
-              return DropdownMenuItem<int>(
-                value: level.id,
-                child: Text(
-                  level.displayLabel,
-                  style: TextStyle(color: itemColor, fontWeight: FontWeight.w600),
+      return CompositedTransformTarget(
+        link: _levelDropdownLink,
+        child: GestureDetector(
+          key: _levelFieldKey,
+          behavior: HitTestBehavior.opaque,
+          onTap: (isLoading || hasError) ? null : _toggleLevelDropdown,
+          child: Container(
+            height: 52,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF161616) : Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: selectedColor, width: 1.4),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: (selected == null)
+                          ? (isDark ? Colors.white70 : Colors.black54)
+                          : selectedColor,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
-              );
-            }).toList(),
-            onChanged: (id) {
-              if (id == null) return;
-              _levelsService.selectById(id);
-            },
+                if (isLoading)
+                  const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  Icon(
+                    _levelDropdownOpen
+                        ? Icons.keyboard_arrow_up
+                        : Icons.keyboard_arrow_down,
+                    color: selectedColor,
+                  ),
+              ],
+            ),
           ),
         ),
       );

@@ -107,28 +107,28 @@ class _SplashScreenState extends State<SplashScreen>
 
             const SizedBox(height: 20),
 
-            Text(
-              "Discipline Mind",
-              style: theme.textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: isDark ? Colors.white : AppColors.textBlack,
-              ),
-            ),
+            // Text(
+            //   "Discipline Mind",
+            //   style: theme.textTheme.headlineMedium?.copyWith(
+            //     fontWeight: FontWeight.bold,
+            //     color: isDark ? Colors.white : AppColors.textBlack,
+            //   ),
+            // ),
 
-            const SizedBox(height: 8),
+            // const SizedBox(height: 8),
 
-            Text(
-              "Stay Focused. Stay Strong.",
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: isDark ? Colors.white70 : AppColors.textGrey,
-              ),
-            ),
+            // Text(
+            //   "Stay Focused. Stay Strong.",
+            //   style: theme.textTheme.bodyMedium?.copyWith(
+            //     color: isDark ? Colors.white70 : AppColors.textGrey,
+            //   ),
+            // ),
 
-            const SizedBox(height: 40),
-
-            CircularProgressIndicator(
-              color: theme.primaryColor,
-            ),
+            // const SizedBox(height: 40),
+Image.asset("assets/dotgif.gif",height: 100,color: theme.primaryColor,),
+            // CircularProgressIndicator(
+            //   color: theme.primaryColor,
+            // ),
           ],
         ),
       ),

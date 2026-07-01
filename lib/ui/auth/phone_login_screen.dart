@@ -59,7 +59,7 @@ class PhoneLoginScreen extends StatelessWidget {
                     "+91 -",
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.black : AppColors.textBlack,
+                      color:textColor,
                     ),
                   ),
                 ),

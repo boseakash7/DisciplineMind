@@ -1019,15 +1019,20 @@ class _ChatScreenState extends State<ChatScreen> {
   /// Trade card now follows the theme: white surface in light mode, dark
   /// surface in dark mode — including text, divider, and timeline colors.
     /// Trade card now matches the design in the reference image.
+    /// Trade card - Fully theme aware and rebuilds correctly on theme change
   Widget _buildTradeOpportunityCard(
     BuildContext context,
     NewTradeOpportunityMessage msg, {
     required bool showInvalidOverlay,
   }) {
+    // Always read theme fresh inside the widget
     final isDark = _isDark(context);
-    final cardBg = const Color(0xFF1B1F27); // Dark as in image
-    final cardBorder = Colors.white12;
-    final analystInfoColor = Colors.white54;
+
+    final cardBg = isDark ? const Color(0xFF1B1F27) : Colors.white;
+    final cardBorder = isDark ? Colors.white12 : Colors.grey.shade300;
+    final shadowColor = isDark 
+        ? Colors.black.withOpacity(0.35) 
+        : Colors.black.withOpacity(0.08);
 
     final tradeName = msg.tradeName.trim().isNotEmpty
         ? msg.tradeName.trim()
@@ -1039,14 +1044,20 @@ class _ChatScreenState extends State<ChatScreen> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: cardBg,
+        // color: cardBg,
+        gradient: LinearGradient(colors: isDark?[
+          Colors.black,Colors.white.withOpacity(.002)
+        ]:[
+          Colors.white,
+          Colors.white,
+        ]),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white),
+        border: Border.all(color: cardBorder),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.25),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+            color: shadowColor,
+            blurRadius: 10,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
@@ -1073,42 +1084,43 @@ class _ChatScreenState extends State<ChatScreen> {
     String tradeSymbol,
   ) {
     final isDark = _isDark(context);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Header: Analyst + Symbol + CMP
+        // Header
         Row(
           children: [
-            // SEBI REG ANALYST avatar + label
             CircleAvatar(
               radius: 18,
               backgroundImage: const NetworkImage(
-                'https://i.pravatar.cc/150?u=analyst', // placeholder; replace with real if available
+                'https://i.pravatar.cc/150?u=analyst',
               ),
             ),
             const SizedBox(width: 8),
-            const Text(
+            Text(
               'SEBI REG ANALYST',
               style: TextStyle(
-                color: Colors.white70,
+                color: isDark ? Colors.white70 : Colors.grey.shade700,
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
               ),
             ),
             const Spacer(),
-            // CMP badge
             if (msg.rtt.trim().isNotEmpty)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF2A2F3A),
+                  color: !isDark ? const Color(0xFF2A2F3A) : Colors.grey.shade100,
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white24),
+                  border: Border.all(
+                    color:!isDark ? Colors.white24 : Colors.grey.shade300,
+                  ),
                 ),
                 child: Text(
                   'CMP : ${_formatTradeCardPrice(msg.rtt)}',
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: !isDark ? Colors.white : Colors.black87,
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                   ),
@@ -1118,7 +1130,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         const SizedBox(height: 12),
 
-        // Main Symbol Section
+        // Symbol Section
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1126,15 +1138,17 @@ class _ChatScreenState extends State<ChatScreen> {
               width: 48,
               height: 48,
               decoration: BoxDecoration(
-                color: Colors.white10,
+                color: isDark ? Colors.white10 : Colors.grey.shade100,
                 shape: BoxShape.circle,
-                border: Border.all(color: Colors.white24),
+                border: Border.all(
+                  color: isDark ? Colors.white24 : Colors.grey.shade300,
+                ),
               ),
               child: Center(
                 child: Text(
                   tradeName.isNotEmpty ? tradeName[0].toUpperCase() : 'S',
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black87,
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
                   ),
@@ -1148,18 +1162,18 @@ class _ChatScreenState extends State<ChatScreen> {
                 children: [
                   Text(
                     tradeName,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                      color: isDark ? Colors.white : Colors.black87,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     msg.apiMessage.isNotEmpty ? msg.apiMessage : tradeSymbol,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 14,
-                      color: Colors.white70,
+                      color: isDark ? Colors.white70 : Colors.grey.shade700,
                     ),
                   ),
                 ],
@@ -1169,23 +1183,23 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         const SizedBox(height: 20),
 
-        // Timeline - matches image exactly
+        // Timeline
         _buildImageStyleTimeline(context, msg),
       ],
     );
   }
 
-  /// New timeline that closely matches the image design
   Widget _buildImageStyleTimeline(
     BuildContext context,
     NewTradeOpportunityMessage msg,
   ) {
     final isDark = _isDark(context);
-    final lineColor = Colors.white24;
-    final dotColor = Colors.white38;
-    final activeDotColor = const Color(0xFF8B5CF6); // Purple like image
-    final labelColor = Colors.white60;
-    final valueColor = Colors.white;
+
+    final lineColor = isDark ? Colors.white24 : Colors.grey.shade400;
+    final dotColor = isDark ? Colors.white38 : Colors.grey.shade500;
+    final activeDotColor = const Color(0xFF8B5CF6);
+    final labelColor = isDark ? Colors.white60 : Colors.grey.shade700;
+    final valueColor = isDark ? Colors.white : Colors.black87;
 
     final sl = _formatTradeCardPrice(msg.stopLoss);
     final entry = _formatTradeCardPrice(msg.entryRange);
@@ -1221,35 +1235,30 @@ class _ChatScreenState extends State<ChatScreen> {
 
         return Column(
           children: [
-            // Labels
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: const [
-                Text('SI', style: TextStyle(color: Colors.white60, fontSize: 12)),
-                Text('ENTRY', style: TextStyle(color: Colors.white60, fontSize: 12)),
-                Text('TARGET', style: TextStyle(color: Colors.white60, fontSize: 12)),
+              children: [
+                Text('SL', style: TextStyle(color: labelColor, fontSize: 12)),
+                Text('ENTRY', style: TextStyle(color: labelColor, fontSize: 12)),
+                Text('TARGET', style: TextStyle(color: labelColor, fontSize: 12)),
               ],
             ),
             const SizedBox(height: 8),
 
-            // Line + Dots
             SizedBox(
               height: 28,
               child: Stack(
                 clipBehavior: Clip.none,
                 children: [
-                  // Dotted line
                   Positioned(
                     top: 11,
                     left: 0,
                     right: 0,
                     child: CustomPaint(
                       size: Size(w, 2),
-                      painter: _DottedLinePainter(isDark: true),
+                      painter: _DottedLinePainter(isDark: isDark),
                     ),
                   ),
-
-                  // Dots
                   ...List.generate(3, (i) {
                     return Positioned(
                       left: (positions[i] - 6).clamp(0.0, w - 12),
@@ -1265,8 +1274,6 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                     );
                   }),
-
-                  // Current price dot (purple highlight)
                   if (currentFrac != null)
                     Positioned(
                       left: (w * currentFrac - 6).clamp(0.0, w - 12),
@@ -1285,7 +1292,6 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
 
-            // Values
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
