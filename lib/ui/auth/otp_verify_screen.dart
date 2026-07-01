@@ -91,7 +91,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   Color get _textColor => _isDark ? Colors.white : AppColors.textBlack;
   Color get _secondaryTextColor => _isDark ? Colors.grey.shade400 : AppColors.textGrey;
   Color get _backgroundColor => _isDark ? const Color(0xFF121212) : AppColors.white;
-  Color get _cardColor => _isDark ? const Color(0xFF1E1E1E) : AppColors.backgroundGray;
+  Color get _cardColor => !_isDark ? Colors.grey.shade200 : AppColors.backgroundGray;
 
   Widget _buildOtpField(int index) {
     return SizedBox(
@@ -117,7 +117,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
           style: TextStyle(
             fontSize: 22,
             fontWeight: FontWeight.bold,
-            color: _textColor,
+            color: !_isDark ? Colors.white : AppColors.textBlack,
           ),
           inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           decoration: InputDecoration(

@@ -33,7 +33,7 @@ class PhoneLoginScreen extends StatelessWidget {
               Image.asset("assets/logo.png", height: 100),
               const SizedBox(height: 16),
               Text(
-                "Monkk AI",
+                "Discipline Mind",
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
@@ -56,7 +56,7 @@ class PhoneLoginScreen extends StatelessWidget {
                 prefixIcon: Padding(
                   padding: const EdgeInsets.only(top: 13, left: 4),
                   child: Text(
-                    "+91",
+                    "+91 -",
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: isDark ? Colors.black : AppColors.textBlack,

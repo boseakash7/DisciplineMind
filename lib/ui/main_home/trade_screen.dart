@@ -62,7 +62,6 @@ class _TradesScreenState extends State<TradesScreen>
 
   void _onTradesTabActivated() {
     _replayEntrance();
-    // Tab entrance already animates; skip duplicate replay when fetch completes.
     _skipNextLoadReplay = true;
     _levelsService.refreshTabData();
   }
@@ -104,6 +103,35 @@ class _TradesScreenState extends State<TradesScreen>
       },
       child: child,
     );
+  }
+
+  // =============================================
+  // COLOR LOGIC
+  // =============================================
+  Color _getLevelColor(String? code) {
+    final upperCode = code?.toUpperCase() ?? "BM";
+
+    switch (upperCode) {
+      case "BM": // Believe Mode
+        return const Color(0xFF00BCD4);
+      case "AM": // Achieve Purple
+        return const Color(0xFFAB47BC);
+      case "AO": // Achieve Olive
+        return const Color(0xFF4CAF50);
+      case "AA": // Achieve Amber
+        return const Color(0xFFFFB300);
+      case "AI": // Achieve Indigo
+        return const Color(0xFF5C6BC0);
+      case "LM": // Leap Mode
+        return const Color(0xFF10B981);
+      default:
+        return AppColors.primary;
+    }
+  }
+
+  Color _selectedColor() {
+    final code = _levelsService.selectedLevel.value?.code;
+    return _getLevelColor(code);
   }
 
   Widget overviewCard({
@@ -161,7 +189,7 @@ class _TradesScreenState extends State<TradesScreen>
                 ),
                 TradeAccuracyRing(
                   percent: tradeAccuracyPercent,
-                  color: cardColor, // FIX: ring ab selected mode ka color use karega
+                  color: cardColor,
                 ),
               ],
             ),
@@ -198,21 +226,6 @@ class _TradesScreenState extends State<TradesScreen>
     );
   }
 
-  Color _selectedColor() {
-    final code = _levelsService.selectedLevel.value?.code?.toUpperCase();
-
-    switch (code) {
-      case "BM":
-        return const Color(0xFF1DA1F2);
-      case "AM":
-        return const Color(0xFFA855F7);
-      case "LM":
-        return const Color(0xFF10B981);
-      default:
-        return AppColors.primary;
-    }
-  }
-
   List<Widget> _tradeCardsFromApi(List<DmtHitTrade> trades, {int baseIndex = 6}) {
     return trades
         .asMap()
@@ -236,12 +249,8 @@ class _TradesScreenState extends State<TradesScreen>
 
   Widget _buildLevelDropdown() {
     return Obx(() {
-      final isLoading =
-          _levelsService.isLoadingLevels.value && _levelsService.levels.isEmpty;
-
-      final hasError =
-          _levelsService.levelsError.value != null && _levelsService.levels.isEmpty;
-
+      final isLoading = _levelsService.isLoadingLevels.value && _levelsService.levels.isEmpty;
+      final hasError = _levelsService.levelsError.value != null && _levelsService.levels.isEmpty;
       final selected = _levelsService.selectedLevel.value;
       final selectedColor = _selectedColor();
       final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -260,22 +269,14 @@ class _TradesScreenState extends State<TradesScreen>
             value: selected?.id,
             dropdownColor: isDark ? const Color(0xFF1F1F1F) : Colors.white,
             hint: Text(
-              isLoading
-                  ? 'Loading levels...'
-                  : hasError
-                      ? 'Could not load levels'
-                      : 'Select level',
+              isLoading ? 'Loading levels...' : hasError ? 'Could not load levels' : 'Select level',
               style: TextStyle(
                 color: isDark ? Colors.white70 : Colors.black54,
                 fontSize: 14,
               ),
             ),
             icon: isLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
                 : Icon(Icons.keyboard_arrow_down, color: selectedColor),
             style: TextStyle(
               color: selectedColor,
@@ -283,20 +284,7 @@ class _TradesScreenState extends State<TradesScreen>
               fontWeight: FontWeight.w600,
             ),
             items: _levelsService.levels.map((DmtLevel level) {
-              Color itemColor;
-              switch (level.code.toUpperCase()) {
-                case "BM":
-                  itemColor = const Color(0xFF1DA1F2);
-                  break;
-                case "AM":
-                  itemColor = const Color(0xFFA855F7);
-                  break;
-                case "LM":
-                  itemColor = const Color(0xFF10B981);
-                  break;
-                default:
-                  itemColor = AppColors.primary;
-              }
+              final itemColor = _getLevelColor(level.code);
 
               return DropdownMenuItem<int>(
                 value: level.id,
@@ -306,9 +294,6 @@ class _TradesScreenState extends State<TradesScreen>
                 ),
               );
             }).toList(),
-
-            // FIX: removed `.refresh()` call which was forcing an extra
-            // notify with the stale value and causing duplicate fetches.
             onChanged: (id) {
               if (id == null) return;
               _levelsService.selectById(id);
@@ -417,8 +402,7 @@ class _TradesScreenState extends State<TradesScreen>
                             totalTrades: _levelsService.displayTotalTrades,
                             totalWins: _levelsService.displayTotalWins,
                             tradeAccuracy: _levelsService.displayTradeAccuracy,
-                            tradeAccuracyPercent:
-                                _levelsService.displayTradeAccuracyPercent,
+                            tradeAccuracyPercent: _levelsService.displayTradeAccuracyPercent,
                             frr: _levelsService.displayFrr,
                             rtt: _levelsService.displayRtt,
                           ),
@@ -499,12 +483,6 @@ class _TradesScreenState extends State<TradesScreen>
                         );
                       }
 
-                      // FIX: removed the redundant nested Obx here.
-                      // The outer Obx (at line 5 / _entranceSection(5, Obx(...)))
-                      // already rebuilds this whole block whenever
-                      // isLoadingTrades / tradesError / displayTrades change,
-                      // so wrapping the Column in a second Obx was causing
-                      // an extra, separate rebuild pass on every level switch.
                       return Column(
                         children: _tradeCardsFromApi(trades),
                       );
@@ -537,7 +515,7 @@ class _TradesHeaderRow extends StatelessWidget {
         GestureDetector(
           onTap: onMonkkTap,
           child: Text(
-            'Monkk AI',
+            'Discipline Mind',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,

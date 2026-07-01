@@ -194,7 +194,7 @@ class _PostLoginTradingBlockScreenState
                         children: [
                           const TextSpan(text: 'Permissions required to use '),
                           TextSpan(
-                            text: 'Monkk AI',
+                            text: 'Discipline Mind',
                             style: TextStyle(color: blueAccent),
                           ),
                         ],

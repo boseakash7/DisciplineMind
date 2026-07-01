@@ -477,7 +477,7 @@ class _ChatScreenState extends State<ChatScreen> {
           GestureDetector(
             onTap: widget.onMonkkTap,
             child: const Text(
-              'Monkk AI',
+              'Discipline Mind',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
@@ -1041,7 +1041,7 @@ class _ChatScreenState extends State<ChatScreen> {
       decoration: BoxDecoration(
         color: cardBg,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: cardBorder),
+        border: Border.all(color: Colors.white),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.25),
@@ -1400,8 +1400,8 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Text(
         label,
         textAlign: TextAlign.center,
-        style: const TextStyle(
-          color: Colors.white,
+        style:  TextStyle(
+          color:_isDark(context)?Colors.black: Colors.white,
           fontWeight: FontWeight.w600,
           fontSize: 15,
         ),
@@ -1411,7 +1411,7 @@ class _ChatScreenState extends State<ChatScreen> {
     return SizedBox(
       width: double.infinity,
       child: Material(
-        color: enabled ? AppColors.primary : Colors.grey.shade400,
+        color: enabled ? AppColors.primary : (_isDark(context)?Colors.white: Colors.grey.shade400),
         borderRadius: BorderRadius.circular(8),
         child: canTap
             ? InkWell(

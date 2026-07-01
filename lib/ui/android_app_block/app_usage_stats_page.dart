@@ -18,9 +18,21 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
   List<Map<String, dynamic>> _stats = [];
 
   static const _appMeta = {
-    'com.zerodha.kite3': {'name': 'Zerodha Kite', 'color': Color(0xFF387ED1)},
-    'in.upstox.app': {'name': 'Upstox', 'color': Color(0xFF7B2FBE)},
-    'com.nextbillion.groww': {'name': 'Groww', 'color': Color(0xFF00B386)},
+    'com.zerodha.kite3': {
+      'name': 'Zerodha Kite',
+      'color': Color(0xFF387ED1),
+      'asset': 'assets/ZerodhaKite.png',
+    },
+    'in.upstox.app': {
+      'name': 'Upstox',
+      'color': Color(0xFF7B2FBE),
+      'asset': 'assets/upsocks.png', // Rename file or update path if needed
+    },
+    'com.nextbillion.groww': {
+      'name': 'Groww',
+      'color': Color(0xFF00B386),
+      'asset': 'assets/groww.png',
+    },
   };
 
   @override
@@ -81,7 +93,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
 
   Color get _backgroundColor => Theme.of(context).scaffoldBackgroundColor;
   Color get _cardColor => Theme.of(context).cardColor;
-  Color get _textColor =>  (_isDark ? Colors.white : Colors.black87);
+  Color get _textColor => (_isDark ? Colors.white : Colors.black87);
   Color get _secondaryTextColor => (_isDark ? Colors.grey.shade400 : Colors.grey.shade600);
   Color get _shadowColor => Colors.black.withOpacity(_isDark ? 0.4 : 0.07);
 
@@ -217,6 +229,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
     final meta = _appMeta[pkg];
     final name = meta?['name'] as String? ?? pkg;
     final color = meta?['color'] as Color? ?? Colors.blueGrey;
+    final assetPath = meta?['asset'] as String?;
 
     final opens = (stat['openCount'] is num) ? (stat['openCount'] as num).toInt() : 0;
     final blocked = (stat['openedWhenBlockedCount'] is num) ? (stat['openedWhenBlockedCount'] as num).toInt() : 0;
@@ -248,12 +261,44 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
             ),
             child: Row(
               children: [
+                // App Icon - Image from assets with fallback
                 Container(
                   width: 48,
                   height: 48,
-                  decoration: BoxDecoration(color: color.withOpacity(0.18), borderRadius: BorderRadius.circular(14)),
-                  alignment: Alignment.center,
-                  child: Text(name.isNotEmpty ? name[0] : '?', style: TextStyle(color: color, fontSize: 22, fontWeight: FontWeight.bold)),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: assetPath != null
+                        ? Image.asset(
+                            assetPath,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Center(
+                                child: Text(
+                                  name.isNotEmpty ? name[0] : '?',
+                                  style: TextStyle(
+                                    color: color,
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              );
+                            },
+                          )
+                        : Center(
+                            child: Text(
+                              name.isNotEmpty ? name[0] : '?',
+                              style: TextStyle(
+                                color: color,
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                  ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -276,7 +321,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
             ),
           ),
 
-          // Stats Grid
+          // Stats Grid (unchanged)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: Row(
@@ -306,7 +351,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
             ),
           ),
 
-          // Block Rate Progress
+          // Block Rate Progress (unchanged)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
             child: Column(

@@ -73,7 +73,7 @@
 //             Icon(Icons.lock, size: 90, color: Colors.white),
 //             SizedBox(height: 20),
 //             Text(
-//               'Monkk AI',
+//               'Discipline Mind',
 //               style: TextStyle(
 //                 color: Colors.white,
 //                 fontSize: 26,

@@ -188,7 +188,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
     return GetMaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Monkk AI',
+      title: 'Discipline Mind',
       theme: _lightTheme(textTheme),
       darkTheme: _darkTheme(textTheme),
       themeMode: ThemeService().themeMode,   // ← This enables theme switching

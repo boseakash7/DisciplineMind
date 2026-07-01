@@ -13,62 +13,122 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> {
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
   final AuthController authController = Get.put(AuthController());
+  late final AnimationController _animationController;
+  late final Animation<double> _fadeAnimation;
+  late final Animation<double> _scaleAnimation;
 
   @override
   void initState() {
     super.initState();
+
+    // Animation Setup
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    );
+
+    _fadeAnimation = CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeIn,
+    );
+
+    _scaleAnimation = Tween<double>(begin: 0.6, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: Curves.easeOutBack,
+      ),
+    );
+
+    _animationController.forward();
+
+    // App initialization with delay
     if (!Get.isRegistered<TradingAppsService>()) {
       Get.put(TradingAppsService(), permanent: true);
     }
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _requestNotificationPermission();
-      // Start auth immediately; avoids extra splash delay.
-      authController.autoLogin();
       Get.find<TradingAppsService>().refresh();
+
+      // Minimum splash duration
+      Future.delayed(const Duration(milliseconds: 2500), () {
+        if (mounted) {
+          authController.autoLogin();
+        }
+      });
     });
   }
 
   Future<void> _requestNotificationPermission() async {
     try {
       await NotificationHandler.requestPermissions();
-    } catch (e, s) {
+    } catch (e) {
       debugPrint('Permission request failed: $e');
-      debugPrintStack(stackTrace: s);
     }
   }
 
   @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: AppColors.white,
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Image.asset("assets/logo.png",height: 100),
+            // Animated Logo
+            AnimatedBuilder(
+              animation: _animationController,
+              builder: (context, child) {
+                return Opacity(
+                  opacity: _fadeAnimation.value,
+                  child: Transform.scale(
+                    scale: _scaleAnimation.value,
+                    child: child,
+                  ),
+                );
+              },
+              child: Image.asset(
+                "assets/logo.png",
+                height: 100,
+              ),
+            ),
+
             const SizedBox(height: 20),
 
-            const Text(
-              "Monkk AI",
-              style: TextStyle(
-                fontSize: 26,
+            Text(
+              "Discipline Mind",
+              style: theme.textTheme.headlineMedium?.copyWith(
                 fontWeight: FontWeight.bold,
-                color: AppColors.textBlack,
+                color: isDark ? Colors.white : AppColors.textBlack,
               ),
             ),
 
             const SizedBox(height: 8),
 
-            const Text(
+            Text(
               "Stay Focused. Stay Strong.",
-              style: TextStyle(fontSize: 14, color: AppColors.textGrey),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: isDark ? Colors.white70 : AppColors.textGrey,
+              ),
             ),
 
             const SizedBox(height: 40),
 
-            const CircularProgressIndicator(color: AppColors.primary),
+            CircularProgressIndicator(
+              color: theme.primaryColor,
+            ),
           ],
         ),
       ),

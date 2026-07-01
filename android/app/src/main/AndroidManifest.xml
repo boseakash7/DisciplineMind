@@ -16,7 +16,7 @@
 
     <application
         android:name=".DisciplineApplication"
-        android:label="Monkk AI"
+        android:label="Discipline Mind"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">
 

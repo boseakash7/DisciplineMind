@@ -422,7 +422,7 @@ class _AnalysisScreenState extends State<AnalysisScreen>
           GestureDetector(
             onTap: widget.onMonkkTap,
             child: Text(
-              'Monkk AI',
+              'Discipline Mind',
               style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: AppColors.primary),
             ),
           ),
