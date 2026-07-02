@@ -92,7 +92,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
   bool get _isDark => Theme.of(context).brightness == Brightness.dark;
 
   Color get _backgroundColor => Theme.of(context).scaffoldBackgroundColor;
-  Color get _cardColor => Theme.of(context).cardColor;
+  Color get _cardColor =>_isDark?Color(0XFF191A28): Theme.of(context).cardColor;
   Color get _textColor => (_isDark ? Colors.white : Colors.black87);
   Color get _secondaryTextColor => (_isDark ? Colors.grey.shade400 : Colors.grey.shade600);
   Color get _shadowColor => Colors.black.withOpacity(_isDark ? 0.4 : 0.07);

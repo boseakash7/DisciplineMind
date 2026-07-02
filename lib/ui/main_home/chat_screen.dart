@@ -70,12 +70,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// Dialog / popup surface background (was Colors.white).
   Color _dialogBg(bool isDark) =>
-      isDark ? const Color(0xFF1B1F27) : Colors.white;
+      isDark ? const Color(0xFF3C3C3A) : Colors.white;
 
   /// Text field fill inside dialogs / input bar (was AppColors.backgroundGray
   /// or Colors.grey.shade100).
   Color _fieldFill(bool isDark) =>
-      isDark ? const Color(0xFF22262F) : AppColors.backgroundGray;
+      isDark ? const Color(0xFF7B7B7A) : AppColors.backgroundGray;
 
   /// Generic border color for fields/cards in dialogs.
   Color _fieldBorder(bool isDark) =>
@@ -1029,7 +1029,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final isDark = _isDark(context);
 
     final cardBg = isDark ? const Color(0xFF1B1F27) : Colors.white;
-    final cardBorder = isDark ? Colors.white12 : Colors.grey.shade300;
+    final cardBorder = isDark ? AppColors.primary.withOpacity(.4) : Colors.grey.shade300;
     final shadowColor = isDark 
         ? Colors.black.withOpacity(0.35) 
         : Colors.black.withOpacity(0.08);
@@ -1642,13 +1642,18 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 ),
                 alignment: Alignment.centerLeft,
-                child: const Text(
-                  'Trail Stop Loss',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Row(
+                  children: [
+                    Icon(Icons.close,color: Colors.white,),
+                    const Text(
+                      'Trail Stop Loss',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               Padding(

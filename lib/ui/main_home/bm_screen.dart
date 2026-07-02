@@ -21,6 +21,8 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
   Worker? _summaryLoadWorker;
   bool _skipNextLoadReplay = true;
 
+  int _selectedIndex = 0; // 👈 kaunsa card select hai (default BM = 0)
+
   static const Duration _entranceDuration = Duration(milliseconds: 1200);
 
   static const List<String> _levelCodes = ['BM', 'AM', 'LM'];
@@ -72,19 +74,24 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      // backgroundColor: Colors.black,
-     
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-             Padding(
+            Padding(
               padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Row(
                 children: [
                   Text('🏆', style: TextStyle(fontSize: 22)),
                   SizedBox(width: 8),
-                  Text('Achievement Levels', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600,color: isDark?Colors.white:Colors.black)),
+                  Text(
+                    'Achievement Levels',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? Colors.white : Colors.black,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -100,8 +107,8 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
                     final apiLevel = payload?.levelByCode(_levelCodes[index]);
                     final color = _levelColors[index];
 
-                    final isAchieved = apiLevel?.isUnlocked ?? (index == 0);
                     final isCurrent = apiLevel?.isCurrent ?? false;
+                    final isSelected = _selectedIndex == index; // 👈 selection check
 
                     return _TimelineItem(
                       index: index,
@@ -109,7 +116,7 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
                       title: apiLevel?.displayLabel ?? _levelNames[index],
                       code: _levelCodes[index],
                       color: color,
-                      isAchieved: isAchieved,
+                      isAchieved: isSelected, // 👈 color ab selection pe depend karta hai
                       isCurrent: isCurrent,
                       trades: apiLevel?.totalTrades.toString() ?? fallback.trades,
                       wins: apiLevel?.totalWins.toString() ?? fallback.wins,
@@ -117,6 +124,10 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
                       returns: fallback.returns,
                       cmReturns: fallback.cmReturns,
                       isDark: isDark,
+                      onTap: () {
+                        setState(() => _selectedIndex = index); // 👈 tap pe select
+                        // widget.onMonkkTap?.call();
+                      },
                     );
                   },
                 );
@@ -138,6 +149,7 @@ class _TimelineItem extends StatelessWidget {
   final bool isAchieved, isCurrent;
   final String trades, wins, accuracy, returns, cmReturns;
   final bool isDark;
+  final VoidCallback? onTap;
 
   const _TimelineItem({
     required this.index,
@@ -153,187 +165,84 @@ class _TimelineItem extends StatelessWidget {
     required this.returns,
     required this.cmReturns,
     required this.isDark,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
 
-    final dark =
-        theme.brightness ==
-        Brightness.dark;
-
-    final cardColor =
-        isAchieved
-            ? color
-            : (
-                dark
-                    ? const Color(
-                        0xFF1F1F24,
-                      )
-                    : color.withOpacity(
-                        .12,
-                      )
-              );
+    final cardColor = isAchieved
+        ? color
+        : (dark ? const Color(0xFF1F1F24) : color.withOpacity(.12));
 
     return IntrinsicHeight(
       child: Row(
-        crossAxisAlignment:
-            CrossAxisAlignment
-                .start,
-
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Column(
             children: [
-              const SizedBox(
-                height: 10,
-              ),
-
+              const SizedBox(height: 10),
               Container(
                 width: 48,
                 height: 48,
-
-                decoration:
-                    BoxDecoration(
-                  shape:
-                      BoxShape
-                          .circle,
-
-                  color:
-                      isAchieved
-                          ? color
-                          : color
-                              .withOpacity(
-                            .15,
-                          ),
-
-                  border:
-                      Border.all(
-                    color:
-                        color,
-                  ),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isAchieved ? color : color.withOpacity(.15),
+                  border: Border.all(color: color),
                 ),
-
-                alignment:
-                    Alignment
-                        .center,
-
+                alignment: Alignment.center,
                 child: Text(
                   code,
-
-                  style:
-                      TextStyle(
-                    color:
-                        isAchieved
-                            ? Colors
-                                .white
-                            : color,
-
-                    fontWeight:
-                        FontWeight
-                            .bold,
-
-                    fontSize:
-                        15,
+                  style: TextStyle(
+                    color: isAchieved ? Colors.white : color,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
                   ),
                 ),
               ),
-
               if (!isLast)
                 Expanded(
-                  child:
-                      Container(
-                    width:
-                        2.5,
-
-                    margin:
-                        const EdgeInsets.symmetric(
-                      vertical:
-                          6,
-                    ),
-
-                    child:
-                        CustomPaint(
-                      painter:
-                          _DottedLinePainter(
-                        color:
-                            color
-                                .withOpacity(
-                          .60,
-                        ),
-                      ),
+                  child: Container(
+                    width: 2.5,
+                    margin: const EdgeInsets.symmetric(vertical: 6),
+                    child: CustomPaint(
+                      painter: _DottedLinePainter(color: color.withOpacity(.60)),
                     ),
                   ),
                 ),
             ],
           ),
-
-          const SizedBox(
-            width: 16,
-          ),
-
+          const SizedBox(width: 16),
           Expanded(
-            child:
-                Container(
-              margin:
-                  const EdgeInsets.only(
-                bottom:
-                    20,
-              ),
-
-              decoration:
-                  BoxDecoration(
-                color:
-                    cardColor,
-
-                borderRadius:
-                    BorderRadius.circular(
-                  16,
-                ),
-
-                border:
-                    isAchieved
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(
+                    color: cardColor,
+                    borderRadius: BorderRadius.circular(16),
+                    border: isAchieved
                         ? null
                         : Border(
-                            left:
-                                BorderSide(
-                              color:
-                                  color
-                                      .withOpacity(
-                                .70,
-                              ),
-
-                              width:
-                                  2.5,
-                            ),
+                            left: BorderSide(color: color.withOpacity(.70), width: 2.5),
                           ),
-              ),
-
-              child:
-                  _CardContent(
-                title:
-                    title,
-
-                color:
-                    color,
-
-                isAchieved:
-                    isAchieved,
-
-                trades:
-                    trades,
-
-                wins:
-                    wins,
-
-                accuracy:
-                    accuracy,
-
-                returns:
-                    returns,
-
-                cmReturns:
-                    cmReturns,
+                  ),
+                  child: _CardContent(
+                    title: title,
+                    color: color,
+                    isAchieved: isAchieved,
+                    trades: trades,
+                    wins: wins,
+                    accuracy: accuracy,
+                    returns: returns,
+                    cmReturns: cmReturns,
+                  ),
+                ),
               ),
             ),
           ),
@@ -367,184 +276,76 @@ class _CardContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
-    final isDark =
-        theme.brightness ==
-        Brightness.dark;
+    final textColor = isAchieved
+        ? Colors.white
+        : (isDark ? Colors.white : Colors.black87);
 
-    final textColor =
-        isAchieved
-            ? Colors.white
-            : (
-                isDark
-                    ? Colors.white
-                    : Colors.black87
-              );
-
-    final subTextColor =
-        isAchieved
-            ? Colors.white70
-            : (
-                isDark
-                    ? Colors.white60
-                    : Colors.black54
-              );
+    final subTextColor = isAchieved
+        ? Colors.white70
+        : (isDark ? Colors.white60 : Colors.black54);
 
     return Padding(
-      padding:
-          const EdgeInsets.all(
-        16,
-      ),
-
+      padding: const EdgeInsets.all(16),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment
-                .start,
-
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Expanded(
                 child: Text(
                   title,
-
-                  style:
-                      TextStyle(
-                    fontSize:
-                        18,
-
-                    fontWeight:
-                        FontWeight
-                            .bold,
-
-                    color:
-                        isAchieved
-                            ? Colors
-                                .white
-                            : color,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: isAchieved ? Colors.white : color,
                   ),
                 ),
               ),
-
               Container(
                 width: 36,
                 height: 36,
-
-                decoration:
-                    BoxDecoration(
-                  color:
-                      isDark
-                          ? Colors
-                              .white
-                              .withOpacity(
-                                .15,
-                              )
-                          : Colors
-                              .black
-                              .withOpacity(
-                                .08,
-                              ),
-
-                  shape:
-                      BoxShape
-                          .circle,
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? Colors.white.withOpacity(.15)
+                      : Colors.black.withOpacity(.08),
+                  shape: BoxShape.circle,
                 ),
-
-                child:
-                    Icon(
-                  Icons
-                      .play_arrow_rounded,
-
-                  color:
-                      isDark
-                          ? Colors
-                              .white
-                          : Colors
-                              .grey
-                              .shade700,
-
-                  size:
-                      22,
+                child: Icon(
+                  Icons.play_arrow_rounded,
+                  color: isDark ? Colors.white : Colors.grey.shade700,
+                  size: 22,
                 ),
               ),
             ],
           ),
-
-          const SizedBox(
-            height: 14,
-          ),
-
+          const SizedBox(height: 14),
           Row(
             children: [
-              _Stat(
-                'Trades',
-                trades,
-                textColor,
-                subTextColor,
-              ),
-
-              _Stat(
-                'Wins',
-                wins,
-                textColor,
-                subTextColor,
-              ),
-
-              _Stat(
-                'Accuracy',
-                accuracy,
-                textColor,
-                subTextColor,
-              ),
-
+              _Stat('Trades', trades, textColor, subTextColor),
+              _Stat('Wins', wins, textColor, subTextColor),
+              _Stat('Accuracy', accuracy, textColor, subTextColor),
               const Spacer(),
-
-              Icon(
-                Icons.chevron_right,
-
-                color:
-                    subTextColor,
-
-                size:
-                    26,
-              ),
+              Icon(Icons.chevron_right, color: subTextColor, size: 26),
             ],
           ),
-
           Divider(
             height: 22,
-
-            color:
-                isDark
-                    ? Colors
-                        .white24
-                    : Colors
-                        .black12,
+            color: isDark ? Colors.white24 : Colors.black12,
           ),
-
           Row(
             children: [
               Expanded(
                 child: Text(
                   'My Returns - $returns',
-
-                  style:
-                      TextStyle(
-                    color:
-                        subTextColor,
-                  ),
+                  style: TextStyle(color: subTextColor),
                 ),
               ),
-
               Expanded(
                 child: Text(
                   'MCT Returns - $cmReturns',
-
-                  style:
-                      TextStyle(
-                    color:
-                        subTextColor,
-                  ),
+                  style: TextStyle(color: subTextColor),
                 ),
               ),
             ],
@@ -554,6 +355,7 @@ class _CardContent extends StatelessWidget {
     );
   }
 }
+
 class _Stat extends StatelessWidget {
   final String label, value;
   final Color textColor, subTextColor;

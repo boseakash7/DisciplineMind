@@ -320,7 +320,19 @@ class _DmtScorePopupDialogState extends State<_DmtScorePopupDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final totalLabel = '${_formatScore(_totalDisplayed)}/$_maxText';
+
+    // 👇 Theme-aware colors
+    final popupBg = isDark ? const Color(0xFF232327) : Colors.white;
+    final popupBorderColor = isDark ? Colors.white12 : AppColors.textBlack;
+    final dateColor = isDark ? Colors.white : AppColors.textBlack;
+    final labelColor = isDark ? Colors.white60 : AppColors.textGrey;
+    final scoreColor = isDark ? Colors.white : AppColors.textGrey;
+    final trackColor = isDark
+        ? AppColors.primary.withOpacity(0.30)
+        : AppColors.primary.withOpacity(0.25);
+    final totalTitleColor = isDark ? Colors.white70 : AppColors.textGrey;
 
     return Center(
       child: Material(
@@ -329,25 +341,32 @@ class _DmtScorePopupDialogState extends State<_DmtScorePopupDialog> {
           width: _popupWidth,
           margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(color: AppColors.textBlack, width: 1),
+            color: popupBg,
+            borderRadius: BorderRadius.circular(14),
+           
           ),
+          clipBehavior: Clip.antiAlias,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 11),
+                padding: const EdgeInsets.symmetric(vertical: 14,horizontal: 4),
                 color: AppColors.primary,
-                child: const Text(
-                  'Discipline Analysis for the day',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    height: 1.2,
-                  ),
+                child: Row(
+                  children: [Icon(Icons.close,color: Colors.white),
+                  SizedBox(width: 10),
+                    const Text(
+                      'Discipline Analysis for the day',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        height: 1.2,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               SizedBox(
@@ -368,10 +387,10 @@ class _DmtScorePopupDialogState extends State<_DmtScorePopupDialog> {
                           child: Text(
                             _dateText,
                             textAlign: TextAlign.center,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
-                              color: AppColors.textBlack,
+                              color: dateColor,
                               height: 1.2,
                             ),
                           ),
@@ -388,6 +407,10 @@ class _DmtScorePopupDialogState extends State<_DmtScorePopupDialog> {
                             progress: _rowProgress[i],
                             circleScale: _circleScales[i],
                             showBarAndLabel: _rowShowsBar(i),
+                            isDark: isDark,
+                            labelColor: labelColor,
+                            scoreColor: scoreColor,
+                            trackColor: trackColor,
                           ),
                         );
                       }),
@@ -398,23 +421,23 @@ class _DmtScorePopupDialogState extends State<_DmtScorePopupDialog> {
                             ? Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  const Text(
+                                  Text(
                                     'DMT SCORE',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
                                       fontSize: 15,
                                       fontWeight: FontWeight.bold,
-                                      color: AppColors.textGrey,
+                                      color: totalTitleColor,
                                       height: 1.2,
                                     ),
                                   ),
-                                  const Text(
+                                  Text(
                                     'for today',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
                                       fontSize: 14,
                                       fontWeight: FontWeight.bold,
-                                      color: AppColors.textGrey,
+                                      color: totalTitleColor,
                                       height: 1.3,
                                     ),
                                   ),
@@ -460,7 +483,7 @@ class _DmtScorePopupDialogState extends State<_DmtScorePopupDialog> {
   }
 }
 
-/// Outer cyan ring + white inner circle + black letter (matches design).
+/// Outer cyan ring (hollow, theme-independent) + letter inside.
 class _DoubleCircleLetter extends StatelessWidget {
   final String letter;
   final double scale;
@@ -468,7 +491,6 @@ class _DoubleCircleLetter extends StatelessWidget {
   const _DoubleCircleLetter({required this.letter, required this.scale});
 
   static const double outerSize = 40;
-  static const double innerSize = 26;
 
   @override
   Widget build(BuildContext context) {
@@ -480,27 +502,18 @@ class _DoubleCircleLetter extends StatelessWidget {
           width: outerSize,
           height: outerSize,
           child: DecoratedBox(
-            decoration: const BoxDecoration(
-              color: AppColors.primary,
+            decoration: BoxDecoration(
               shape: BoxShape.circle,
+              border: Border.all(color: AppColors.primary, width: 2),
             ),
             child: Center(
-              child: Container(
-                width: innerSize,
-                height: innerSize,
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  letter,
-                  style: const TextStyle(
-                    color: AppColors.textBlack,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    height: 1,
-                  ),
+              child: Text(
+                letter,
+                style: const TextStyle(
+                  color: AppColors.primary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  height: 1,
                 ),
               ),
             ),
@@ -518,6 +531,10 @@ class _ScoreRowView extends StatelessWidget {
   final double progress;
   final double circleScale;
   final bool showBarAndLabel;
+  final bool isDark;
+  final Color labelColor;
+  final Color scoreColor;
+  final Color trackColor;
 
   const _ScoreRowView({
     required this.letter,
@@ -525,6 +542,10 @@ class _ScoreRowView extends StatelessWidget {
     required this.scoreText,
     required this.progress,
     required this.circleScale,
+    required this.isDark,
+    required this.labelColor,
+    required this.scoreColor,
+    required this.trackColor,
     this.showBarAndLabel = true,
   });
 
@@ -564,7 +585,7 @@ class _ScoreRowView extends StatelessWidget {
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          Container(color: AppColors.primary.withOpacity(0.25)),
+                          Container(color: trackColor),
                           FractionallySizedBox(
                             alignment: Alignment.centerLeft,
                             widthFactor: progress.clamp(0.0, 1.0),
@@ -581,9 +602,9 @@ class _ScoreRowView extends StatelessWidget {
                     child: Text(
                       label,
                       textAlign: TextAlign.center,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
-                        color: AppColors.textGrey,
+                        color: labelColor,
                         fontWeight: FontWeight.w500,
                         height: 1.1,
                       ),
@@ -605,9 +626,7 @@ class _ScoreRowView extends StatelessWidget {
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: scoreText.isEmpty
-                  ? Colors.transparent
-                  : AppColors.textGrey,
+              color: scoreText.isEmpty ? Colors.transparent : scoreColor,
               height: 1.1,
             ),
           ),

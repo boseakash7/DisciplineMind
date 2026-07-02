@@ -282,16 +282,16 @@ class _PostLoginTradingBlockScreenState
                                               : const Color(0xFFAAAAAA)),
                                     ),
                                   ),
-                                  const SizedBox(width: 10),
-                                  Icon(
-                                    Icons.arrow_forward_rounded,
-                                    size: 20,
-                                    color: _allGranted
-                                        ? Colors.white
-                                        : (_isDark
-                                            ? const Color(0xFF44445A)
-                                            : const Color(0xFFAAAAAA)),
-                                  ),
+                                  // const SizedBox(width: 10),
+                                  // Icon(
+                                  //   Icons.arrow_forward_rounded,
+                                  //   size: 20,
+                                  //   color: _allGranted
+                                  //       ? Colors.white
+                                  //       : (_isDark
+                                  //           ? const Color(0xFF44445A)
+                                  //           : const Color(0xFFAAAAAA)),
+                                  // ),
                                 ],
                               ),
                       ),

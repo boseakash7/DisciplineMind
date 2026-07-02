@@ -5,50 +5,66 @@ import '../../common/app_colors.dart';
 
 class CustomTextField extends StatelessWidget {
   final String hint;
-   IconData? icon;
+  IconData? icon;
   List<TextInputFormatter>? inputFormatters;
   final bool isPassword;
-  Widget? prefixIcon;Widget? prefix;
+  Widget? prefixIcon;
+  Widget? prefix;
   final TextEditingController? controller;
   final String? Function(String?)? validator;
-  final TextInputType keyboardType; // Added keyboardType
+  final TextInputType keyboardType;
   final int? maxLength;
 
-   CustomTextField({
+  CustomTextField({
     super.key,
     required this.hint,
-     this.icon,this.prefix,
-     this.prefixIcon,
+    this.icon,
+    this.prefix,
+    this.prefixIcon,
     this.isPassword = false,
     this.inputFormatters,
     this.controller,
     this.validator,
     this.maxLength,
-    this.keyboardType = TextInputType.text, // Default keyboard type
+    this.keyboardType = TextInputType.text,
   });
 
   @override
   Widget build(BuildContext context) {
-    
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return TextFormField(
       maxLength: maxLength,
       controller: controller,
       obscureText: isPassword,
-      validator: validator,inputFormatters:inputFormatters,
-      keyboardType: keyboardType, // Set keyboard type
-        style: TextStyle(color: isDark ? Colors.white : AppColors.textBlack),
+      validator: validator,
+      inputFormatters: inputFormatters,
+      keyboardType: keyboardType,
+      style: TextStyle(
+        color: isDark ? Colors.white : AppColors.textBlack,
+        fontSize: 16,
+      ),
       decoration: InputDecoration(
-        hintText: hint,prefix:prefix ,
-        prefixIcon:prefixIcon?? Icon( icon, color: AppColors.primaryGreen),
+        hintText: hint,
+        prefix: prefix,
+        prefixIcon: prefixIcon,
+        prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
         filled: true,
-        fillColor:isDark?Color(0XFF1E282A): AppColors.backgroundGray,
+        fillColor: isDark ? const Color(0xFF2C2C2E) : AppColors.backgroundGray, // Darker gray like screenshot
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(12), // Slightly more rounded
+          borderSide: BorderSide.none, // Clean look like image
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
         ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.blue, width: 1.5),
+        ),
         errorStyle: const TextStyle(color: Colors.red, fontSize: 12),
+        contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
       ),
     );
   }
@@ -186,28 +202,32 @@ class NavButton extends StatelessWidget {
 class PrimaryButton extends StatelessWidget {
   final String text;
   final Color color;
-  final VoidCallback? onPressed;
+  final VoidCallback? onPressed;BorderSide? side;
   final double borderRadius;
   final bool isLoading; // Added loading state
-
-  const PrimaryButton({
+double? height;
+double? width;
+   PrimaryButton({
     super.key,
     required this.text,
     required this.onPressed,
     this.color = AppColors.actionRed,
     this.borderRadius = 8.0,
+    this.height,
+    this.side,
+    this.width,
     this.isLoading = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: double.infinity,
-      height: 55,
+      width:width?? double.infinity,
+      height:height?? 55,
       child: ElevatedButton(
         style: ElevatedButton.styleFrom(
           backgroundColor: color,
-          shape: RoundedRectangleBorder(
+          shape: RoundedRectangleBorder(side: side??BorderSide.none,
             borderRadius: BorderRadius.circular(borderRadius),
           ),
           elevation: 0,

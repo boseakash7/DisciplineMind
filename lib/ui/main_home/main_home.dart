@@ -143,7 +143,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
         ),
         bottomNavigationBar: SizedBox(
           
-          height: navBarHeight + fabSize / 2 + bottomInset,
+          height: navBarHeight + fabSize / 2 + bottomInset-40,
           child: Stack(
             alignment: Alignment.bottomCenter,
             clipBehavior: Clip.none,
