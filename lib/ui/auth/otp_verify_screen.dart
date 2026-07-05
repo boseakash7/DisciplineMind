@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/controller/auth_controller.dart';
 import 'package:discipline_mind/ui/auth/phone_login_screen.dart';
@@ -24,143 +26,147 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   final AuthController authController = Get.find<AuthController>();
 
   static const int _otpLength = 4;
+  static const int _resendSeconds = 30;
 
-  final List<TextEditingController> _digitControllers =
-      List.generate(_otpLength, (_) => TextEditingController());
+  int _secondsLeft = _resendSeconds;
+  Timer? _resendTimer;
+  bool _autoVerifyTriggered = false;
 
-  final List<FocusNode> _focusNodes = List.generate(_otpLength, (_) => FocusNode());
+  // ---- SINGLE hidden controller/focus node handles ALL input + autofill ----
+  final TextEditingController _otpController = TextEditingController();
+  final FocusNode _otpFocusNode = FocusNode();
 
   @override
   void initState() {
     super.initState();
+    _otpController.addListener(_onOtpChanged);
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _focusNodes[0].requestFocus();
+      if (mounted) _otpFocusNode.requestFocus();
+    });
+    _startResendTimer();
+  }
+
+  void _startResendTimer() {
+    _resendTimer?.cancel();
+    setState(() => _secondsLeft = _resendSeconds);
+
+    _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        if (_secondsLeft <= 1) {
+          timer.cancel();
+          _secondsLeft = 0;
+        } else {
+          _secondsLeft--;
+        }
+      });
     });
   }
 
   @override
   void dispose() {
-    for (final c in _digitControllers) c.dispose();
-    for (final f in _focusNodes) f.dispose();
+    _otpController.removeListener(_onOtpChanged);
+    _otpController.dispose();
+    _otpFocusNode.dispose();
+    _resendTimer?.cancel();
     super.dispose();
   }
 
-  String get _otp => _digitControllers.map((e) => e.text).join();
+  String get _otp => _otpController.text;
 
-  void _onDigitChanged(int index, String value) {
-  final cleanValue = value.replaceAll(RegExp(r'\D'), '');
-
-  // Backspace / Delete case
-  if (cleanValue.isEmpty) {
-    _digitControllers[index].clear();
-
-    // Move focus to previous field if not first
-    if (index > 0) {
-      _focusNodes[index - 1].requestFocus();
-    }
+  void _onOtpChanged() {
+    // UI ko refresh karo taake boxes update hon (filled digits + cursor box highlight)
     setState(() {});
-    return;
-  }
 
-  // Paste case
-  if (cleanValue.length > 1) {
-    _handlePaste(cleanValue, startIndex: index);
-    return;
-  }
-
-  // Normal single digit input
-  _digitControllers[index].text = cleanValue;
-  _digitControllers[index].selection =  TextSelection.fromPosition(
-    TextPosition(offset: 1),
-  );
-
-  if (index < _otpLength - 1) {
-    _focusNodes[index + 1].requestFocus();
-  } else {
-    _focusNodes[index].unfocus();
-  }
-  setState(() {});
-}
-void _onFieldSubmittedOrBackspace(int index) {
-  if (_digitControllers[index].text.isEmpty && index > 0) {
-    _focusNodes[index - 1].requestFocus();
-  }
-}
-  void _handlePaste(String pastedOtp, {int startIndex = 0}) {
-    final digits = pastedOtp.length >= _otpLength
-        ? pastedOtp.substring(0, _otpLength).split('')
-        : pastedOtp.split('');
-
-    for (int i = 0; i < _otpLength; i++) {
-      _digitControllers[i].text = digits.length > i ? digits[i] : '';
+    if (_otp.length == _otpLength && !_autoVerifyTriggered) {
+      _autoVerifyTriggered = true;
+      _otpFocusNode.unfocus();
+      // Thoda delay taake autofill/keyboard animation smoothly complete ho jaye
+      Future.delayed(const Duration(milliseconds: 150), () {
+        if (mounted) _verify();
+      });
+    } else if (_otp.length < _otpLength) {
+      _autoVerifyTriggered = false;
     }
-
-    if (digits.length >= _otpLength) {
-      _focusNodes[_otpLength - 1].unfocus();
-    } else {
-      _focusNodes[digits.length].requestFocus();
-    }
-
-    setState(() {});
   }
 
   Future<void> _verify() async {
-    if (_otp.length != _otpLength) return;
+  if (_otp.length != _otpLength) return;
 
-    final payload = await authController.verifyOtp(widget.phone, _otp);
-    if (!mounted || payload == null) return;
+  final payload = await authController.verifyOtp(widget.phone, _otp);
+  if (!mounted || payload == null) {
+    // verifyOtp() ne failure/error case mein khud isLoading false kar diya hoga
+    _autoVerifyTriggered = false;
+    return;
+  }
 
-    if (payload.isOldUser) {
-      if (payload.user == null) {
-        AppToast.showToast("Could not complete login. Try again.");
-        return;
-      }
-      await authController.applyLoggedInUser(payload.toLoginResponseModel());
+  if (payload.isOldUser) {
+    if (payload.user == null) {
+      AppToast.showToast("Could not complete login. Try again.");
+      authController.isLoading.value = false; // yahan flow ruk gaya, spinner band karo
+      _autoVerifyTriggered = false;
       return;
     }
 
-    Get.off(() => SignUpScreen(lockedPhone: widget.phone));
+    // isLoading abhi bhi true hai (verifyOtp se) — is poore save/navigate
+    // step ke dauran bhi spinner dikhta rahega, koi "khaali" pause nahi aayega
+    await authController.applyLoggedInUser(payload.toLoginResponseModel());
+    authController.isLoading.value = false; // ab poora flow complete hua
+    return;
   }
+
+  // New user -> naye screen pe turant navigate, wahan jaake spinner khud hat jayega
+  authController.isLoading.value = false;
+  Get.off(() => SignUpScreen(lockedPhone: widget.phone));
+}
 
   Future<void> _resend() async {
+    if (_secondsLeft > 0) return;
+    _otpController.clear();
+    _autoVerifyTriggered = false;
     await authController.sendOtp(widget.phone);
+    if (mounted) {
+      _startResendTimer();
+      _otpFocusNode.requestFocus();
+    }
   }
 
-  Widget _buildOtpField(int index) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: SizedBox(
-        width: 45,
-        height: 60,
-        child: TextField(
-          controller: _digitControllers[index],
-          focusNode: _focusNodes[index],
-          keyboardType: TextInputType.number,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-          inputFormatters: [
-            FilteringTextInputFormatter.digitsOnly,
-            LengthLimitingTextInputFormatter(_otpLength),
-          ],
-          decoration: InputDecoration(
-            counterText: "",
-            filled: true,
-            fillColor: const Color(0xFF2C2C2E),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(4),
-              borderSide: BorderSide.none,
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(4),
-              borderSide: const BorderSide(color: Color(0xFF00BFFF), width: 2),
-            ),
-          ),
-          onSubmitted: (_) => _onFieldSubmittedOrBackspace(index),
-          onChanged: (value) => _onDigitChanged(index, value),
+  // Ek single box banata hai jo hidden controller ke Nth digit ko dikhata hai
+  Widget _buildOtpBox(
+    int index, {
+    required bool isDark,
+    required Color textColor,
+    required Color boxFillColor,
+    required Color boxBorderColor,
+  }) {
+    final text = _otpController.text;
+    final digit = index < text.length ? text[index] : '';
+    final isCurrent = index == text.length; // yeh box "active" hai (cursor yahan)
+
+    return Container(
+      width: 48,
+      height: 60,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: boxFillColor,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: isCurrent && _otpFocusNode.hasFocus
+              ? AppColors.primary
+              : boxBorderColor,
+          width: 2,
+        ),
+      ),
+      child: Text(
+        digit,
+        style: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          color: textColor,
         ),
       ),
     );
@@ -168,109 +174,150 @@ void _onFieldSubmittedOrBackspace(int index) {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Same pattern as PhoneLoginScreen — theme-aware colors instead of hardcoded black/white
+    final backgroundColor = isDark ? const Color(0xFF121212) : AppColors.white;
+    final textColor = isDark ? Colors.white : AppColors.textBlack;
+    final secondaryTextColor = isDark ? Colors.grey.shade400 : AppColors.textGrey;
+    final boxFillColor = isDark ? const Color(0xFF2C2C2E) : Colors.grey.shade200;
+    final boxBorderColor = isDark ? Colors.transparent : AppColors.bordercolor;
+
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: backgroundColor,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const SizedBox(height: 40),
-
-              // Logo
-              Image.asset("assets/logo.png", height:60),
-
-              const SizedBox(height: 14),
-
-              // Title
-              const Text(
-                "Sing up or log in",
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
+              const SizedBox(height: 60),
+              Text(
+                "Enter Verification Code",
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: textColor),
+                textAlign: TextAlign.center,
               ),
+              const SizedBox(height: 14),
+              Text(
+                "Please enter the 4-digit code we sent to",
+                style: TextStyle(fontSize: 14, color: secondaryTextColor),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 6),
 
-              const SizedBox(height: 12),
- Text(
-                    "Please enter the 4-digit code we sent to ",
-                    style: TextStyle(fontSize: 15, color: Colors.grey),
-                  ),
-              // Subtitle with Edit Icon
               InkWell(
-                onTap: () {
-                  Get.to(() => PhoneLoginScreen());
-                  _otp.isEmpty;
-                 setState(() {
-                   
-                 }); },
+                onTap: () => Get.to(() => PhoneLoginScreen()),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                   
                     Text(
                       widget.phone,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        color: Color(0xFF00BFFF),
-                        fontWeight: FontWeight.w500,
-                      ),
+                      style: const TextStyle(fontSize: 15, color: AppColors.primary, fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(width: 6),
-                    const Icon(
-                      Icons.edit,
-                      size: 18,
-                      color: Color(0xFF00BFFF),
-                    ),
+                    const Icon(Icons.edit, size: 16, color: AppColors.primary),
                   ],
                 ),
               ),
 
               const SizedBox(height: 40),
 
-              // OTP Fields
-              Row(
-                mainAxisAlignment: MainAxisAlignment.start,
-                children: List.generate(_otpLength, (i) => _buildOtpField(i)),
-              ),
-
-              const SizedBox(height: 4),
-
-              // Resend info
-              const Text(
-                "Didn't receive the code? Resend in 25s",
-                style: TextStyle(
-                  color: Colors.grey,
-                  fontSize: 14,
+              // ---- Stack: neeche visual boxes, upar ek transparent real TextField ----
+              // Isi wajah se SMS aate hi Android/iOS ka autofill suggestion turant
+              // dikhta hai aur ek hi jagah pura OTP fill hota hai (koi confusion nahi).
+              GestureDetector(
+                onTap: () => _otpFocusNode.requestFocus(),
+                child: SizedBox(
+                  height: 60,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(
+                          _otpLength,
+                          (i) => Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: _buildOtpBox(
+                              i,
+                              isDark: isDark,
+                              textColor: textColor,
+                              boxFillColor: boxFillColor,
+                              boxBorderColor: boxBorderColor,
+                            ),
+                          ),
+                        ),
+                      ),
+                      // Real field — poori width, transparent, sirf input capture karne ke liye
+                      Opacity(
+                        opacity: 0.0,
+                        child: AutofillGroup(
+                          child: TextField(
+                            controller: _otpController,
+                            focusNode: _otpFocusNode,
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.center,
+                            autofillHints: const [AutofillHints.oneTimeCode],
+                            autocorrect: false,
+                            enableSuggestions: false,
+                            showCursor: false,
+                            cursorColor: Colors.transparent,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                              LengthLimitingTextInputFormatter(_otpLength),
+                            ],
+                            decoration: const InputDecoration(
+                              counterText: "",
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                            ),
+                            onSubmitted: (_) {
+                              if (_otp.length == _otpLength) _verify();
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-SizedBox(height: 30),
-              // const Spacer(),
 
-              // VERIFY Button
-              Obx(
-                () => PrimaryButton(
-                  text: "VERIFY",width: MediaQuery.sizeOf(context).width*.8,
-                  color: const Color(0xFF01242A),
-                  height: 56,borderRadius: 100,side: BorderSide(color: AppColors.backgroundGray.withOpacity(.4)),
-                  isLoading: authController.isLoading.value,
-                  onPressed: _otp.length == _otpLength ? _verify : null,
-                ),
-              ),
+              const SizedBox(height: 20),
 
-              const SizedBox(height: 16),
+              Obx(() => GestureDetector(
+                    onTap: authController.isLoading.value || _secondsLeft > 0 ? null : _resend,
+                    child: RichText(
+                      textAlign: TextAlign.center,
+                      text: TextSpan(
+                        style: TextStyle(color: secondaryTextColor, fontSize: 14),
+                        children: [
+                          const TextSpan(text: "Didn't receive the code? "),
+                          TextSpan(
+                            text: _secondsLeft > 0 ? "Resend in ${_secondsLeft}s" : "Resend OTP",
+                            style: TextStyle(
+                              color: _secondsLeft > 0
+                                  ? (isDark ? Colors.grey.shade300 : Colors.grey.shade500)
+                                  : AppColors.primary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )),
 
-              // Resend OTP Button
-              Obx(
-                () => PrimaryButton(
-                  text: "Resend OTP",width: MediaQuery.sizeOf(context).width*.8,
-                  color: const Color(0xFF00BFFF),
-                  height: 56,borderRadius: 100,
-                  onPressed: authController.isLoading.value ? null : _resend,
-                ),
-              ),
+              const SizedBox(height: 40),
+
+              Obx(() => PrimaryButton(
+                    text: "Verify OTP",
+                    width: MediaQuery.sizeOf(context).width * 0.85,
+                    color: AppColors.primary,
+                    height: 56,
+                    borderRadius: 100,
+                    isLoading: authController.isLoading.value,
+                    onPressed: _otp.length == _otpLength ? _verify : null,
+                  )),
 
               const SizedBox(height: 40),
             ],

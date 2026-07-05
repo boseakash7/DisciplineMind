@@ -100,8 +100,7 @@ class _SplashScreenState extends State<SplashScreen>
                 );
               },
               child: Image.asset(
-                "assets/logo.png",
-                height: 100,
+             !isDark?"assets/lightthemelogo.png": "assets/logo.png", height: 100
               ),
             ),
 

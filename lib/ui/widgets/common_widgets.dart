@@ -10,6 +10,7 @@ class CustomTextField extends StatelessWidget {
   final bool isPassword;
   Widget? prefixIcon;
   Widget? prefix;
+  BorderSide ?borderSide;
   final TextEditingController? controller;
   final String? Function(String?)? validator;
   final TextInputType keyboardType;
@@ -21,6 +22,7 @@ class CustomTextField extends StatelessWidget {
     this.icon,
     this.prefix,
     this.prefixIcon,
+    this.borderSide,
     this.isPassword = false,
     this.inputFormatters,
     this.controller,
@@ -50,18 +52,18 @@ class CustomTextField extends StatelessWidget {
         prefixIcon: prefixIcon,
         prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
         filled: true,
-        fillColor: isDark ? const Color(0xFF2C2C2E) : AppColors.backgroundGray, // Darker gray like screenshot
+        fillColor: isDark ? const Color(0xFF3C3C3A) : AppColors.backgroundGray, // Darker gray like screenshot
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12), // Slightly more rounded
-          borderSide: BorderSide.none, // Clean look like image
+          borderSide:borderSide?? BorderSide.none, // Clean look like image
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
+          borderSide:borderSide?? BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Colors.blue, width: 1.5),
+          borderSide: borderSide?? BorderSide(color: Colors.blue, width: 1.5),
         ),
         errorStyle: const TextStyle(color: Colors.red, fontSize: 12),
         contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
@@ -204,12 +206,14 @@ class PrimaryButton extends StatelessWidget {
   final Color color;
   final VoidCallback? onPressed;BorderSide? side;
   final double borderRadius;
+  final double? textsize;
   final bool isLoading; // Added loading state
 double? height;
 double? width;
    PrimaryButton({
     super.key,
     required this.text,
+    this.textsize,
     required this.onPressed,
     this.color = AppColors.actionRed,
     this.borderRadius = 8.0,
@@ -244,10 +248,10 @@ double? width;
               )
             : Text(
                 text,
-                style: const TextStyle(
+                style:  TextStyle(
                   color: AppColors.white,
                   fontWeight: FontWeight.bold,
-                  fontSize: 16,
+                  fontSize: textsize?? 16,
                   letterSpacing: 1.2,
                 ),
               ),

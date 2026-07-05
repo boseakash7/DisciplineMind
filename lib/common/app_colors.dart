@@ -5,6 +5,7 @@ class AppColors {
   static const Color primary = Color(0xff04B6D4);
   static const Color primaryGreen = Color(0xFF00B36B);
   static const Color actionRed = Color(0xFFFF3B30);
+  static const Color bordercolor = Color(0xFF797070);
 
   // Light Theme
   static const Color lightBackground = Color(0xFFF8F9FA);

@@ -26,14 +26,19 @@ class ThemeService {
     }
   }
 
-  void switchTheme() {
+  // Ab async — write ko await karta hai taake disk pe save hone ki
+  // guarantee mile isse pehle ke function return kare. Isse quick
+  // app-restart/close ke case mein bhi preference reliably persist hoti hai.
+  Future<void> switchTheme() async {
     final newIsDark = !_isDarkMode.value;
     _isDarkMode.value = newIsDark;
 
-    _box.write(_themeKey, newIsDark ? 'dark' : 'light');
+    // UI/theme turant switch ho (ismein koi delay nahi chahiye)
     Get.changeThemeMode(newIsDark ? ThemeMode.dark : ThemeMode.light);
-
     _updateStatusBar(newIsDark);
+
+    // Disk-write complete hone ka wait karo
+    await _box.write(_themeKey, newIsDark ? 'dark' : 'light');
   }
 
   void loadSavedTheme() {

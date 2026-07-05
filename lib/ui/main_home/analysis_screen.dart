@@ -32,6 +32,11 @@ class _AnalysisScreenState extends State<AnalysisScreen>
   int? _touchedScoreIndex;
   int? _touchedProfitIndex;
 
+  // ---- Custom dropdown (always opens BELOW the field) ----
+  final LayerLink _dropdownLayerLink = LayerLink();
+  final GlobalKey _dropdownFieldKey = GlobalKey();
+  OverlayEntry? _dropdownOverlayEntry;
+
   static const Duration _entranceDuration = Duration(milliseconds: 1200);
   static const Duration _chartRevealDuration = Duration(milliseconds: 900);
   static const double _sectionSpan = 0.16;
@@ -83,6 +88,7 @@ class _AnalysisScreenState extends State<AnalysisScreen>
     _historyLoadWorker?.dispose();
     _entranceController.dispose();
     _chartRevealController.dispose();
+    _removeDropdownOverlay();
     super.dispose();
   }
 
@@ -196,7 +202,7 @@ class _AnalysisScreenState extends State<AnalysisScreen>
   bool get _isDark => Theme.of(context).brightness == Brightness.dark;
 
   Color get _cardColor => Theme.of(context).cardColor;
-  Color get _textColor =>  (_isDark ? Colors.white : Colors.black87);
+  Color get _textColor => (_isDark ? Colors.white : Colors.black87);
   Color get _secondaryTextColor => (_isDark ? Colors.grey.shade400 : Colors.grey.shade600);
   Color get _axisColor => _isDark ? Colors.grey.shade300 : const Color(0xFF424242);
   Color get _gridColor => _isDark ? Colors.grey.shade700 : const Color(0xFFE0E0E0);
@@ -279,46 +285,164 @@ class _AnalysisScreenState extends State<AnalysisScreen>
     );
   }
 
+  // ==================== CUSTOM DROPDOWN (opens below only) ====================
+
+  void _toggleDropdownOverlay() {
+    if (_dropdownOverlayEntry != null) {
+      _removeDropdownOverlay();
+    } else {
+      _showDropdownOverlay();
+    }
+  }
+
+  void _showDropdownOverlay() {
+    final renderBox = _dropdownFieldKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null || !renderBox.hasSize) return;
+    final fieldSize = renderBox.size;
+
+    _dropdownOverlayEntry = OverlayEntry(
+      builder: (overlayContext) {
+        return Stack(
+          children: [
+            // Invisible barrier: tap anywhere outside to close
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: _removeDropdownOverlay,
+                child: const SizedBox.shrink(),
+              ),
+            ),
+            // Always attaches BELOW the field via positive y-offset
+            CompositedTransformFollower(
+              link: _dropdownLayerLink,
+              showWhenUnlinked: false,
+              offset: Offset(0, fieldSize.height + 6),
+              child: Material(
+                elevation: 6,
+                borderRadius: BorderRadius.circular(8),
+                color: _cardColor,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: fieldSize.width,
+                    maxHeight: 260,
+                  ),
+                  child: SizedBox(
+                    width: fieldSize.width,
+                    child: Obx(() {
+                      final levels = _levelsService.levels;
+                      final isLoading = _levelsService.isLoadingLevels.value;
+                      final error = _levelsService.levelsError.value;
+
+                      if (levels.isEmpty) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                          child: Text(
+                            isLoading ? 'Loading levels...' : (error ?? 'No levels available'),
+                            style: TextStyle(color: _secondaryTextColor, fontSize: 13),
+                          ),
+                        );
+                      }
+
+                      return ListView.builder(
+                        padding: EdgeInsets.zero,
+                        shrinkWrap: true,
+                        itemCount: levels.length,
+                        itemBuilder: (context, index) {
+                          final level = levels[index];
+                          final isSelected = _service.selectedLevel.value?.id == level.id;
+                          return InkWell(
+                            onTap: () {
+                              _service.selectLevelById(level.id);
+                              _removeDropdownOverlay();
+                            },
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              color: isSelected ? AppColors.primary.withOpacity(0.08) : Colors.transparent,
+                              child: Text(
+                                level.displayLabel,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: isSelected ? AppColors.primary : _textColor,
+                                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w400,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    }),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    Overlay.of(context).insert(_dropdownOverlayEntry!);
+    setState(() {}); // taake arrow-icon rotate/refresh ho jaye
+  }
+
+  void _removeDropdownOverlay() {
+    if (_dropdownOverlayEntry == null) return;
+    _dropdownOverlayEntry!.remove();
+    _dropdownOverlayEntry = null;
+    if (mounted) setState(() {});
+  }
+
   Widget _buildLevelDropdown() {
     return Obx(() {
       final isLoading = _levelsService.isLoadingLevels.value && _levelsService.levels.isEmpty;
       final hasError = _levelsService.levelsError.value != null && _levelsService.levels.isEmpty;
       final selected = _service.selectedLevel.value;
+      final canOpen = !isLoading && _levelsService.levels.isNotEmpty;
+      final isOpen = _dropdownOverlayEntry != null;
 
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          border: Border.all(color: AppColors.primary),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: DropdownButtonHideUnderline(
-          child: DropdownButton<int>(
-            isExpanded: true,
-            value: selected?.id,
-            hint: Text(
-              isLoading ? 'Loading levels...' : hasError ? 'Could not load levels' : 'Select level',
-              style: TextStyle(color: _secondaryTextColor, fontSize: 14),
+      return CompositedTransformTarget(
+        link: _dropdownLayerLink,
+        child: GestureDetector(
+          onTap: canOpen ? _toggleDropdownOverlay : null,
+          child: Container(
+            key: _dropdownFieldKey,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            decoration: BoxDecoration(
+              border: Border.all(color: AppColors.primary),
+              borderRadius: BorderRadius.circular(4),
             ),
-            icon: isLoading
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.keyboard_arrow_down),
-            dropdownColor: _cardColor,
-            style: TextStyle(color: _textColor, fontSize: 14),
-            items: _levelsService.levels
-                .map(
-                  (DmtLevel level) => DropdownMenuItem<int>(
-                    value: level.id,
-                    child: Text(
-                      level.displayLabel,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 14, color: _textColor),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    selected?.displayLabel ??
+                        (isLoading
+                            ? 'Loading levels...'
+                            : hasError
+                                ? 'Could not load levels'
+                                : 'Select level'),
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: selected != null ? _textColor : _secondaryTextColor,
                     ),
                   ),
-                )
-                .toList(),
-            onChanged: isLoading || _levelsService.levels.isEmpty
-                ? null
-                : (id) => _service.selectLevelById(id),
+                ),
+                const SizedBox(width: 8),
+                isLoading
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : AnimatedRotation(
+                        turns: isOpen ? 0.5 : 0.0,
+                        duration: const Duration(milliseconds: 180),
+                        child: Icon(Icons.keyboard_arrow_down, color: _textColor),
+                      ),
+              ],
+            ),
           ),
         ),
       );

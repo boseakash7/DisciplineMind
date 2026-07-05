@@ -102,29 +102,35 @@ class AuthController extends GetxController {
   }
 
   Future<VerifyOtpPayload?> verifyOtp(String phone, String otp) async {
-    try {
-      isLoading.value = true;
-      final ApiResponse response = await apiService.postFormData(
-        ApiUrl.verifyOtpUrl,
-        {"phone": _normalizePhone(phone), "otp": otp},
-      );
-      isLoading.value = false;
+  isLoading.value = true;
+  try {
+    final ApiResponse response = await apiService.postFormData(
+      ApiUrl.verifyOtpUrl,
+      {"phone": _normalizePhone(phone), "otp": otp},
+    );
 
-      if (!response.isSuccess) {
-        AppToast.showToast(response.errorMessage ?? "Invalid OTP");
-        return null;
-      }
-      final data = Map<String, dynamic>.from(response.data as Map);
-      AppToast.showToast("OTP verified successfully");
-
-      return VerifyOtpResponse.fromJson(data).payload;
-    } catch (e) {
+    if (!response.isSuccess) {
+      AppToast.showToast(response.errorMessage ?? "Invalid OTP");
       isLoading.value = false;
-      AppToast.showToast(e.toString());
       return null;
     }
-  }
 
+    final data = Map<String, dynamic>.from(response.data as Map);
+    final payload = VerifyOtpResponse.fromJson(data).payload;
+
+    if (payload == null) {
+      AppToast.showToast("Something went wrong. Please try again.");
+      isLoading.value = false; // failure -> spinner turant band
+      return null;
+    }
+
+    AppToast.showToast("OTP verified successfully");
+      return payload;
+  } catch (e) {
+    AppToast.showToast("Something went wrong. Please try again.");
+    isLoading.value = false; // exception -> spinner turant band
+    return null;
+  }}
   Future<void> autoLogin() async {
     final session = storage.getUserSession();
     if (session != null && session.payload?.id != null) {

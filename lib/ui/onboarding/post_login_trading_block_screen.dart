@@ -179,7 +179,7 @@ class _PostLoginTradingBlockScreenState
                 child: Column(
                   children: [
                     const SizedBox(height: 8),
-                    _ShieldIcon(color: blueAccent),
+                    Image.asset("assets/permision.png",height: 100),
                     const SizedBox(height: 28),
 
                     RichText(
@@ -194,7 +194,7 @@ class _PostLoginTradingBlockScreenState
                         children: [
                           const TextSpan(text: 'Permissions required to use '),
                           TextSpan(
-                            text: 'Discipline Mind',
+                            text: 'Monkk AI',
                             style: TextStyle(color: blueAccent),
                           ),
                         ],
@@ -243,8 +243,8 @@ class _PostLoginTradingBlockScreenState
                     const Spacer(),
 
                     SizedBox(
-                      width: double.infinity,
-                      height: 54,
+                      width: MediaQuery.sizeOf(context).width*.75,
+                      height: 45,
                       child: ElevatedButton(
                         onPressed: (_allGranted && !_busy) ? _continue : null,
                         style: ElevatedButton.styleFrom(
@@ -272,7 +272,7 @@ class _PostLoginTradingBlockScreenState
                                   Text(
                                     'CONTINUE',
                                     style: TextStyle(
-                                      fontSize: 15,
+                                      fontSize: 20,
                                       fontWeight: FontWeight.w800,
                                       letterSpacing: 1.5,
                                       color: _allGranted
@@ -384,8 +384,8 @@ class _PermissionCard extends StatelessWidget {
       child: Column(
         children: [
           SizedBox(
-            width: double.infinity,
-            height: 48,
+            width: MediaQuery.sizeOf(context).width*.6,
+            height: 45,
             child: ElevatedButton(
               onPressed: enableActive ? onEnable : null,
               style: ElevatedButton.styleFrom(
@@ -400,9 +400,9 @@ class _PermissionCard extends StatelessWidget {
                 ),
               ),
               child: Text(
-                granted ? '$btnLabel ✓' : btnLabel,
+                granted ? '$btnLabel' : btnLabel,
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 14,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 1.2,
                   color: btnText,
@@ -439,63 +439,4 @@ class _PermissionCard extends StatelessWidget {
       ),
     );
   }
-}
-
-class _ShieldIcon extends StatelessWidget {
-  const _ShieldIcon({required this.color});
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 80,
-      height: 86,
-      child: CustomPaint(painter: _ShieldPainter(color: color)),
-    );
-  }
-}
-
-class _ShieldPainter extends CustomPainter {
-  const _ShieldPainter({required this.color});
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width;
-    final h = size.height;
-
-    final strokePaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    final shield = Path()
-      ..moveTo(w * 0.5, 0)
-      ..lineTo(w * 0.92, h * 0.18)
-      ..lineTo(w * 0.92, h * 0.52)
-      ..cubicTo(w * 0.92, h * 0.78, w * 0.72, h * 0.93, w * 0.5, h)
-      ..cubicTo(w * 0.28, h * 0.93, w * 0.08, h * 0.78, w * 0.08, h * 0.52)
-      ..lineTo(w * 0.08, h * 0.18)
-      ..close();
-    canvas.drawPath(shield, strokePaint);
-
-    canvas.drawCircle(Offset(w * 0.5, h * 0.43), w * 0.13, strokePaint);
-
-    final stemPaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
-
-    final stem = Path()
-      ..moveTo(w * 0.42, h * 0.56)
-      ..lineTo(w * 0.38, h * 0.72)
-      ..lineTo(w * 0.62, h * 0.72)
-      ..lineTo(w * 0.58, h * 0.56)
-      ..close();
-    canvas.drawPath(stem, stemPaint);
-  }
-
-  @override
-  bool shouldRepaint(_ShieldPainter old) => old.color != color;
 }
