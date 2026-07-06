@@ -20,7 +20,7 @@ class _AppUsageStatsPageState extends State<AppUsageStatsPage> {
   static const _appMeta = {
     'com.zerodha.kite3': {
       'name': 'Zerodha Kite',
-      'color': Color(0xFF387ED1),
+      'color': Color(0xFFED4419),
       'asset': 'assets/ZerodhaKite.png',
     },
     'in.upstox.app': {

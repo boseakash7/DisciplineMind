@@ -157,7 +157,7 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
 
     final scaffoldBg = isDark ? const Color(0xFF000000) : const Color(0xFFF5F6FA);
     final cardBg = isDark ? const Color(0xFF121212) : Colors.white;
-    final unselectedBorder = isDark ? Colors.white24 : Colors.grey.shade300;
+    final unselectedBorder = isDark ? Colors.white : Colors.grey.shade300;
     final titleColor = isDark ? Colors.white : Colors.black87;
     final subtitleColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
     final packageTextColor = isDark ? Colors.grey.shade500 : Colors.grey.shade600;
@@ -321,41 +321,43 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
                     }),
                   ),
                   const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed: _isSaving ? null : _onSave,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(30),
+                  Center(
+                    child: SizedBox(
+                      width: MediaQuery.sizeOf(context).width*.8,height: 45,
+                      child: FilledButton(
+                        onPressed: _isSaving ? null : _onSave,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
                         ),
-                      ),
-                      child: _isSaving
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  widget.isFirstSetup ? 'CONTINUE' : 'SAVE',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 0.5,
-                                  ),
+                        child: _isSaving
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
                                 ),
-                                // const SizedBox(width: 8),
-                                // const Icon(Icons.arrow_forward, size: 18),
-                              ],
-                            ),
+                              )
+                            : Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    widget.isFirstSetup ? 'CONTINUE' : 'SAVE',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                  // const SizedBox(width: 8),
+                                  // const Icon(Icons.arrow_forward, size: 18),
+                                ],
+                              ),
+                      ),
                     ),
                   ),
                 ],

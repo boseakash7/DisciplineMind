@@ -2,15 +2,13 @@ import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/controller/chat_controller.dart';
 import 'package:discipline_mind/model/chat_message_model.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
-import 'package:discipline_mind/ui/main_home/DisciplineMindProfileScreen.dart';
-import 'package:discipline_mind/ui/main_home/discipline_mind_intro_screen.dart';
 import 'package:discipline_mind/ui/main_home/widgets/dmt_score_popup.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
-class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, this.onMonkkTap, this.isActive = true});
+class chat_screencopy extends StatefulWidget {
+  const chat_screencopy({super.key, this.onMonkkTap, this.isActive = true});
 
   final VoidCallback? onMonkkTap;
 
@@ -18,10 +16,10 @@ class ChatScreen extends StatefulWidget {
   final bool isActive;
 
   @override
-  State<ChatScreen> createState() => _ChatScreenState();
+  State<chat_screencopy> createState() => _chat_screencopyState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _chat_screencopyState extends State<chat_screencopy> {
   final _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   int _lastMessageCount = 0;
@@ -85,63 +83,15 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// Divider color used inside the (always-white) trade card stays the same
   /// in both themes since the card itself stays white per design.
-void _showDisciplineMindPopup() {
-  final isDark = Theme.of(context).brightness == Brightness.dark;
 
-  showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (context) => AlertDialog(
-      backgroundColor: isDark ? const Color(0xFF1E222A) : Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: Text(
-        "Welcome to Monkk",
-        style: TextStyle(
-          color: isDark ? Colors.white : Colors.black87,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-      content: Text(
-        "Do you want to learn DisciplineMind and improve your trading mindset?",
-        style: TextStyle(
-          color: isDark ? Colors.white70 : Colors.black87,
-          fontSize: 15,
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text("No, Later", style: TextStyle(color: isDark ? Colors.white70 : null)),
-        ),
-        ElevatedButton(
-          onPressed: () {
-           Navigator.pop(context);
-  Navigator.push(
-    context,
-    MaterialPageRoute(builder: (_) => const DisciplineMindIntroScreen()),
-  );
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.primary,
-            foregroundColor: Colors.white,
-          ),
-          child: const Text("Yes, Let's Start"),
-        ),
-      ],
-    ),
-  );
-}
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_handleScrollForOlderMessages);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-    _showDisciplineMindPopup();
-  });
   }
 
   @override
-  void didUpdateWidget(ChatScreen oldWidget) {
+  void didUpdateWidget(chat_screencopy oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
       _syncOnTabFocus();
@@ -1066,11 +1016,16 @@ void _showDisciplineMindPopup() {
     );
   }
 
+  /// Trade card now follows the theme: white surface in light mode, dark
+  /// surface in dark mode — including text, divider, and timeline colors.
+    /// Trade card now matches the design in the reference image.
+    /// Trade card - Fully theme aware and rebuilds correctly on theme change
   Widget _buildTradeOpportunityCard(
     BuildContext context,
     NewTradeOpportunityMessage msg, {
     required bool showInvalidOverlay,
   }) {
+    // Always read theme fresh inside the widget
     final isDark = _isDark(context);
 
     final cardBg = isDark ? const Color(0xFF1B1F27) : Colors.white;

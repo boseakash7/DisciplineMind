@@ -4,6 +4,7 @@ import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/controller/auth_controller.dart';
 import 'package:discipline_mind/ui/auth/phone_login_screen.dart';
 import 'package:discipline_mind/ui/auth/signup_screen.dart';
+import 'package:discipline_mind/ui/auth/sms_consent_service.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:discipline_mind/ui/widgets/common_widgets.dart';
 import 'package:flutter/material.dart';
@@ -24,6 +25,7 @@ class OtpVerifyScreen extends StatefulWidget {
 
 class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   final AuthController authController = Get.find<AuthController>();
+  final SmsConsentService _smsConsentService = SmsConsentService();
 
   static const int _otpLength = 4;
   static const int _resendSeconds = 30;
@@ -32,7 +34,6 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   Timer? _resendTimer;
   bool _autoVerifyTriggered = false;
 
-  // ---- SINGLE hidden controller/focus node handles ALL input + autofill ----
   final TextEditingController _otpController = TextEditingController();
   final FocusNode _otpFocusNode = FocusNode();
 
@@ -41,12 +42,48 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
     super.initState();
     _otpController.addListener(_onOtpChanged);
 
+    _startSmsListener();
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _otpFocusNode.requestFocus();
     });
+
     _startResendTimer();
   }
 
+  // ==================== SMS USER CONSENT (auto fill + auto verify) ====================
+
+  Future<void> _startSmsListener() async {
+    try {
+      await _smsConsentService.startListening(
+        otpLength: _otpLength,
+        onOtpReceived: (otp) {
+          if (!mounted) return;
+          debugPrint("OTP auto-received via SMS User Consent: $otp");
+          _otpController.text = otp; // triggers _onOtpChanged -> auto verify
+          _otpFocusNode.unfocus();
+        },
+        onError: (error) {
+          debugPrint("SMS consent error/timeout: $error");
+          // user ने deny किया या 5 min timeout हो गया — manual entry fallback चलता रहेगा
+        },
+      );
+    } catch (e) {
+      debugPrint("Could not start SMS consent listener: $e");
+    }
+  }
+
+  @override
+  void dispose() {
+    _otpController.removeListener(_onOtpChanged);
+    _otpController.dispose();
+    _otpFocusNode.dispose();
+    _resendTimer?.cancel();
+    _smsConsentService.stopListening();
+    super.dispose();
+  }
+
+  // ==================== RESEND TIMER ====================
   void _startResendTimer() {
     _resendTimer?.cancel();
     setState(() => _secondsLeft = _resendSeconds);
@@ -67,26 +104,15 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
     });
   }
 
-  @override
-  void dispose() {
-    _otpController.removeListener(_onOtpChanged);
-    _otpController.dispose();
-    _otpFocusNode.dispose();
-    _resendTimer?.cancel();
-    super.dispose();
-  }
-
   String get _otp => _otpController.text;
 
   void _onOtpChanged() {
-    // UI ko refresh karo taake boxes update hon (filled digits + cursor box highlight)
     setState(() {});
 
     if (_otp.length == _otpLength && !_autoVerifyTriggered) {
       _autoVerifyTriggered = true;
       _otpFocusNode.unfocus();
-      // Thoda delay taake autofill/keyboard animation smoothly complete ho jaye
-      Future.delayed(const Duration(milliseconds: 150), () {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _verify();
       });
     } else if (_otp.length < _otpLength) {
@@ -95,47 +121,49 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   }
 
   Future<void> _verify() async {
-  if (_otp.length != _otpLength) return;
+    if (_otp.length != _otpLength) return;
 
-  final payload = await authController.verifyOtp(widget.phone, _otp);
-  if (!mounted || payload == null) {
-    // verifyOtp() ne failure/error case mein khud isLoading false kar diya hoga
-    _autoVerifyTriggered = false;
-    return;
-  }
+    debugPrint("Verifying OTP: $_otp for phone: ${widget.phone}");
 
-  if (payload.isOldUser) {
-    if (payload.user == null) {
-      AppToast.showToast("Could not complete login. Try again.");
-      authController.isLoading.value = false; // yahan flow ruk gaya, spinner band karo
+    final payload = await authController.verifyOtp(widget.phone, _otp);
+    if (!mounted || payload == null) {
+      debugPrint("Verification failed or payload is null");
       _autoVerifyTriggered = false;
       return;
     }
 
-    // isLoading abhi bhi true hai (verifyOtp se) — is poore save/navigate
-    // step ke dauran bhi spinner dikhta rahega, koi "khaali" pause nahi aayega
-    await authController.applyLoggedInUser(payload.toLoginResponseModel());
-    authController.isLoading.value = false; // ab poora flow complete hua
-    return;
-  }
+    if (payload.isOldUser) {
+      if (payload.user == null) {
+        AppToast.showToast("Could not complete login. Try again.");
+        authController.isLoading.value = false;
+        _autoVerifyTriggered = false;
+        return;
+      }
 
-  // New user -> naye screen pe turant navigate, wahan jaake spinner khud hat jayega
-  authController.isLoading.value = false;
-  Get.off(() => SignUpScreen(lockedPhone: widget.phone));
-}
+      await authController.applyLoggedInUser(payload.toLoginResponseModel());
+      authController.isLoading.value = false;
+      return;
+    }
+
+    authController.isLoading.value = false;
+    Get.off(() => SignUpScreen(lockedPhone: widget.phone));
+  }
 
   Future<void> _resend() async {
     if (_secondsLeft > 0) return;
+
     _otpController.clear();
     _autoVerifyTriggered = false;
     await authController.sendOtp(widget.phone);
+
     if (mounted) {
       _startResendTimer();
       _otpFocusNode.requestFocus();
+      await _startSmsListener(); // listener फिर से शुरू करो
     }
   }
 
-  // Ek single box banata hai jo hidden controller ke Nth digit ko dikhata hai
+  // ==================== OTP BOXES ====================
   Widget _buildOtpBox(
     int index, {
     required bool isDark,
@@ -145,7 +173,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   }) {
     final text = _otpController.text;
     final digit = index < text.length ? text[index] : '';
-    final isCurrent = index == text.length; // yeh box "active" hai (cursor yahan)
+    final isCurrent = index == text.length;
 
     return Container(
       width: 48,
@@ -176,7 +204,6 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Same pattern as PhoneLoginScreen — theme-aware colors instead of hardcoded black/white
     final backgroundColor = isDark ? const Color(0xFF121212) : AppColors.white;
     final textColor = isDark ? Colors.white : AppColors.textBlack;
     final secondaryTextColor = isDark ? Colors.grey.shade400 : AppColors.textGrey;
@@ -222,9 +249,6 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
 
               const SizedBox(height: 40),
 
-              // ---- Stack: neeche visual boxes, upar ek transparent real TextField ----
-              // Isi wajah se SMS aate hi Android/iOS ka autofill suggestion turant
-              // dikhta hai aur ek hi jagah pura OTP fill hota hai (koi confusion nahi).
               GestureDetector(
                 onTap: () => _otpFocusNode.requestFocus(),
                 child: SizedBox(
@@ -248,34 +272,26 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
                           ),
                         ),
                       ),
-                      // Real field — poori width, transparent, sirf input capture karne ke liye
                       Opacity(
                         opacity: 0.0,
-                        child: AutofillGroup(
-                          child: TextField(
-                            controller: _otpController,
-                            focusNode: _otpFocusNode,
-                            keyboardType: TextInputType.number,
-                            textAlign: TextAlign.center,
-                            autofillHints: const [AutofillHints.oneTimeCode],
-                            autocorrect: false,
-                            enableSuggestions: false,
-                            showCursor: false,
-                            cursorColor: Colors.transparent,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                              LengthLimitingTextInputFormatter(_otpLength),
-                            ],
-                            decoration: const InputDecoration(
-                              counterText: "",
-                              border: InputBorder.none,
-                              enabledBorder: InputBorder.none,
-                              focusedBorder: InputBorder.none,
-                            ),
-                            onSubmitted: (_) {
-                              if (_otp.length == _otpLength) _verify();
-                            },
+                        child: TextField(
+                          controller: _otpController,
+                          focusNode: _otpFocusNode,
+                          keyboardType: TextInputType.number,
+                          textAlign: TextAlign.center,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          showCursor: false,
+                          cursorColor: Colors.transparent,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                            LengthLimitingTextInputFormatter(_otpLength),
+                          ],
+                          decoration: const InputDecoration(
+                            counterText: "",
+                            border: InputBorder.none,
                           ),
+                          onSubmitted: (_) => _verify(),
                         ),
                       ),
                     ],
@@ -311,9 +327,10 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
 
               Obx(() => PrimaryButton(
                     text: "Verify OTP",
-                    width: MediaQuery.sizeOf(context).width * 0.85,
                     color: AppColors.primary,
-                    height: 56,
+                    height: 45,
+                    width: MediaQuery.sizeOf(context).width * 0.84,
+                    textsize: 20,
                     borderRadius: 100,
                     isLoading: authController.isLoading.value,
                     onPressed: _otp.length == _otpLength ? _verify : null,

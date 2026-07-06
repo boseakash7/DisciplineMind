@@ -175,7 +175,7 @@ class _TimelineItem extends StatelessWidget {
 
     final cardColor = isAchieved
         ? color
-        : (dark ? const Color(0xFF1F1F24) : color.withOpacity(.12));
+        : (dark ? const Color(0xFF242424) : color.withOpacity(.12));
 
     return IntrinsicHeight(
       child: Row(
@@ -280,11 +280,11 @@ class _CardContent extends StatelessWidget {
 
     final textColor = isAchieved
         ? Colors.white
-        : (isDark ? Colors.white : Colors.black87);
+        : (isDark ? Colors.white : Color(0XFF938F8F));
 
     final subTextColor = isAchieved
         ? Colors.white70
-        : (isDark ? Colors.white60 : Colors.black54);
+        : (isDark ? Color(0XFFBCBABA) : Color(0XFF938F8F));
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -308,13 +308,13 @@ class _CardContent extends StatelessWidget {
                 height: 36,
                 decoration: BoxDecoration(
                   color: isDark
-                      ? Colors.white.withOpacity(.15)
-                      : Colors.black.withOpacity(.08),
+                      ? Colors.white
+                      : Color(0XFF938F8F),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
                   Icons.play_arrow_rounded,
-                  color: isDark ? Colors.white : Colors.grey.shade700,
+                  color: !isDark ? Colors.white : Colors.grey.shade700,
                   size: 22,
                 ),
               ),
