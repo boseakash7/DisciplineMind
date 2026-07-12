@@ -70,7 +70,8 @@ class _AnalysisScreenState extends State<AnalysisScreen>
         _replayChartReveal();
         return;
       }
-      _replayEntrance();
+      // Level change / pull-to-refresh: animate charts only, not the whole page.
+      _replayChartReveal();
     });
     _entranceController.forward();
     _service.ensureLoaded();
@@ -94,7 +95,7 @@ class _AnalysisScreenState extends State<AnalysisScreen>
   }
 
   void _onAnalysisTabActivated() {
-    _replayEntrance();
+    _replayContentEntrance();
     _skipNextLoadReplay = true;
     _service.refreshTabData();
     _levelsSummaryService.refreshTabData();
@@ -125,7 +126,7 @@ class _AnalysisScreenState extends State<AnalysisScreen>
     return selectedIdx <= currentIdx;
   }
 
-  void _replayEntrance() {
+  void _replayContentEntrance() {
     _entranceController
       ..reset()
       ..forward();
@@ -205,7 +206,7 @@ class _AnalysisScreenState extends State<AnalysisScreen>
       child: Column(
         children: [
           const SizedBox(height: 8),
-          _entranceSection(0, _buildHeader()),
+          _buildHeader(),
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
             child: _buildLevelDropdown(),
@@ -575,7 +576,7 @@ class _AnalysisScreenState extends State<AnalysisScreen>
                       ),
                     ),
                     Text(
-                      '${payload.displayScore} pts',
+                      '${payload.displayScoreText} pts',
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.9),
                         fontSize: 12,
@@ -659,7 +660,7 @@ class _AnalysisScreenState extends State<AnalysisScreen>
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'You need ${next.remainingScore} more points to reach ${next.displayLabel}',
+                  'You need ${formatDmtScore(next.remainingScore)} more points to reach ${next.displayLabel}',
                   style: TextStyle(
                     fontSize: 11,
                     color: Colors.grey.shade700,
@@ -700,7 +701,7 @@ class _AnalysisScreenState extends State<AnalysisScreen>
           : 'Daily Score',
       icon: Icons.show_chart_rounded,
       lineColor: _scoreLineColor,
-      headerText: 'Current DMT Score - ${payload.displayScore}',
+      headerText: 'Current DMT Score - ${payload.displayScoreText}',
       revealFactor: revealFactor,
       child: history.isEmpty
           ? _emptyChart('No daily scores yet')
@@ -712,11 +713,11 @@ class _AnalysisScreenState extends State<AnalysisScreen>
               lineColor: _scoreLineColor,
               touchedIndex: _touchedScoreIndex,
               revealFactor: revealFactor,
-              formatYLabel: (v) => v.toInt().toString(),
+              formatYLabel: formatDmtScore,
               onTouch: (i) => setState(() => _touchedScoreIndex = i),
               tooltipBuilder: (i, v) {
                 final e = history[i];
-                return '${e.scoreDateFormatted.isNotEmpty ? e.scoreDateFormatted : e.scoreDate}\n${e.dailyScore} pts';
+                return '${e.scoreDateFormatted.isNotEmpty ? e.scoreDateFormatted : e.scoreDate}\n${formatDmtScore(e.dailyScore)} pts';
               },
             ),
     );

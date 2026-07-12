@@ -34,6 +34,24 @@ class _ChatScreenState extends State<ChatScreen> {
   /// DMT score popup staged animation shown once per message (while unread).
   final Set<String> _dmtScorePopupAnimatedIds = <String>{};
 
+  /// Local-only: user tapped "Open Trading APP" for these message keys.
+  final Set<String> _tradingAppOpenedKeys = <String>{};
+
+  Future<void> _openTradingAppForMessage(
+    ChatMessage msg,
+    ChatController controller,
+  ) async {
+    final key = controller.tradingAppStepKey(msg);
+    if (!_tradingAppOpenedKeys.contains(key)) {
+      setState(() => _tradingAppOpenedKeys.add(key));
+    }
+    await controller.openTradingApp();
+  }
+
+  bool _canTapFollowUpAction(ChatMessage msg, ChatController controller) {
+    return controller.canTapFollowUpAction(msg, _tradingAppOpenedKeys);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -839,14 +857,14 @@ class _ChatScreenState extends State<ChatScreen> {
                     _tradePromptPrimaryButton(
                       label: 'Open Trading APP',
                       enabled: _showButtons(msg),
-                      onTap: () => controller.openTradingApp(),
+                      onTap: () => _openTradingAppForMessage(msg, controller),
                     ),
                     const SizedBox(height: 14),
                     Text(_deleteTradeStep2Text(msg), style: stepStyle),
                     const SizedBox(height: 8),
                     _tradePromptPrimaryButton(
                       label: 'Trade Deleted',
-                      enabled: _showButtons(msg),
+                      enabled: _canTapFollowUpAction(msg, controller),
                       onTap: () => controller.acknowledgeTradeDeleted(msg),
                     ),
                   ],
@@ -921,7 +939,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     _tradePromptPrimaryButton(
                       label: 'Open Trading APP',
                       enabled: _showButtons(msg),
-                      onTap: () => controller.openTradingApp(),
+                      onTap: () => _openTradingAppForMessage(msg, controller),
                     ),
                     const SizedBox(height: 14),
                     Text(
@@ -931,7 +949,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     const SizedBox(height: 8),
                     _tradePromptPrimaryButton(
                       label: 'SL Trailed',
-                      enabled: _showButtons(msg),
+                      enabled: _canTapFollowUpAction(msg, controller),
                       onTap: () => _showTrailSlDialog(context, msg, controller),
                     ),
                   ],
@@ -1120,14 +1138,14 @@ class _ChatScreenState extends State<ChatScreen> {
                 _tradePromptPrimaryButton(
                   label: 'Open Trading APP',
                   enabled: _showButtons(actionSource),
-                  onTap: () => controller.openTradingApp(),
+                  onTap: () => _openTradingAppForMessage(actionSource, controller),
                 ),
                 const SizedBox(height: 14),
                 Text('2. Intimate me once you apply the GTT', style: stepStyle),
                 const SizedBox(height: 8),
                 _tradePromptPrimaryButton(
                   label: 'GTT / Levels Applied',
-                  enabled: _showButtons(actionSource),
+                  enabled: _canTapFollowUpAction(actionSource, controller),
                   onTap: () => _showGttDialog(context, msg, controller),
                 ),
               ],
@@ -1989,12 +2007,14 @@ class _ChatScreenState extends State<ChatScreen> {
                 'Stop Loss',
                 stopLossController,
                 '${msg.lotNumbers[0]} Lots',
+                readOnly: true,
               ),
               const SizedBox(height: 16),
               _popupField(
                 'Take Profit',
                 takeProfitController,
                 '${msg.lotNumbers[2]} Lots',
+                readOnly: true,
               ),
               const SizedBox(height: 14),
               Text(
@@ -2019,8 +2039,8 @@ class _ChatScreenState extends State<ChatScreen> {
                         await controller.submitTradeExecuted(
                           msg: msg,
                           entryPrice: entryPriceController.text,
-                          stopLoss: stopLossController.text,
-                          takeProfit: takeProfitController.text,
+                          stopLoss: msg.stopLoss,
+                          takeProfit: msg.frr,
                         );
                       },
                       style: FilledButton.styleFrom(
@@ -2051,8 +2071,9 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget _popupField(
     String label,
     TextEditingController controller,
-    String suffix,
-  ) {
+    String suffix, {
+    bool readOnly = false,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2070,10 +2091,16 @@ class _ChatScreenState extends State<ChatScreen> {
             Expanded(
               child: TextField(
                 controller: controller,
+                readOnly: readOnly,
                 keyboardType: TextInputType.number,
+                style: TextStyle(
+                  color: readOnly ? Colors.grey.shade700 : Colors.black87,
+                ),
                 decoration: InputDecoration(
                   filled: true,
-                  fillColor: AppColors.backgroundGray,
+                  fillColor: readOnly
+                      ? Colors.grey.shade200
+                      : AppColors.backgroundGray,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
                     borderSide: BorderSide.none,
@@ -2153,12 +2180,12 @@ class _ChatScreenState extends State<ChatScreen> {
                   _tradePromptPrimaryButton(
                     label: 'Open Trading APP',
                     enabled: _showButtons(msg),
-                    onTap: () => controller.openTradingApp(),
+                    onTap: () => _openTradingAppForMessage(msg, controller),
                   ),
                   const SizedBox(height: 10),
                 ],
                 GestureDetector(
-                  onTap: _showButtons(msg)
+                  onTap: _canTapFollowUpAction(msg, controller)
                       ? () {
                           if (msg.buttonType == 'trade_executed') {
                             _showTargetHitConfirmDialog(
@@ -2181,7 +2208,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     decoration: BoxDecoration(
-                      color: _showButtons(msg)
+                      color: _canTapFollowUpAction(msg, controller)
                           ? AppColors.primary
                           : Colors.grey.shade400,
                       borderRadius: BorderRadius.circular(8),
@@ -2249,14 +2276,14 @@ class _ChatScreenState extends State<ChatScreen> {
                 _tradePromptPrimaryButton(
                   label: 'Open Trading APP',
                   enabled: _showButtons(msg),
-                  onTap: () => controller.openTradingApp(),
+                  onTap: () => _openTradingAppForMessage(msg, controller),
                 ),
                 const SizedBox(height: 14),
                 Text('2. Intimate me once you apply the GTT', style: stepStyle),
                 const SizedBox(height: 8),
                 _tradePromptPrimaryButton(
                   label: msg.buttonLabel,
-                  enabled: _showButtons(msg),
+                  enabled: _canTapFollowUpAction(msg, controller),
                   onTap: () => AppToast.showToast('Thanks for confirming'),
                 ),
               ],

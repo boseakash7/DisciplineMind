@@ -111,8 +111,8 @@ class _TradesScreenState extends State<TradesScreen>
     required int totalWins,
     required String tradeAccuracy,
     required double tradeAccuracyPercent,
-    required String frr,
-    required String rtt,
+    required String averageReturn,
+    required String mctAverageReturn,
   }) {
     return Container(
       padding: const EdgeInsets.all(14),
@@ -161,9 +161,14 @@ class _TradesScreenState extends State<TradesScreen>
                 const SizedBox(height: 6),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(frr, style: const TextStyle(color: Colors.white)),
-                    Text(rtt, style: const TextStyle(color: Colors.white)),
+                    _returnStat('My Avg', averageReturn),
+                    _returnStat(
+                      'MCT Avg',
+                      mctAverageReturn,
+                      alignEnd: true,
+                    ),
                   ],
                 ),
               ],
@@ -171,6 +176,42 @@ class _TradesScreenState extends State<TradesScreen>
           ),
         ],
       ),
+    );
+  }
+
+  Color _returnPercentColor(String value) {
+    final cleaned = value.replaceAll('%', '').trim();
+    if (cleaned.isEmpty || cleaned == '—') return Colors.white;
+    final parsed = double.tryParse(cleaned);
+    if (parsed == null) return Colors.white;
+    if (parsed > 0) return Colors.green.shade800;
+    if (parsed < 0) return Colors.red.shade800;
+    return Colors.white;
+  }
+
+  Widget _returnStat(String label, String value, {bool alignEnd = false}) {
+    return Column(
+      crossAxisAlignment:
+          alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.85),
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: TextStyle(
+            color: _returnPercentColor(value),
+            fontWeight: FontWeight.w700,
+            fontSize: 13,
+          ),
+        ),
+      ],
     );
   }
 
@@ -303,7 +344,8 @@ class _TradesScreenState extends State<TradesScreen>
                                 ),
                               ),
                               TextButton(
-                                onPressed: _levelsService.refreshLevels,
+                                onPressed: () =>
+                                    _levelsService.refreshLevels(force: true),
                                 child: const Text('Retry'),
                               ),
                             ],
@@ -341,8 +383,10 @@ class _TradesScreenState extends State<TradesScreen>
                           tradeAccuracy: _levelsService.displayTradeAccuracy,
                           tradeAccuracyPercent:
                               _levelsService.displayTradeAccuracyPercent,
-                          frr: _levelsService.displayFrr,
-                          rtt: _levelsService.displayRtt,
+                          averageReturn:
+                              _levelsService.displayTotalAverageReturn,
+                          mctAverageReturn:
+                              _levelsService.displayTotalMctAverageReturn,
                         ),
                       ),
                     ],
@@ -388,13 +432,8 @@ class _TradesScreenState extends State<TradesScreen>
                                 ),
                               ),
                               TextButton(
-                                onPressed: () {
-                                  final level =
-                                      _levelsService.selectedLevel.value;
-                                  if (level != null) {
-                                    _levelsService.fetchUserHitTrades(level.id);
-                                  }
-                                },
+                                onPressed: () =>
+                                    _levelsService.refreshTabData(force: true),
                                 child: const Text('Retry'),
                               ),
                             ],

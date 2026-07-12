@@ -239,7 +239,7 @@ class ChatController extends GetxController {
       }
     } catch (e) {
       if (!refresh && !silent) _loadSampleMessages();
-      if (!silent) AppToast.showToast('Failed to load chat: $e');
+      if (!silent) AppToast.showError(e);
     } finally {
       if (!silent) {
         isLoading.value = false;
@@ -298,7 +298,7 @@ class ChatController extends GetxController {
       }
     } catch (e) {
       if (!silent) {
-        AppToast.showToast('Failed to load new messages: $e');
+        AppToast.showError(e);
       }
     } finally {
       if (!silent) {
@@ -342,7 +342,7 @@ class ChatController extends GetxController {
         AppToast.showToast(response.errorMessage!);
       }
     } catch (e) {
-      AppToast.showToast('Failed to load older messages: $e');
+      AppToast.showError(e);
     } finally {
       isRefreshing.value = false;
     }
@@ -431,7 +431,7 @@ class ChatController extends GetxController {
         }
       }
     } catch (e) {
-      AppToast.showToast('Error: $e');
+      AppToast.showError(e);
     }
   }
 
@@ -523,7 +523,7 @@ class ChatController extends GetxController {
         return false;
       }
     } catch (e) {
-      AppToast.showToast('Error: $e');
+      AppToast.showError(e);
       return false;
     }
   }
@@ -647,7 +647,7 @@ class ChatController extends GetxController {
         );
       }
     } catch (e) {
-      AppToast.showToast('Error: $e');
+      AppToast.showError(e);
       print('[ChatController] acknowledgeTradeDeleted failed: $e');
     }
   }
@@ -689,7 +689,7 @@ class ChatController extends GetxController {
         );
       }
     } catch (e) {
-      AppToast.showToast('Error: $e');
+      AppToast.showError(e);
       print('[ChatController] acknowledgeSlTrailed failed: $e');
     }
   }
@@ -735,7 +735,7 @@ class ChatController extends GetxController {
         );
       }
     } catch (e) {
-      AppToast.showToast('Error: $e');
+      AppToast.showError(e);
       print('[ChatController] acknowledgeTradeExecuted failed: $e');
     }
   }
@@ -759,7 +759,39 @@ class ChatController extends GetxController {
     return false;
   }
 
-  /// Unblock trading apps and open the first selected broker app (Android).
+  /// Stable key per chat bubble so open-app → follow-up gating survives refresh.
+  String tradingAppStepKey(ChatMessage msg) {
+    final id = msg.messageId.trim();
+    if (id.isNotEmpty) return '${id}_${msg.type.name}';
+    if (msg is NewTradeOpportunityMessage) {
+      final tradeId = msg.tradeId.trim();
+      if (tradeId.isNotEmpty) {
+        return 'trade_${tradeId}_${msg.buttonType}_${msg.action}';
+      }
+    }
+    if (msg is TradeExecutionPromptMessage) {
+      final tradeId = msg.tradeData.tradeId.trim();
+      if (tradeId.isNotEmpty) return 'prompt_$tradeId';
+    }
+    if (msg is AlertHitWithButtonMessage) {
+      final tradeId = msg.tradeId.trim();
+      if (tradeId.isNotEmpty) return 'alert_$tradeId';
+    }
+    return 'msg_${msg.type.name}_${identityHashCode(msg)}';
+  }
+
+  bool hasOpenedTradingApp(ChatMessage msg, Set<String> openedKeys) {
+    return openedKeys.contains(tradingAppStepKey(msg));
+  }
+
+  bool canTapFollowUpAction(ChatMessage msg, Set<String> openedKeys) {
+    if (msg.actionTaken != null) return false;
+    if (msg is AlertHitWithButtonMessage && !msg.isGttHit) {
+      return true;
+    }
+    return hasOpenedTradingApp(msg, openedKeys);
+  }
+
   Future<void> openTradingApp() async {
     try {
       if (Platform.isAndroid) {

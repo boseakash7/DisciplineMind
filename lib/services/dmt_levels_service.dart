@@ -3,6 +3,7 @@ import 'package:discipline_mind/model/dmt_level_model.dart';
 import 'package:discipline_mind/model/dmt_user_hit_trades_model.dart';
 import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
+import 'package:discipline_mind/services/network/network_feedback.dart';
 import 'package:get/get.dart';
 
 /// Loads DMT levels and user hit-trades for the Trades tab.
@@ -10,8 +11,6 @@ class DmtLevelsService extends GetxService {
   static const int _fallbackTotalTrades = 120;
   static const int _fallbackTotalWins = 97;
   static const String _fallbackAccuracy = '80.33 %';
-  static const String _fallbackFrr = 'FRR - 25%';
-  static const String _fallbackRtt = 'RTT - 97 %';
 
   final RxList<DmtLevel> levels = <DmtLevel>[].obs;
   final Rxn<DmtLevel> selectedLevel = Rxn<DmtLevel>();
@@ -25,6 +24,8 @@ class DmtLevelsService extends GetxService {
   bool _levelsRefreshInFlight = false;
   bool _tradesFetchInFlight = false;
   int? _lastFetchedLevelId;
+
+  bool get hasLevels => levels.isNotEmpty;
 
   /// Overview stats — API values with UI fallbacks when response not loaded.
   int get displayTotalTrades {
@@ -63,8 +64,19 @@ class DmtLevelsService extends GetxService {
     return 80.33;
   }
 
-  String get displayFrr => _fallbackFrr;
-  String get displayRtt => _fallbackRtt;
+  String get displayTotalAverageReturn {
+    final payload = hitTrades.value;
+    if (payload != null) return payload.displayTotalAverageReturn;
+    if (isLoadingTrades.value) return '—';
+    return '—';
+  }
+
+  String get displayTotalMctAverageReturn {
+    final payload = hitTrades.value;
+    if (payload != null) return payload.displayTotalMctAverageReturn;
+    if (isLoadingTrades.value) return '—';
+    return '—';
+  }
 
   List<DmtHitTrade> get displayTrades {
     final trades = hitTrades.value?.trades ?? const <DmtHitTrade>[];
@@ -102,8 +114,10 @@ class DmtLevelsService extends GetxService {
     selectedLevel.value = level;
   }
 
-  Future<bool> refreshLevels() async {
-    if (_levelsRefreshInFlight) return levels.isNotEmpty;
+  Future<bool> refreshLevels({bool force = false}) async {
+    if (_levelsRefreshInFlight && !force) {
+      return levels.isNotEmpty;
+    }
     _levelsRefreshInFlight = true;
     isLoadingLevels.value = true;
     levelsError.value = null;
@@ -112,8 +126,10 @@ class DmtLevelsService extends GetxService {
       final api = _api();
       final response = await api.get(ApiUrl.dmtLevels);
       if (!response.isSuccess || response.data is! Map) {
-        levelsError.value =
-            response.errorMessage ?? 'Could not load DMT levels';
+        levelsError.value = friendlyApiMessage(
+          response.errorMessage,
+          fallback: 'Could not load DMT levels',
+        );
         return false;
       }
 
@@ -131,7 +147,7 @@ class DmtLevelsService extends GetxService {
       _ensureLevelSelection();
       return levels.isNotEmpty;
     } catch (e) {
-      levelsError.value = e.toString();
+      levelsError.value = friendlyErrorMessage(e);
       return false;
     } finally {
       isLoadingLevels.value = false;
@@ -163,8 +179,10 @@ class DmtLevelsService extends GetxService {
       });
 
       if (!response.isSuccess || response.data is! Map) {
-        tradesError.value =
-            response.errorMessage ?? 'Could not load trade details';
+        tradesError.value = friendlyApiMessage(
+          response.errorMessage,
+          fallback: 'Could not load trade details',
+        );
         hitTrades.value = null;
         return false;
       }
@@ -186,7 +204,7 @@ class DmtLevelsService extends GetxService {
       }
       return true;
     } catch (e) {
-      tradesError.value = e.toString();
+      tradesError.value = friendlyErrorMessage(e);
       hitTrades.value = null;
       return false;
     } finally {
@@ -207,23 +225,29 @@ class DmtLevelsService extends GetxService {
 
   Future<void> ensureLoaded() async {
     if (levels.isEmpty) {
-      await refreshLevels();
-    } else if (selectedLevel.value != null) {
-      await fetchUserHitTrades(selectedLevel.value!.id);
+      await refreshLevels(force: levelsError.value != null);
+    }
+    final level = selectedLevel.value;
+    if (level != null &&
+        (!hasLoadedHitTrades || tradesError.value != null)) {
+      await fetchUserHitTrades(
+        level.id,
+        force: tradesError.value != null || !hasLoadedHitTrades,
+      );
     }
   }
 
   /// Reload levels and hit-trades for the current selection (e.g. Trades tab focused).
-  Future<void> refreshTabData() async {
-    await refreshLevels();
+  Future<void> refreshTabData({bool force = true}) async {
+    await refreshLevels(force: force);
     final level = selectedLevel.value;
     if (level != null) {
-      await fetchUserHitTrades(level.id, force: true);
+      await fetchUserHitTrades(level.id, force: force);
     }
   }
 
   /// Backward-compatible alias for level list refresh.
-  Future<bool> refresh() => refreshLevels();
+  Future<bool> refresh({bool force = false}) => refreshLevels(force: force);
 
   ApiService _api() {
     return Get.isRegistered<ApiService>()

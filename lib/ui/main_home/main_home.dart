@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:discipline_mind/common/app_colors.dart';
+import 'package:discipline_mind/common/common.dart';
+import 'package:discipline_mind/services/app_data_refresh_service.dart';
 import 'package:discipline_mind/ui/main_home/analysis_screen.dart';
 import 'package:discipline_mind/ui/main_home/chat_screen.dart';
 import 'package:discipline_mind/ui/main_home/more_screen.dart';
 import 'package:discipline_mind/ui/main_home/trade_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
 
 import 'bm_screen.dart';
 
@@ -26,6 +31,17 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
   }
 
   void _openMoreTab() => setState(() => currentIndex = 4);
+
+  void _onTabSelected(int index) {
+    setState(() => currentIndex = index);
+    final userId = Common.userData.value?.payload?.id?.toString();
+    if (userId == null || userId.isEmpty) return;
+
+    final refresh = Get.isRegistered<AppDataRefreshService>()
+        ? Get.find<AppDataRefreshService>()
+        : Get.put(AppDataRefreshService(), permanent: true);
+    unawaited(refresh.refreshIfNeeded(force: true));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -90,11 +106,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                   ),
                   iconSize: 22,
                   elevation: 0,
-                  onTap: (index) {
-                    setState(() {
-                      currentIndex = index;
-                    });
-                  },
+                  onTap: _onTabSelected,
                   items: [
                     const BottomNavigationBarItem(
                       icon: Icon(Icons.grid_view_outlined),
@@ -129,7 +141,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
               top: 0,
               child: Center(
                 child: GestureDetector(
-                  onTap: () => setState(() => currentIndex = 2),
+                  onTap: () => _onTabSelected(2),
                   child: Container(
                     height: fabSize,
                     width: fabSize,

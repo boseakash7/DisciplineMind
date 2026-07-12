@@ -18,8 +18,10 @@ class OtpVerifyScreen extends StatefulWidget {
 
 class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   final AuthController authController = Get.find<AuthController>();
-  final List<TextEditingController> _digitControllers =
-      List.generate(4, (_) => TextEditingController());
+  final List<TextEditingController> _digitControllers = List.generate(
+    4,
+    (_) => TextEditingController(),
+  );
   final List<FocusNode> _focusNodes = List.generate(4, (_) => FocusNode());
 
   @override
@@ -41,8 +43,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
     super.dispose();
   }
 
-  String get _otp =>
-      _digitControllers.map((c) => c.text).join().trim();
+  String get _otp => _digitControllers.map((c) => c.text).join().trim();
 
   void _onDigitChanged(int index, String value) {
     final v = value.replaceAll(RegExp(r'\D'), '');
@@ -155,9 +156,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
                         ),
                       ),
                     ),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                    ],
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     onChanged: (v) => _onDigitChanged(i, v),
                   ),
                 );
@@ -175,8 +174,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
             const SizedBox(height: 20),
             Obx(
               () => TextButton(
-                onPressed:
-                    authController.isLoading.value ? null : _resend,
+                onPressed: authController.isLoading.value ? null : _resend,
                 child: const Text(
                   "Resend OTP",
                   style: TextStyle(

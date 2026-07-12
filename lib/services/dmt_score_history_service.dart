@@ -5,6 +5,7 @@ import 'package:discipline_mind/model/dmt_user_return_percentages_model.dart';
 import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/services/dmt_levels_service.dart';
+import 'package:discipline_mind/services/network/network_feedback.dart';
 import 'package:get/get.dart';
 
 /// Loads Analysis tab data (score history + return percentages).
@@ -23,7 +24,6 @@ class DmtScoreHistoryService extends GetxService {
   bool _returnsFetchInFlight = false;
   int? _lastHistoryLevelId;
   int? _lastReturnLevelId;
-  bool _bootstrapped = false;
 
   DmtLevelsService get _levelsService {
     return Get.isRegistered<DmtLevelsService>()
@@ -63,8 +63,10 @@ class DmtScoreHistoryService extends GetxService {
       );
 
       if (!response.isSuccess || response.data is! Map) {
-        error.value =
-            response.errorMessage ?? 'Could not load score history';
+        error.value = friendlyApiMessage(
+          response.errorMessage,
+          fallback: 'Could not load score history',
+        );
         historyPayload.value = null;
         return false;
       }
@@ -83,7 +85,7 @@ class DmtScoreHistoryService extends GetxService {
       _syncSelectedLevel(parsed.payload!);
       return true;
     } catch (e) {
-      error.value = e.toString();
+      error.value = friendlyErrorMessage(e);
       historyPayload.value = null;
       return false;
     } finally {
@@ -133,8 +135,10 @@ class DmtScoreHistoryService extends GetxService {
       );
 
       if (!response.isSuccess || response.data is! Map) {
-        returnsError.value =
-            response.errorMessage ?? 'Could not load return data';
+        returnsError.value = friendlyApiMessage(
+          response.errorMessage,
+          fallback: 'Could not load return data',
+        );
         returnsPayload.value = null;
         return false;
       }
@@ -152,7 +156,7 @@ class DmtScoreHistoryService extends GetxService {
       returnsPayload.value = parsed.payload;
       return true;
     } catch (e) {
-      returnsError.value = e.toString();
+      returnsError.value = friendlyErrorMessage(e);
       returnsPayload.value = null;
       return false;
     } finally {
@@ -171,10 +175,7 @@ class DmtScoreHistoryService extends GetxService {
   }
 
   Future<void> _bootstrapCurrentLevel() async {
-    if (_bootstrapped) return;
-    _bootstrapped = true;
-
-    await _levelsService.refreshLevels();
+    await _levelsService.refreshLevels(force: true);
 
     final ok = await fetchHistory(force: true);
     if (!ok) return;
@@ -188,27 +189,26 @@ class DmtScoreHistoryService extends GetxService {
   }
 
   Future<void> ensureLoaded() async {
-    if (!_bootstrapped || selectedLevel.value == null) {
-      await _bootstrapCurrentLevel();
+    if (historyPayload.value != null &&
+        selectedLevel.value != null &&
+        error.value == null) {
+      final levelId = selectedLevel.value!.id;
+      if (returnsPayload.value == null || returnsError.value != null) {
+        await fetchReturnPercentages(levelId, force: true);
+      }
       return;
     }
 
-    final levelId = selectedLevel.value!.id;
-    if (historyPayload.value == null) {
-      await fetchHistory(levelId: levelId);
-    }
-    if (returnsPayload.value == null) {
-      await fetchReturnPercentages(levelId);
-    }
+    await _bootstrapCurrentLevel();
   }
 
-  Future<void> refreshTabData() async {
-    await _levelsService.refreshLevels();
+  Future<void> refreshTabData({bool force = true}) async {
+    await _levelsService.refreshLevels(force: force);
     final levelId =
         selectedLevel.value?.id ?? historyPayload.value?.currentLevel?.id;
     if (levelId != null && levelId > 0) {
-      await fetchHistory(levelId: levelId, force: true);
-      await fetchReturnPercentages(levelId, force: true);
+      await fetchHistory(levelId: levelId, force: force);
+      await fetchReturnPercentages(levelId, force: force);
     } else {
       await _bootstrapCurrentLevel();
     }

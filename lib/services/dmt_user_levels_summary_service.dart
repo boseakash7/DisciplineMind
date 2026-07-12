@@ -2,6 +2,7 @@ import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/model/dmt_user_levels_summary_model.dart';
 import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
+import 'package:discipline_mind/services/network/network_feedback.dart';
 import 'package:get/get.dart';
 
 /// Loads BM tab level summary (`user-levels-summary`).
@@ -35,8 +36,10 @@ class DmtUserLevelsSummaryService extends GetxService {
       );
 
       if (!response.isSuccess || response.data is! Map) {
-        error.value =
-            response.errorMessage ?? 'Could not load level summary';
+        error.value = friendlyApiMessage(
+          response.errorMessage,
+          fallback: 'Could not load level summary',
+        );
         summaryPayload.value = null;
         return false;
       }
@@ -54,7 +57,7 @@ class DmtUserLevelsSummaryService extends GetxService {
       summaryPayload.value = parsed.payload;
       return true;
     } catch (e) {
-      error.value = e.toString();
+      error.value = friendlyErrorMessage(e);
       summaryPayload.value = null;
       return false;
     } finally {
@@ -64,9 +67,8 @@ class DmtUserLevelsSummaryService extends GetxService {
   }
 
   Future<void> ensureLoaded() async {
-    if (summaryPayload.value == null) {
-      await fetchSummary();
-    }
+    if (summaryPayload.value != null && error.value == null) return;
+    await fetchSummary(force: true);
   }
 
   Future<void> refreshTabData() => fetchSummary(force: true);

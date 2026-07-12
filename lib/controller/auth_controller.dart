@@ -71,7 +71,7 @@ class AuthController extends GetxController {
     try {
       await _syncFcmAndSubscribe(id);
     } catch (e) {
-      AppToast.showToast(e.toString());
+      AppToast.showError(e);
     }
     await _navigateAfterLogin();
   }
@@ -96,7 +96,7 @@ class AuthController extends GetxController {
       return false;
     } catch (e) {
       isLoading.value = false;
-      AppToast.showToast(e.toString());
+      AppToast.showError(e);
       return false;
     }
   }
@@ -118,7 +118,7 @@ class AuthController extends GetxController {
       return VerifyOtpResponse.fromJson(data).payload;
     } catch (e) {
       isLoading.value = false;
-      AppToast.showToast(e.toString());
+      AppToast.showError(e);
       return null;
     }
   }
@@ -190,7 +190,7 @@ class AuthController extends GetxController {
       }
     } catch (e) {
       isLoading.value = false;
-      AppToast.showToast(e.toString());
+      AppToast.showError(e);
     }
   }
 

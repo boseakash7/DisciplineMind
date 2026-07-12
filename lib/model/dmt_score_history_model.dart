@@ -1,5 +1,29 @@
 import 'package:discipline_mind/model/dmt_level_model.dart';
 
+double parseDmtScore(dynamic value, {double fallback = 0}) {
+  if (value == null) return fallback;
+  if (value is num) return value.toDouble();
+  final text = value.toString().trim();
+  if (text.isEmpty) return fallback;
+  return double.tryParse(text) ?? fallback;
+}
+
+double parseDmtScoreFromKeys(
+  Map<String, dynamic> json,
+  List<String> keys, {
+  double fallback = 0,
+}) {
+  for (final key in keys) {
+    if (!json.containsKey(key) || json[key] == null) continue;
+    return parseDmtScore(json[key], fallback: fallback);
+  }
+  return fallback;
+}
+
+String formatDmtScore(double value) {
+  return value.truncate().toString();
+}
+
 /// Response from `POST /api/dmt-score/history`.
 class DmtScoreHistoryResponse {
   final String? status;
@@ -24,7 +48,7 @@ class DmtScoreHistoryPayload {
   final int userId;
   final DmtLevel? requestedLevel;
   final DmtLevel? currentLevel;
-  final int currentTotalScore;
+  final double currentTotalScore;
   final DmtScoreNextLevel? nextLevel;
   final List<DmtScoreHistoryEntry> history;
 
@@ -62,8 +86,11 @@ class DmtScoreHistoryPayload {
       currentLevel: currentRaw is Map
           ? DmtLevel.fromJson(Map<String, dynamic>.from(currentRaw))
           : null,
-      currentTotalScore:
-          int.tryParse(json['current_total_score']?.toString() ?? '') ?? 0,
+      currentTotalScore: parseDmtScoreFromKeys(json, const [
+        'current_total_score',
+        'current_score',
+        'level_total_score',
+      ]),
       nextLevel: nextRaw is Map
           ? DmtScoreNextLevel.fromJson(Map<String, dynamic>.from(nextRaw))
           : null,
@@ -81,12 +108,19 @@ class DmtScoreHistoryPayload {
   }
 
   /// Score shown in summary — global total for current level, else last cumulative.
-  int get displayScore {
-    if (isViewingCurrentLevel) return currentTotalScore;
+  double get displayScore {
+    if (isViewingCurrentLevel) {
+      final sorted = sortedHistory;
+      if (currentTotalScore > 0) return currentTotalScore;
+      if (sorted.isNotEmpty) return sorted.last.cumulativeScore;
+      return currentTotalScore;
+    }
     final sorted = sortedHistory;
     if (sorted.isNotEmpty) return sorted.last.cumulativeScore;
     return currentTotalScore;
   }
+
+  String get displayScoreText => formatDmtScore(displayScore);
 
   /// History sorted oldest → newest for charting.
   List<DmtScoreHistoryEntry> get sortedHistory {
@@ -97,8 +131,8 @@ class DmtScoreHistoryPayload {
 }
 
 class DmtScoreNextLevel extends DmtLevel {
-  final int targetScore;
-  final int remainingScore;
+  final double targetScore;
+  final double remainingScore;
 
   const DmtScoreNextLevel({
     required super.id,
@@ -115,9 +149,8 @@ class DmtScoreNextLevel extends DmtLevel {
       code: json['code']?.toString().trim() ?? '',
       name: json['name']?.toString().trim() ?? '',
       shortName: json['short_name']?.toString().trim() ?? '',
-      targetScore: int.tryParse(json['target_score']?.toString() ?? '') ?? 0,
-      remainingScore:
-          int.tryParse(json['remaining_score']?.toString() ?? '') ?? 0,
+      targetScore: parseDmtScore(json['target_score']),
+      remainingScore: parseDmtScore(json['remaining_score']),
     );
   }
 
@@ -132,8 +165,8 @@ class DmtScoreHistoryEntry {
   final int id;
   final String scoreDate;
   final String scoreDateFormatted;
-  final int dailyScore;
-  final int cumulativeScore;
+  final double dailyScore;
+  final double cumulativeScore;
   final int maxScore;
   final DmtLevel? level;
 
@@ -153,9 +186,13 @@ class DmtScoreHistoryEntry {
       id: int.tryParse(json['id']?.toString() ?? '') ?? 0,
       scoreDate: json['score_date']?.toString().trim() ?? '',
       scoreDateFormatted: json['score_date_formatted']?.toString().trim() ?? '',
-      dailyScore: int.tryParse(json['daily_score']?.toString() ?? '') ?? 0,
-      cumulativeScore:
-          int.tryParse(json['cumulative_score']?.toString() ?? '') ?? 0,
+      dailyScore: parseDmtScoreFromKeys(json, const [
+        'daily_score',
+      ]),
+      cumulativeScore: parseDmtScoreFromKeys(json, const [
+        'cumulative_score',
+        'level_cumulative_score',
+      ]),
       maxScore: int.tryParse(json['max_score']?.toString() ?? '') ?? 60,
       level: levelRaw is Map
           ? DmtLevel.fromJson(Map<String, dynamic>.from(levelRaw))

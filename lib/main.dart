@@ -5,6 +5,7 @@ import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/controller/alert_controller.dart';
 import 'package:discipline_mind/controller/chat_controller.dart';
 import 'package:discipline_mind/firebase_options.dart';
+import 'package:discipline_mind/services/app_data_refresh_service.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_block_bootstrap.dart';
@@ -77,12 +78,22 @@ void _refreshUserAlertsOnNotification({int attempt = 0}) {
   chatController.loadNewMessages(silent: true);
 }
 
-/// After minimize → reopen: pull latest chat if user is logged in and chat was opened once.
 void _refreshChatOnAppResumed() {
-  final userId = Common.userData.value?.payload?.id?.toString();
-  if (userId == null || userId.isEmpty) return;
   if (!Get.isRegistered<ChatController>()) return;
   unawaited(Get.find<ChatController>().loadNewMessages(silent: true));
+}
+
+/// After minimize → reopen: reload stale tab data and chat when online again.
+void _refreshDataOnAppResumed() {
+  final userId = Common.userData.value?.payload?.id?.toString();
+  if (userId == null || userId.isEmpty) return;
+
+  _refreshChatOnAppResumed();
+
+  final refresh = Get.isRegistered<AppDataRefreshService>()
+      ? Get.find<AppDataRefreshService>()
+      : Get.put(AppDataRefreshService(), permanent: true);
+  unawaited(refresh.refreshIfNeeded(force: true));
 }
 
 bool _initialMessageCheckDone = false;
@@ -180,7 +191,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       _onAppResumed();
       _enforceAndroidTradingPermissionsIfLoggedIn();
-      _refreshChatOnAppResumed();
+      _refreshDataOnAppResumed();
     }
   }
 

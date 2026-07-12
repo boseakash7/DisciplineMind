@@ -3,6 +3,7 @@ import 'package:discipline_mind/model/trading_app_model.dart';
 import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
+import 'package:discipline_mind/services/network/network_feedback.dart';
 import 'package:get/get.dart';
 
 /// Loads and caches trading apps from backend (`trading-apps`).
@@ -62,10 +63,13 @@ class TradingAppsService extends GetxService {
           return apps.isNotEmpty;
         }
       }
-      lastError.value = response.errorMessage ?? 'Could not load trading apps';
+      lastError.value = friendlyApiMessage(
+        response.errorMessage,
+        fallback: 'Could not load trading apps',
+      );
       return false;
     } catch (e) {
-      lastError.value = e.toString();
+      lastError.value = friendlyErrorMessage(e);
       return false;
     } finally {
       isLoading.value = false;

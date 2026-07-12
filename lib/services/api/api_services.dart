@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:discipline_mind/common/network_error_utils.dart';
+import 'package:discipline_mind/services/network/network_feedback.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:http/http.dart' as http;
@@ -11,6 +13,14 @@ import 'api_reponse.dart';
 const String _kSessionCookieStorageKey = 'dm_session_cookie';
 
 class ApiService extends GetxService {
+  ApiResponse<dynamic> _failureResponse(Object error) {
+    if (NetworkErrorUtils.isNetworkError(error)) {
+      NetworkFeedback.onNoInternet();
+      return ApiResponse.error(NetworkErrorUtils.noInternetMessage);
+    }
+    return ApiResponse.error(NetworkErrorUtils.userMessage(error));
+  }
+
   // GET request
   Future<ApiResponse<dynamic>> get(
     String endpoint, {
@@ -29,11 +39,11 @@ class ApiService extends GetxService {
 
       return _processResponse(response);
     } catch (e) {
-      return ApiResponse.error(e.toString());
+      return _failureResponse(e);
     }
   }
 
-  /// POST request to messages API (disciplinedminds.in) with form-data
+  /// POST request to messages API
   Future<ApiResponse<dynamic>> postMessagesForm(
     String endpoint,
     Map<String, String> fields, {
@@ -50,11 +60,11 @@ class ApiService extends GetxService {
       final response = await http.Response.fromStream(streamedResponse);
       return _processResponse(response);
     } catch (e) {
-      return ApiResponse.error(e.toString());
+      return _failureResponse(e);
     }
   }
 
-  /// POST request with multipart/form-data (matches Postman --form).
+  /// POST request with multipart/form-data
   /// Use for endpoints that expect multipart (e.g. FCM sync).
   Future<ApiResponse<dynamic>> postMultipartForm(
     String endpoint,
@@ -83,7 +93,7 @@ class ApiService extends GetxService {
       print("API Response: ${response.body}");
       return _processResponse(response);
     } catch (e) {
-      return ApiResponse.error(e.toString());
+      return _failureResponse(e);
     }
   }
 
@@ -142,7 +152,7 @@ class ApiService extends GetxService {
 
       return _processResponse(response);
     } catch (e) {
-      return ApiResponse.error(e.toString());
+      return _failureResponse(e);
     }
   }
 
@@ -161,7 +171,7 @@ class ApiService extends GetxService {
 
       return _processResponse(response);
     } catch (e) {
-      return ApiResponse.error(e.toString());
+      return _failureResponse(e);
     }
   }
 
@@ -183,7 +193,12 @@ class ApiService extends GetxService {
         return ApiResponse.error(jsonResponse['payload'].toString());
       }
     } catch (e) {
-      return ApiResponse.error("Invalid response format: ${e.toString()}");
+      return ApiResponse.error(
+        NetworkErrorUtils.normalizeMessage(
+          'Invalid response format: ${e.toString()}',
+          fallback: 'Unable to read server response. Please try again.',
+        ),
+      );
     }
   }
 }

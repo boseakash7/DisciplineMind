@@ -161,7 +161,7 @@ class AlertController extends GetxController {
         return false;
       }
     } catch (e) {
-      AppToast.showToast("Error: ${e.toString()}");
+      AppToast.showError(e);
       return false;
     } finally {
       isSavingAlert.value = false;
@@ -287,7 +287,7 @@ class AlertController extends GetxController {
       }
       return alertsCreated;
     } catch (e) {
-      AppToast.showToast("Error: ${e.toString()}");
+      AppToast.showError(e);
       return false;
     } finally {
       isSavingAlert.value = false;
@@ -502,7 +502,7 @@ class AlertController extends GetxController {
       }
     } catch (e) {
       isQuoteLoading.value = false;
-      AppToast.showToast(e.toString());
+      AppToast.showError(e);
     }
   }
 

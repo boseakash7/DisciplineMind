@@ -1,5 +1,6 @@
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/model/dmt_user_levels_summary_model.dart';
+import 'package:discipline_mind/model/dmt_score_history_model.dart';
 import 'package:discipline_mind/services/dmt_user_levels_summary_service.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -23,12 +24,20 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
   bool _skipNextLoadReplay = true;
   int? _expandedLevelId;
 
+  static const List<String> _levelCodes = ['BM', 'AP', 'AO', 'AA', 'AI'];
+
+  final List<GlobalKey> _cardMeasureKeys =
+      List.generate(_levelCodes.length, (_) => GlobalKey());
+  final List<GlobalKey> _expandedMeasureKeys =
+      List.generate(_levelCodes.length, (_) => GlobalKey());
+  final Map<int, double> _cardHeights = {};
+  final Map<int, double> _expandedHeights = {};
+
   static const Duration _entranceDuration = Duration(milliseconds: 1200);
   static const Duration _expandDuration = Duration(milliseconds: 350);
   static const double _sectionSpan = 0.18;
   static const double _staggerStep = 0.1;
 
-  static const List<String> _levelCodes = ['BM', 'AP', 'AO', 'AA', 'AI'];
   static const List<Color> _levelColors = [
     AppColors.primary,
     Colors.purple,
@@ -40,8 +49,6 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
   static const List<_BmCardFallback> _fallbackCards = [
     _BmCardFallback(
       title: 'Believe Mode',
-      frr: '80%',
-      rtt: '20%',
       trades: '0',
       wins: '0',
       returns: '120%',
@@ -49,7 +56,6 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
     ),
     _BmCardFallback(
       title: 'Achieve Purple',
-      frr: '100%',
       trades: 'XX',
       wins: 'XX',
       risk: 'Rs. 550 to 1050',
@@ -59,21 +65,18 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
     ),
     _BmCardFallback(
       title: 'Achieve Olive',
-      frr: '100%',
       trades: 'XX',
       returns: 'XX',
       cmReturns: 'XX',
     ),
     _BmCardFallback(
       title: 'Achieve Amber',
-      frr: '100%',
       trades: 'XX',
       returns: 'XX',
       cmReturns: 'XX',
     ),
     _BmCardFallback(
       title: 'Achieve Indigo',
-      frr: '100%',
       trades: 'XX',
       returns: 'XX',
       cmReturns: 'XX',
@@ -111,7 +114,10 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
     ever(_summaryService.summaryPayload, (payload) {
       if (payload == null) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _scrollToCurrentLevel(payload);
+        if (mounted) {
+          _scrollToCurrentLevel(payload);
+          _scheduleLevelLayoutMeasure();
+        }
       });
     });
   }
@@ -134,6 +140,48 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
     _entranceController
       ..reset()
       ..forward();
+  }
+
+  void _scheduleLevelLayoutMeasure() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      var changed = false;
+      for (var i = 0; i < _levelCodes.length; i++) {
+        final cardHeight = _cardMeasureKeys[i].currentContext?.size?.height;
+        if (cardHeight != null && _cardHeights[i] != cardHeight) {
+          _cardHeights[i] = cardHeight;
+          changed = true;
+        }
+
+        final expandedHeight =
+            _expandedMeasureKeys[i].currentContext?.size?.height ?? 0;
+        if (_expandedHeights[i] != expandedHeight) {
+          _expandedHeights[i] = expandedHeight;
+          changed = true;
+        }
+      }
+      if (changed) setState(() {});
+    });
+  }
+
+  void _onLevelExpandChanged() {
+    _scheduleLevelLayoutMeasure();
+    Future.delayed(_expandDuration, () {
+      if (mounted) _scheduleLevelLayoutMeasure();
+    });
+  }
+
+  double _indicatorPositionForIndex(int index, bool isExpanded) {
+    if (!isExpanded) return 0.5;
+
+    final cardHeight = _cardHeights[index];
+    if (cardHeight == null || cardHeight <= 0) return 0.5;
+
+    final expandedHeight = _expandedHeights[index] ?? 0;
+    final totalHeight = cardHeight + expandedHeight;
+    if (totalHeight <= 0) return 0.5;
+
+    return ((cardHeight / 2) / totalHeight).clamp(0.08, 0.92);
   }
 
   double _sectionProgress(int index) {
@@ -304,8 +352,8 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
     bool isCurrent = false,
     bool isExpanded = false,
     VoidCallback? onTap,
-    String frr = '',
-    String rtt = '',
+    String averageReturn = '',
+    String mctAverageReturn = '',
     String trades = '',
     String wins = '',
     String returns = '',
@@ -362,62 +410,32 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
                     ),
                   ),
                   const SizedBox(height: 6),
-                  isFirstCard
-                      ? Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: const Text(
-                                'FRR',
-                                style: TextStyle(
-                                  color: AppColors.primary,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                  if (averageReturn.isNotEmpty || mctAverageReturn.isNotEmpty)
+                    Row(
+                      children: [
+                        if (averageReturn.isNotEmpty)
+                          Expanded(
+                            child: Text(
+                              'My Avg - $averageReturn',
+                              style: TextStyle(
+                                color: textColor,
+                                fontSize: 13,
                               ),
                             ),
-                            const SizedBox(width: 6),
-                            Text(
-                              ' - $frr',
-                              style: TextStyle(color: textColor, fontSize: 13),
-                            ),
-                            const SizedBox(width: 12),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: const Text(
-                                'RTT',
-                                style: TextStyle(
-                                  color: AppColors.primary,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                          ),
+                        if (mctAverageReturn.isNotEmpty)
+                          Expanded(
+                            child: Text(
+                              'MCT Avg - $mctAverageReturn',
+                              textAlign: TextAlign.end,
+                              style: TextStyle(
+                                color: textColor,
+                                fontSize: 13,
                               ),
                             ),
-                            const SizedBox(width: 6),
-                            Text(
-                              ' - $rtt',
-                              style: TextStyle(color: textColor, fontSize: 13),
-                            ),
-                          ],
-                        )
-                      : Text(
-                          'FRR - $frr${rtt.isNotEmpty ? '     RTT - $rtt' : ''}',
-                          style: TextStyle(color: textColor, fontSize: 13),
-                        ),
+                          ),
+                      ],
+                    ),
                   if (isFirstCard)
                     Text(
                       'Trades - $trades     Wins - $wins',
@@ -441,13 +459,6 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
                     ),
                     Text(
                       'Reward - $reward',
-                      style: TextStyle(color: textColor, fontSize: 13),
-                    ),
-                  ],
-                  if (returns.isNotEmpty || cmReturns.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      'My Returns - $returns    CM Returns - $cmReturns',
                       style: TextStyle(color: textColor, fontSize: 13),
                     ),
                   ],
@@ -551,7 +562,7 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
                         index: i,
                         dateLabel: history[i].chartDateLabel,
                         scoreLabel:
-                            '${history[i].dailyScore}/${history[i].maxScore}',
+                            '${formatDmtScore(history[i].dailyScore)}/${history[i].maxScore}',
                         color: color,
                       ),
                       if (i < history.length - 1) const SizedBox(width: 10),
@@ -573,7 +584,7 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
                 ),
               ),
               child: Text(
-                'Current Score under ${level.displayLabel} - ${level.levelTotalScore}',
+                'Current Score under ${level.displayLabel} - ${formatDmtScore(level.levelTotalScore)}',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 12,
@@ -595,7 +606,7 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
                   ),
                 ),
                 child: Text(
-                  'You need ${next.remainingScore} more Score to reach next Level',
+                  'You need ${formatDmtScore(next.remainingScore)} more Score to reach next Level',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: 13,
@@ -777,10 +788,20 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
               return Timeline.tileBuilder(
                 controller: _timelineScrollController,
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-                theme: TimelineThemeData(nodePosition: 0),
+                theme: TimelineThemeData(
+                  nodePosition: 0,
+                  indicatorPosition: 0.5,
+                  indicatorTheme: const IndicatorThemeData(size: 40),
+                ),
                 builder: TimelineTileBuilder.connected(
                   connectionDirection: ConnectionDirection.before,
                   contentsAlign: ContentsAlign.basic,
+                  indicatorPositionBuilder: (context, index) {
+                    final apiLevel = _levelAt(index, payload);
+                    final isExpanded = apiLevel != null &&
+                        _expandedLevelId == apiLevel.id;
+                    return _indicatorPositionForIndex(index, isExpanded);
+                  },
                   contentsBuilder: (context, index) => _entranceSection(
                     index + 2,
                     Padding(
@@ -831,27 +852,35 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        modeCard(
-          title: hasApi ? apiLevel.displayLabel : fallback.title,
-          color: color,
-          isAchieved: hasApi ? apiLevel.isUnlocked : index == 0,
-          isCurrent: hasApi && apiLevel.isCurrent,
-          isExpanded: isExpanded,
-          isFirstCard: index == 0,
-          onTap: canExpand
-              ? () => setState(() {
-                    _expandedLevelId =
-                        isExpanded ? null : apiLevel.id;
-                  })
-              : null,
-          frr: fallback.frr,
-          rtt: fallback.rtt,
-          trades: hasApi ? '${apiLevel.totalTrades}' : fallback.trades,
-          wins: hasApi ? '${apiLevel.totalWins}' : fallback.wins,
-          returns: fallback.returns,
-          cmReturns: fallback.cmReturns,
-          risk: fallback.risk,
-          reward: fallback.reward,
+        KeyedSubtree(
+          key: _cardMeasureKeys[index],
+          child: modeCard(
+            title: hasApi ? apiLevel.displayLabel : fallback.title,
+            color: color,
+            isAchieved: hasApi ? apiLevel.isUnlocked : index == 0,
+            isCurrent: hasApi && apiLevel.isCurrent,
+            isExpanded: isExpanded,
+            isFirstCard: index == 0,
+            onTap: canExpand
+                ? () {
+                    setState(() {
+                      _expandedLevelId =
+                          isExpanded ? null : apiLevel.id;
+                    });
+                    _onLevelExpandChanged();
+                  }
+                : null,
+            averageReturn:
+                hasApi ? apiLevel.displayTotalAverageReturn : '—',
+            mctAverageReturn:
+                hasApi ? apiLevel.displayTotalMctAverageReturn : '—',
+            trades: hasApi ? '${apiLevel.totalTrades}' : fallback.trades,
+            wins: hasApi ? '${apiLevel.totalWins}' : fallback.wins,
+            returns: fallback.returns,
+            cmReturns: fallback.cmReturns,
+            risk: fallback.risk,
+            reward: fallback.reward,
+          ),
         ),
         ClipRect(
           child: AnimatedAlign(
@@ -859,9 +888,16 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
             curve: Curves.easeOutCubic,
             alignment: Alignment.topCenter,
             heightFactor: isExpanded && hasApi ? 1 : 0,
+            onEnd: _scheduleLevelLayoutMeasure,
             child: isExpanded && hasApi
-                ? _buildExpandedScoreSection(apiLevel, color)
-                : const SizedBox(width: double.infinity),
+                ? KeyedSubtree(
+                    key: _expandedMeasureKeys[index],
+                    child: _buildExpandedScoreSection(apiLevel, color),
+                  )
+                : SizedBox(
+                    key: _expandedMeasureKeys[index],
+                    width: double.infinity,
+                  ),
           ),
         ),
       ],
@@ -989,8 +1025,6 @@ class _BmConnectorPainter extends CustomPainter {
 
 class _BmCardFallback {
   final String title;
-  final String frr;
-  final String rtt;
   final String trades;
   final String wins;
   final String returns;
@@ -1000,8 +1034,6 @@ class _BmCardFallback {
 
   const _BmCardFallback({
     required this.title,
-    this.frr = '',
-    this.rtt = '',
     this.trades = '',
     this.wins = '',
     this.returns = '',

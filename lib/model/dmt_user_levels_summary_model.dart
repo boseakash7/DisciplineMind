@@ -1,5 +1,6 @@
 import 'package:discipline_mind/model/dmt_level_model.dart';
-import 'package:discipline_mind/model/dmt_score_history_model.dart';
+import 'package:discipline_mind/model/dmt_score_history_model.dart'
+    show DmtScoreNextLevel, parseDmtScoreFromKeys;
 
 /// Response from `POST /api/dmt-level/user-levels-summary`.
 class DmtUserLevelsSummaryResponse {
@@ -25,7 +26,7 @@ class DmtUserLevelsSummaryResponse {
 
 class DmtUserLevelsSummaryPayload {
   final int userId;
-  final int currentScore;
+  final double currentScore;
   final DmtLevel? currentLevel;
   final DmtScoreNextLevel? nextLevel;
   final List<DmtUserLevelSummaryItem> levels;
@@ -56,7 +57,11 @@ class DmtUserLevelsSummaryPayload {
 
     return DmtUserLevelsSummaryPayload(
       userId: int.tryParse(json['user_id']?.toString() ?? '') ?? 0,
-      currentScore: int.tryParse(json['current_score']?.toString() ?? '') ?? 0,
+      currentScore: parseDmtScoreFromKeys(json, const [
+        'current_score',
+        'current_total_score',
+        'level_total_score',
+      ]),
       currentLevel: currentRaw is Map
           ? DmtLevel.fromJson(Map<String, dynamic>.from(currentRaw))
           : null,
@@ -95,7 +100,9 @@ class DmtUserLevelSummaryItem {
   final int totalWins;
   final double tradeAccuracy;
   final String tradeAccuracyText;
-  final int levelTotalScore;
+  final double? totalAverageReturnPercentage;
+  final double? totalMctAverageReturnPercentage;
+  final double levelTotalScore;
   final DmtScoreNextLevel? nextLevel;
   final List<DmtLevelScoreHistoryEntry> scoreHistory;
 
@@ -111,6 +118,8 @@ class DmtUserLevelSummaryItem {
     this.totalWins = 0,
     this.tradeAccuracy = 0,
     this.tradeAccuracyText = '',
+    this.totalAverageReturnPercentage,
+    this.totalMctAverageReturnPercentage,
     this.levelTotalScore = 0,
     this.nextLevel,
     this.scoreHistory = const [],
@@ -151,8 +160,16 @@ class DmtUserLevelSummaryItem {
       tradeAccuracy:
           double.tryParse(json['trade_accuracy']?.toString() ?? '') ?? 0,
       tradeAccuracyText: json['trade_accuracy_text']?.toString().trim() ?? '',
-      levelTotalScore:
-          int.tryParse(json['level_total_score']?.toString() ?? '') ?? 0,
+      totalAverageReturnPercentage: _parseDouble(
+        json['total_average_return_percentage'],
+      ),
+      totalMctAverageReturnPercentage: _parseDouble(
+        json['total_mct_average_return_percentage'],
+      ),
+      levelTotalScore: parseDmtScoreFromKeys(json, const [
+        'level_total_score',
+        'current_score',
+      ]),
       nextLevel: nextRaw is Map
           ? DmtScoreNextLevel.fromJson(Map<String, dynamic>.from(nextRaw))
           : null,
@@ -162,6 +179,12 @@ class DmtUserLevelSummaryItem {
 
   String get displayLabel =>
       name.isNotEmpty ? name : (shortName.isNotEmpty ? shortName : code);
+
+  String get displayTotalAverageReturn =>
+      _formatReturnPercent(totalAverageReturnPercentage);
+
+  String get displayTotalMctAverageReturn =>
+      _formatReturnPercent(totalMctAverageReturnPercentage);
 
   bool get canExpand => isUnlocked || isCurrent;
 
@@ -176,8 +199,8 @@ class DmtLevelScoreHistoryEntry {
   final int id;
   final String scoreDate;
   final String scoreDateFormatted;
-  final int dailyScore;
-  final int levelCumulativeScore;
+  final double dailyScore;
+  final double levelCumulativeScore;
   final int maxScore;
 
   const DmtLevelScoreHistoryEntry({
@@ -194,9 +217,11 @@ class DmtLevelScoreHistoryEntry {
       id: int.tryParse(json['id']?.toString() ?? '') ?? 0,
       scoreDate: json['score_date']?.toString().trim() ?? '',
       scoreDateFormatted: json['score_date_formatted']?.toString().trim() ?? '',
-      dailyScore: int.tryParse(json['daily_score']?.toString() ?? '') ?? 0,
-      levelCumulativeScore:
-          int.tryParse(json['level_cumulative_score']?.toString() ?? '') ?? 0,
+      dailyScore: parseDmtScoreFromKeys(json, const ['daily_score']),
+      levelCumulativeScore: parseDmtScoreFromKeys(json, const [
+        'level_cumulative_score',
+        'cumulative_score',
+      ]),
       maxScore: int.tryParse(json['max_score']?.toString() ?? '') ?? 60,
     );
   }
@@ -231,4 +256,14 @@ class DmtLevelScoreHistoryEntry {
       return scoreDate;
     }
   }
+}
+
+String _formatReturnPercent(double? value) {
+  if (value == null) return '—';
+  return '${value.toStringAsFixed(2)}%';
+}
+
+double? _parseDouble(dynamic v) {
+  if (v == null) return null;
+  return double.tryParse(v.toString());
 }

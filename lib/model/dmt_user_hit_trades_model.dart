@@ -28,6 +28,8 @@ class DmtUserHitTradesPayload {
   final int totalWins;
   final double? tradeAccuracy;
   final String tradeAccuracyText;
+  final double? totalAverageReturnPercentage;
+  final double? totalMctAverageReturnPercentage;
   final List<DmtHitTrade> trades;
 
   const DmtUserHitTradesPayload({
@@ -36,6 +38,8 @@ class DmtUserHitTradesPayload {
     this.totalWins = 0,
     this.tradeAccuracy,
     this.tradeAccuracyText = '',
+    this.totalAverageReturnPercentage,
+    this.totalMctAverageReturnPercentage,
     this.trades = const [],
   });
 
@@ -59,9 +63,24 @@ class DmtUserHitTradesPayload {
       totalWins: _parseInt(json['total_wins']),
       tradeAccuracy: _parseDouble(json['trade_accuracy']),
       tradeAccuracyText: json['trade_accuracy_text']?.toString().trim() ?? '',
+      totalAverageReturnPercentage:
+          _parseDouble(json['total_average_return_percentage']),
+      totalMctAverageReturnPercentage:
+          _parseDouble(json['total_mct_average_return_percentage']),
       trades: list,
     );
   }
+
+  String _formatReturnPercent(double? value) {
+    if (value == null) return '—';
+    return '${value.toStringAsFixed(2)}%';
+  }
+
+  String get displayTotalAverageReturn =>
+      _formatReturnPercent(totalAverageReturnPercentage);
+
+  String get displayTotalMctAverageReturn =>
+      _formatReturnPercent(totalMctAverageReturnPercentage);
 
   /// Fallback win rate when API omits accuracy fields (0–100).
   double? get computedAccuracyPercent {
@@ -112,7 +131,13 @@ class DmtHitTrade {
   final double? gttPrice;
   final String hitType;
   final double? hitPrice;
+  final double? userHitPrice;
   final double? returnPercentage;
+  final double? mctReturnPercentage;
+  final double? agentExitPrice;
+  final String agentExitAt;
+  final String gttHitAtFormatted;
+  final String userHitAtFormatted;
   final String hitAtFormatted;
   final String status;
   final String createdAtFormatted;
@@ -131,7 +156,13 @@ class DmtHitTrade {
     this.gttPrice,
     this.hitType = '',
     this.hitPrice,
+    this.userHitPrice,
     this.returnPercentage,
+    this.mctReturnPercentage,
+    this.agentExitPrice,
+    this.agentExitAt = '',
+    this.gttHitAtFormatted = '',
+    this.userHitAtFormatted = '',
     this.hitAtFormatted = '',
     this.status = '',
     this.createdAtFormatted = '',
@@ -153,8 +184,15 @@ class DmtHitTrade {
       gttPrice: _parseDouble(json['gtt_price']),
       hitType: json['hit_type']?.toString() ?? '',
       hitPrice: _parseDouble(json['hit_price']),
+      userHitPrice: _parseDouble(json['user_hit_price']),
       returnPercentage: _parseDouble(json['return_percentage']),
-      hitAtFormatted: json['hit_at_formatted']?.toString() ?? '',
+      mctReturnPercentage: _parseDouble(json['mct_return_percentage']),
+      agentExitPrice: _parseDouble(json['agent_exit_price']),
+      agentExitAt: json['agent_exit_at']?.toString().trim() ?? '',
+      gttHitAtFormatted: json['gtt_hit_at_formatted']?.toString().trim() ?? '',
+      userHitAtFormatted:
+          json['user_hit_at_formatted']?.toString().trim() ?? '',
+      hitAtFormatted: json['hit_at_formatted']?.toString().trim() ?? '',
       status: json['status']?.toString() ?? '',
       createdAtFormatted: json['created_at_formatted']?.toString() ?? '',
       trade: tradeRaw is Map
@@ -178,9 +216,42 @@ class DmtHitTrade {
     return '';
   }
 
-  String get displayHitAt => formatTradeTabDate(hitAtFormatted);
+  String get displayHitAt => formatTradeTabDate(
+        gttHitAtFormatted.isNotEmpty ? gttHitAtFormatted : hitAtFormatted,
+      );
 
   String get displayCreatedAt => formatTradeTabDate(createdAtFormatted);
+
+  String get displayExpandedTradeName {
+    final t = trade;
+    if (t != null && t.name.trim().isNotEmpty) return t.name.trim();
+    if (t != null && t.header.trim().isNotEmpty) return t.header.trim();
+    if (tradingsymbol.isNotEmpty) return tradingsymbol;
+    return displayTitle;
+  }
+
+  String get displayMyExitDetail {
+    final price = userHitPrice ?? displayHitPrice;
+    if (price == null) return '';
+    final time = userHitAtFormatted.isNotEmpty
+        ? formatTradeTabDate(userHitAtFormatted)
+        : '';
+    final priceText = _formatTradePrice(price);
+    if (time.isEmpty) return priceText;
+    return '$priceText ($time)';
+  }
+
+  String get displayMctExitDetail {
+    if (agentExitPrice == null) return '';
+    final time =
+        agentExitAt.isNotEmpty ? formatTradeTabDate(agentExitAt) : '';
+    final priceText = _formatTradePrice(agentExitPrice!);
+    if (time.isEmpty) return priceText;
+    return '$priceText ($time)';
+  }
+
+  /// Hit price shown in trade details — prefers API `user_hit_price`.
+  double? get displayHitPrice => userHitPrice ?? hitPrice;
 
   /// Return % from API, or estimated from entry → hit when API omits it.
   double? get returnPercent {
@@ -204,6 +275,11 @@ class DmtHitTrade {
     final pct = returnPercent;
     if (pct == null) return '—';
     return '${pct.toStringAsFixed(2)}%';
+  }
+
+  String get displayMctReturn {
+    if (mctReturnPercentage == null) return '—';
+    return '${mctReturnPercentage!.toStringAsFixed(2)}%';
   }
 }
 
@@ -327,4 +403,11 @@ int _parseInt(dynamic v) => int.tryParse(v?.toString() ?? '') ?? 0;
 double? _parseDouble(dynamic v) {
   if (v == null) return null;
   return double.tryParse(v.toString());
+}
+
+String _formatTradePrice(double value) {
+  if (value == value.truncateToDouble()) {
+    return value.truncate().toString();
+  }
+  return value.toStringAsFixed(2);
 }
