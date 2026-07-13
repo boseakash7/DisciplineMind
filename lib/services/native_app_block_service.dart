@@ -205,6 +205,21 @@ class NativeAppBlockService {
     }
   }
 
+  /// Temporary one-session bypass (Force Unblock). Does not remove app from block list.
+  Future<bool> forceUnblockTemporary({String? packageName}) async {
+    if (!Platform.isAndroid) return false;
+    try {
+      return (await _overlayChannel.invokeMethod<bool>('forceUnblock', {
+            if (packageName != null && packageName.isNotEmpty)
+              'package': packageName,
+          })) ??
+          false;
+    } catch (e) {
+      print('[NativeAppBlock] forceUnblockTemporary failed: $e');
+      return false;
+    }
+  }
+
   /// Unblock packages and close overlay (force unblock from overlay).
   Future<bool> unblockAndClose(List<String> packages) async {
     if (!Platform.isAndroid) return false;

@@ -187,6 +187,21 @@ class AlertHitWithButtonMessage extends ChatMessage {
   }) : super(type: ChatMessageType.alertHitWithButton);
 }
 
+bool _isSlHitType(String hitType, {String buttonType = ''}) {
+  final t = hitType.toLowerCase().trim();
+  if (t == 'lower' || t == 'sl' || t == 'stop_loss') return true;
+  final btn = buttonType.toLowerCase().trim();
+  return btn == 'sl_executed' ||
+      btn == 'sl_hit' ||
+      btn == 'stop_loss_hit' ||
+      btn == 'stop_loss_executed';
+}
+
+String _tradeExecutedButtonLabel(String hitType, String buttonType) {
+  if (_isSlHitType(hitType, buttonType: buttonType)) return 'Yes SL hit';
+  return 'Yes! Target is hit';
+}
+
 String _targetHitPriceFromPayload(Map<String, dynamic> p) {
   for (final key in ['hit_price', 'upper_price', 'gtt_price', 'price']) {
     final v = p[key];
@@ -279,8 +294,9 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         ? Map<String, dynamic>.from(payload)
         : <String, dynamic>{};
     final buttonType = (json['button_type'] ?? '').toString();
+    final hitType = (p['hit_type'] ?? '').toString();
     final buttonLabel = buttonType == 'trade_executed'
-        ? 'Yes! Target is hit'
+        ? _tradeExecutedButtonLabel(hitType, buttonType)
         : (p['button_label'] ?? p['buttonLabel'] ?? 'Trade Executed').toString();
     final tradeId = (p['trade_id'] ?? p['id'] ?? '').toString();
 

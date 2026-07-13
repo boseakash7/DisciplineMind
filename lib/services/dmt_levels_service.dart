@@ -8,9 +8,7 @@ import 'package:get/get.dart';
 
 /// Loads DMT levels and user hit-trades for the Trades tab.
 class DmtLevelsService extends GetxService {
-  static const int _fallbackTotalTrades = 120;
-  static const int _fallbackTotalWins = 97;
-  static const String _fallbackAccuracy = '80.33 %';
+  static const String _noData = '—';
 
   final RxList<DmtLevel> levels = <DmtLevel>[].obs;
   final Rxn<DmtLevel> selectedLevel = Rxn<DmtLevel>();
@@ -27,22 +25,20 @@ class DmtLevelsService extends GetxService {
 
   bool get hasLevels => levels.isNotEmpty;
 
-  /// Overview stats — API values with UI fallbacks when response not loaded.
-  int get displayTotalTrades {
+  /// Overview stats — API values, or [ _noData ] when not loaded / failed.
+  String get displayTotalTrades {
     final payload = hitTrades.value;
-    if (payload != null) return payload.totalTrades;
-    if (isLoadingTrades.value) return 0;
-    return _fallbackTotalTrades;
+    if (payload != null) return '${payload.totalTrades}';
+    return _noData;
   }
 
-  int get displayTotalWins {
+  String get displayTotalWins {
     final payload = hitTrades.value;
-    if (payload != null) return payload.totalWins;
-    if (isLoadingTrades.value) return 0;
-    return _fallbackTotalWins;
+    if (payload != null) return '${payload.totalWins}';
+    return _noData;
   }
 
-  /// From API `trade_accuracy_text` / `trade_accuracy`, else computed, else fallback.
+  /// From API `trade_accuracy_text` / `trade_accuracy`, else computed.
   String get displayTradeAccuracy {
     final payload = hitTrades.value;
     if (payload != null) {
@@ -50,8 +46,7 @@ class DmtLevelsService extends GetxService {
       if (accuracy.isNotEmpty) return accuracy;
       return '0%';
     }
-    if (isLoadingTrades.value) return '0%';
-    return _fallbackAccuracy;
+    return _noData;
   }
 
   /// 0–100 for the accuracy ring animation.
@@ -60,22 +55,19 @@ class DmtLevelsService extends GetxService {
     if (payload != null) {
       return payload.tradeAccuracyPercentValue ?? 0;
     }
-    if (isLoadingTrades.value) return 0;
-    return 80.33;
+    return 0;
   }
 
   String get displayTotalAverageReturn {
     final payload = hitTrades.value;
     if (payload != null) return payload.displayTotalAverageReturn;
-    if (isLoadingTrades.value) return '—';
-    return '—';
+    return _noData;
   }
 
   String get displayTotalMctAverageReturn {
     final payload = hitTrades.value;
     if (payload != null) return payload.displayTotalMctAverageReturn;
-    if (isLoadingTrades.value) return '—';
-    return '—';
+    return _noData;
   }
 
   List<DmtHitTrade> get displayTrades {

@@ -107,12 +107,13 @@ class _TradesScreenState extends State<TradesScreen>
   }
 
   Widget overviewCard({
-    required int totalTrades,
-    required int totalWins,
+    required String totalTrades,
+    required String totalWins,
     required String tradeAccuracy,
     required double tradeAccuracyPercent,
     required String averageReturn,
     required String mctAverageReturn,
+    bool showAccuracyRing = true,
   }) {
     return Container(
       padding: const EdgeInsets.all(14),
@@ -138,7 +139,8 @@ class _TradesScreenState extends State<TradesScreen>
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text('Trade Accuracy : $tradeAccuracy'),
-                TradeAccuracyRing(percent: tradeAccuracyPercent),
+                if (showAccuracyRing)
+                  TradeAccuracyRing(percent: tradeAccuracyPercent),
               ],
             ),
           ),
@@ -376,19 +378,52 @@ class _TradesScreenState extends State<TradesScreen>
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       const SizedBox(height: 10),
-                      Obx(
-                        () => overviewCard(
-                          totalTrades: _levelsService.displayTotalTrades,
-                          totalWins: _levelsService.displayTotalWins,
-                          tradeAccuracy: _levelsService.displayTradeAccuracy,
-                          tradeAccuracyPercent:
-                              _levelsService.displayTradeAccuracyPercent,
-                          averageReturn:
-                              _levelsService.displayTotalAverageReturn,
-                          mctAverageReturn:
-                              _levelsService.displayTotalMctAverageReturn,
-                        ),
-                      ),
+                      Obx(() {
+                        final hasData = _levelsService.hasLoadedHitTrades;
+                        final isLoading = _levelsService.isLoadingTrades.value;
+                        final err = _levelsService.tradesError.value;
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            overviewCard(
+                              totalTrades: _levelsService.displayTotalTrades,
+                              totalWins: _levelsService.displayTotalWins,
+                              tradeAccuracy:
+                                  _levelsService.displayTradeAccuracy,
+                              tradeAccuracyPercent:
+                                  _levelsService.displayTradeAccuracyPercent,
+                              averageReturn:
+                                  _levelsService.displayTotalAverageReturn,
+                              mctAverageReturn:
+                                  _levelsService.displayTotalMctAverageReturn,
+                              showAccuracyRing: hasData,
+                            ),
+                            if (!hasData && !isLoading && err != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        err,
+                                        style: TextStyle(
+                                          color: Colors.red.shade700,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                                    TextButton(
+                                      onPressed: () => _levelsService
+                                          .refreshTabData(force: true),
+                                      child: const Text('Retry'),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        );
+                      }),
                     ],
                   ),
                 ),

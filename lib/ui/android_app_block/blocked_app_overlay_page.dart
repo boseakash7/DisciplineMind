@@ -209,6 +209,23 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
     return package;
   }
 
+  Future<void> _forceUnblockTemporary() async {
+    try {
+      print('[BlockedAppOverlay] Force unblock (temporary)...');
+      final package = _blockedPackageName;
+      if (package != null &&
+          package.isNotEmpty &&
+          package != 'blocked_app') {
+        await _blockService.forceUnblockTemporary(packageName: package);
+      } else {
+        await _blockService.forceUnblockTemporary();
+      }
+      print('[BlockedAppOverlay] Temporary force unblock applied');
+    } catch (e) {
+      print('[BlockedAppOverlay] forceUnblockTemporary failed: $e');
+    }
+  }
+
   Future<void> _unblockAndClose() async {
     try {
       print('[BlockedAppOverlay] Unblocking apps...');
@@ -281,7 +298,7 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
                       ),
                       const SizedBox(height: 24),
                       ElevatedButton(
-                        onPressed: _unblockAndClose,
+                        onPressed: _forceUnblockTemporary,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white,
                           foregroundColor: Colors.black87,
