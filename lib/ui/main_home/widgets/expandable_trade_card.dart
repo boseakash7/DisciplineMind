@@ -66,7 +66,7 @@ class _ExpandableTradeCardState extends State<ExpandableTradeCard> {
 
     return RichText(
       text: TextSpan(
-        style: const TextStyle(fontSize: 12, height: 1.25),
+        style: const TextStyle(fontSize: 13, height: 1.25),
         children: [
           TextSpan(
             text: '$label - ',
@@ -129,9 +129,17 @@ class _ExpandableTradeCardState extends State<ExpandableTradeCard> {
                 padding: const EdgeInsets.all(14),
                 child: Row(
                   children: [
-                    const CircleAvatar(
+                    CircleAvatar(
                       radius: 18,
                       backgroundColor: Colors.white,
+                      child: Text(
+                        widget.title.isNotEmpty ? widget.title[0].toUpperCase() : '',
+                        style: TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(

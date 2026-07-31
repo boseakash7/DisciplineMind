@@ -73,7 +73,7 @@ class DmtUserReturnPercentagesPayload {
       ? averageReturnPercentageText
       : '${averageReturnPercentage.toStringAsFixed(2)}%';
 
-  /// Returns grouped by date (avg % per day), oldest → newest.
+  /// Returns grouped by date (sum % per day), oldest → newest.
   List<DmtDailyReturn> get returnsByDate {
     final grouped = <String, List<DmtTradeReturn>>{};
     for (final item in returns) {
@@ -94,7 +94,7 @@ class DmtUserReturnPercentagesPayload {
         DmtDailyReturn(
           date: entry.key,
           dateFormatted: trades.first.dateFormatted,
-          returnPercentage: total / trades.length,
+          returnPercentage: total,
           tradeCount: trades.length,
         ),
       );

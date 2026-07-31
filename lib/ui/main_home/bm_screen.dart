@@ -2,6 +2,7 @@ import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/model/dmt_user_levels_summary_model.dart';
 import 'package:discipline_mind/model/dmt_score_history_model.dart';
 import 'package:discipline_mind/services/dmt_user_levels_summary_service.dart';
+import 'package:discipline_mind/ui/credits/widgets/credits_header_avatar.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:timelines_plus/timelines_plus.dart';
@@ -742,16 +743,7 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
                       ),
                     ),
                   ),
-                  Row(
-                    children: const [
-                      Text(
-                        'Credits: 250',
-                        style: TextStyle(color: AppColors.primary),
-                      ),
-                      SizedBox(width: 10),
-                      CircleAvatar(radius: 12, backgroundColor: Colors.grey),
-                    ],
-                  ),
+                  const CreditsHeaderAvatar(),
                 ],
               ),
             ),

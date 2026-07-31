@@ -40,6 +40,11 @@ class AuthController extends GetxController {
       return;
     }
     if (appBlockPrefs.isSetupComplete(userId: userId)) {
+      // Cold start / auto-login: re-apply block list and start service.
+      // main() used to start the service before MethodChannel was ready, so it often never started.
+      if (Platform.isAndroid) {
+        await ensureAndroidTradingBlockRunning();
+      }
       Get.offAll(() => MainHomeScreen(initialIndex: 2));
     } else {
       Get.offAll(() => const AppBlockSettingsScreen(isFirstSetup: true));

@@ -43,7 +43,11 @@ class ApiUrl {
 
   /// Confirms user trailed the SL in the broker app (form: trade_id, user_id).
   static const String editTrade = "edit/trade";
+  static const String editGtt = "edit/gtt";
 
   /// Confirms target hit (form: trade_id, user_id, hit_price).
   static const String tradeExecuted = "trade/executed";
+
+  /// Confirms GTT was missed (form: trade_id, user_id).
+  static const String gttMissed = "gtt/missed";
 }

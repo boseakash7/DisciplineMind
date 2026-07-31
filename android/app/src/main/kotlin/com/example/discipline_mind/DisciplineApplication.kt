@@ -14,5 +14,16 @@ class DisciplineApplication : Application() {
             startInitialization(this@DisciplineApplication)
             ensureInitializationComplete(this@DisciplineApplication, null)
         }
+        // Cold start: restore blocked list and start monitor before Flutter is ready.
+        // Previously Flutter called startBlockingService before the MethodChannel existed,
+        // so first launch often never started the service.
+        try {
+            AppManager.loadBlockedApps(this)
+            if (AppManager.blockedApps.isNotEmpty()) {
+                AppManager.startBlockingService(this)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 }

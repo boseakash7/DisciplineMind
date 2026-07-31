@@ -42,27 +42,69 @@ class NotificationHandler {
   // ChatScreen reads this flag to auto-open the DMT score popup.
   static bool _dmtScoreAutoOpenPending = false;
   static String? _dmtScoreAutoOpenScoreDate;
+  static bool _tradeHitAutoOpenPending = false;
 
   static bool get dmtScoreAutoOpenPending => _dmtScoreAutoOpenPending;
 
   static String? get dmtScoreAutoOpenScoreDate => _dmtScoreAutoOpenScoreDate;
+  static bool get tradeHitAutoOpenPending => _tradeHitAutoOpenPending;
 
   static void clearDmtScoreAutoOpen() {
     _dmtScoreAutoOpenPending = false;
     _dmtScoreAutoOpenScoreDate = null;
   }
 
-  static void _maybeMarkDmtScoreAutoOpen(Map<String, dynamic> data) {
-    final type = (data['type'] ??
+  static void clearTradeHitAutoOpen() {
+    _tradeHitAutoOpenPending = false;
+  }
+
+  static String notificationTypeOf(Map<String, dynamic> data) {
+    return (data['type'] ??
             data['notification_type'] ??
+            data['event'] ??
             data['category'] ??
             '')
         .toString()
         .toLowerCase();
+  }
+
+  static void _logNotificationType({
+    required String source,
+    required Map<String, dynamic> data,
+  }) {
+    final type = notificationTypeOf(data);
+    // Keep this always visible while verifying notification click navigation.
+    debugPrint(
+      'FCM_TAP[$source] type="$type" '
+      'tradeHitPending=$_tradeHitAutoOpenPending '
+      'dmtPending=$_dmtScoreAutoOpenPending '
+      'data=$data',
+    );
+  }
+
+  static void _maybeMarkDmtScoreAutoOpen(Map<String, dynamic> data) {
+    final type = notificationTypeOf(data);
     if (type != 'dmt_score') return;
     _dmtScoreAutoOpenPending = true;
     _dmtScoreAutoOpenScoreDate =
         data['score_date']?.toString() ?? data['scoreDate']?.toString();
+  }
+
+  static void _maybeMarkTradeHitAutoOpen(Map<String, dynamic> data) {
+    final type = notificationTypeOf(data);
+    final isTradeFlag =
+        data['is_new_trade_opportunity']?.toString().toLowerCase() == 'true';
+    // Open chat for trade / trade_hit / new trade opportunity notifications.
+    if (type != 'trade' &&
+        type != 'trade_hit' &&
+        type != 'new_trade_opportunity' &&
+        !isTradeFlag) {
+      return;
+    }
+    _tradeHitAutoOpenPending = true;
+    debugPrint(
+      'FCM_TAP mark open-chat: type="$type" isTradeFlag=$isTradeFlag',
+    );
   }
 
   /// Initialize FCM and local notifications. Call from main() after Firebase.initializeApp().
@@ -123,16 +165,18 @@ class NotificationHandler {
     // Local notifications provide the payload on tap.
     try {
       final payload = response.payload;
+      debugPrint('FCM_TAP[local] rawPayload=$payload');
       if (payload != null && payload.isNotEmpty) {
         final decoded = jsonDecode(payload);
         if (decoded is Map) {
-          _maybeMarkDmtScoreAutoOpen(
-            decoded.map((k, v) => MapEntry(k.toString(), v)),
-          );
+          final data = decoded.map((k, v) => MapEntry(k.toString(), v));
+          _logNotificationType(source: 'localTap', data: data);
+          _maybeMarkDmtScoreAutoOpen(data);
+          _maybeMarkTradeHitAutoOpen(data);
         }
       }
-    } catch (_) {
-      // Ignore payload parse issues.
+    } catch (e) {
+      debugPrint('FCM_TAP[local] payload parse failed: $e');
     }
     onNotificationReceived?.call();
   }
@@ -152,7 +196,9 @@ class NotificationHandler {
     FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       _logNotificationData(source: 'onMessageOpenedApp', message: message);
+      _logNotificationType(source: 'onMessageOpenedApp', data: message.data);
       _maybeMarkDmtScoreAutoOpen(message.data);
+      _maybeMarkTradeHitAutoOpen(message.data);
       onNotificationReceived?.call();
     });
     _firebaseInited = true;
@@ -272,7 +318,9 @@ class NotificationHandler {
     ) {
       if (message != null) {
         _logNotificationData(source: 'getInitialMessage', message: message);
+        _logNotificationType(source: 'getInitialMessage', data: message.data);
         _maybeMarkDmtScoreAutoOpen(message.data);
+        _maybeMarkTradeHitAutoOpen(message.data);
         onNotificationReceived?.call();
       }
     });

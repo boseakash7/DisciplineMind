@@ -15,6 +15,18 @@ Future<bool> hasAndroidTradingBlockPermissions() async {
       p['hasUsageStatsPermission'] == true;
 }
 
+/// Re-apply selected apps + start service after login / resume.
+/// No-op if user not logged in or setup incomplete (avoids clearing block list).
+Future<void> ensureAndroidTradingBlockRunning() async {
+  if (!Platform.isAndroid) return;
+  final userId = Common.userData.value?.payload?.id?.toString();
+  if (userId == null || userId.isEmpty) return;
+  final prefs = AppBlockPreferencesService();
+  if (!prefs.isSetupComplete(userId: userId)) return;
+  if (!await hasAndroidTradingBlockPermissions()) return;
+  await applyAndroidTradingAppBlock();
+}
+
 /// Applies selected-app blocking + foreground service (Android).
 /// Same building blocks as GTT / alert flows.
 Future<void> applyAndroidTradingAppBlock() async {

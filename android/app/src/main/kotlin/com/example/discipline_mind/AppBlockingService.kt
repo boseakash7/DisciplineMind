@@ -75,13 +75,28 @@ class AppBlockingService : Service() {
     private val forceUnblockedByUser = mutableSetOf<String>()
     private var lastAllowedApp: String = ""  // blocked app we're currently allowing (no overlay)
     private var stateDecisionApp: String = ""
+    /**
+     * Tri-state lock decision for the current foreground app:
+     * - null  = UNKNOWN (in-flight / API failure) → never show overlay
+     * - true  = UNBLOCKED → allow, hide overlay
+     * - false = BLOCKED → show overlay only after confirmed API response
+     */
     private var stateDecisionUnlocked: Boolean? = null
     private var stateDecisionInFlight: Boolean = false
     /** Avoid duplicate force-unlock reports while the same blocked app stays in foreground. */
     private var forceUnlockNotifiedPackage: String = ""
+    /** Throttle UNKNOWN re-fetch so we don't spam /app/state every poll tick. */
+    private var lastStateFetchAttemptMs: Long = 0
+    private val stateRefetchCooldownMs = 2_000L
+
+    private enum class AppLockState {
+        BLOCKED,
+        UNBLOCKED,
+        UNKNOWN,
+    }
 
     private data class AppStateResult(
-        val unlocked: Boolean,
+        val state: AppLockState,
         val tradeId: String?,
     )
 
@@ -255,6 +270,24 @@ class AppBlockingService : Service() {
                         clearTemporaryAllowance(lastAllowedApp)
                     }
                 }
+                // Force Unblock / session allow — only when API has not confirmed BLOCKED.
+                foregroundApp in forceUnblockedByUser -> {
+                    temporaryUnblocked.add(foregroundApp)
+                    lastAllowedApp = foregroundApp
+                    if (overlayShowing) {
+                        currentForegroundApp = ""
+                        mainHandler.post { hideOverlay() }
+                    }
+                }
+                // Confirmed BLOCKED takes priority over a previous temporary allow.
+                foregroundApp == stateDecisionApp && stateDecisionUnlocked == false -> {
+                    temporaryUnblocked.remove(foregroundApp)
+                    if (lastAllowedApp == foregroundApp) lastAllowedApp = ""
+                    if (foregroundApp != currentForegroundApp || !overlayShowing) {
+                        currentForegroundApp = foregroundApp
+                        mainHandler.post { showOverlay(foregroundApp) }
+                    }
+                }
                 foregroundApp == stateDecisionApp && stateDecisionUnlocked == true -> {
                     temporaryUnblocked.add(foregroundApp)
                     lastAllowedApp = foregroundApp
@@ -270,12 +303,15 @@ class AppBlockingService : Service() {
                         mainHandler.post { hideOverlay() }
                     }
                 }
-                else -> {
-                    if (foregroundApp != currentForegroundApp || !overlayShowing) {
-                        currentForegroundApp = foregroundApp
-                        mainHandler.post { showOverlay(foregroundApp) }
+                // Stuck UNKNOWN while app still open → re-fetch so locked responses are not lost.
+                stateDecisionUnlocked == null && !stateDecisionInFlight -> {
+                    val now = System.currentTimeMillis()
+                    if (now - lastStateFetchAttemptMs >= stateRefetchCooldownMs) {
+                        onMonitoredAppOpened(foregroundApp)
                     }
                 }
+                // UNKNOWN / in-flight: no popup.
+                else -> Unit
             }
         }, 0, CHECK_INTERVAL_MS, TimeUnit.MILLISECONDS)
     }
@@ -297,32 +333,64 @@ class AppBlockingService : Service() {
         if (packageName in forceUnblockedByUser) return
         if (stateDecisionInFlight && stateDecisionApp == packageName) return
         stateDecisionApp = packageName
-        stateDecisionUnlocked = null
+        stateDecisionUnlocked = null // UNKNOWN until API confirms
         stateDecisionInFlight = true
+        lastStateFetchAttemptMs = System.currentTimeMillis()
         executor.execute {
             val userId = AppManager.loadUserIdForOverlay(applicationContext)
-            val state = if (userId != null) fetchAppState(userId) else AppStateResult(false, null)
-            if (!state.unlocked && !state.tradeId.isNullOrBlank() && userId != null) {
+            // Missing userId → UNKNOWN (no popup), not blocked.
+            val state = if (userId != null) {
+                fetchAppState(userId)
+            } else {
+                AppStateResult(AppLockState.UNKNOWN, null)
+            }
+            if (state.state == AppLockState.BLOCKED &&
+                !state.tradeId.isNullOrBlank() &&
+                userId != null
+            ) {
                 reportLockedAppOpen(userId, state.tradeId, packageName)
             }
             mainHandler.post {
-                if (lastObservedForegroundApp != packageName) {
+                // Always store the API decision for this package, even if UsageStats
+                // briefly flickered away — otherwise locked is lost and never re-applied.
+                if (stateDecisionApp != packageName) {
                     stateDecisionInFlight = false
                     return@post
                 }
-                stateDecisionUnlocked =
-                    if (packageName in forceUnblockedByUser) true else state.unlocked
+                stateDecisionUnlocked = when {
+                    packageName in forceUnblockedByUser -> true
+                    state.state == AppLockState.UNBLOCKED -> true
+                    state.state == AppLockState.BLOCKED -> false
+                    else -> null // UNKNOWN — do not show overlay
+                }
                 stateDecisionInFlight = false
-                if (state.unlocked) {
-                    temporaryUnblocked.add(packageName)
-                    lastAllowedApp = packageName
-                    if (overlayShowing) {
-                        currentForegroundApp = ""
-                        hideOverlay()
+
+                val stillForeground = lastObservedForegroundApp == packageName
+                when (stateDecisionUnlocked) {
+                    true -> {
+                        temporaryUnblocked.add(packageName)
+                        lastAllowedApp = packageName
+                        if (overlayShowing) {
+                            currentForegroundApp = ""
+                            hideOverlay()
+                        }
                     }
-                } else if (packageName !in forceUnblockedByUser) {
-                    temporaryUnblocked.remove(packageName)
-                    if (lastAllowedApp == packageName) lastAllowedApp = ""
+                    false -> {
+                        if (packageName !in forceUnblockedByUser) {
+                            temporaryUnblocked.remove(packageName)
+                            if (lastAllowedApp == packageName) lastAllowedApp = ""
+                            // Show only after confirmed BLOCKED, and only if still on screen.
+                            if (stillForeground &&
+                                (!overlayShowing || currentForegroundApp != packageName)
+                            ) {
+                                currentForegroundApp = packageName
+                                showOverlay(packageName)
+                            }
+                        }
+                    }
+                    null -> {
+                        // UNKNOWN: leave allowance unchanged; never show overlay.
+                    }
                 }
             }
         }
@@ -507,7 +575,7 @@ class AppBlockingService : Service() {
                 if (forceUnlockNotifiedPackage == packageName) return@execute
             }
             val state = fetchAppState(userId)
-            if (!state.unlocked && !state.tradeId.isNullOrBlank()) {
+            if (state.state == AppLockState.BLOCKED && !state.tradeId.isNullOrBlank()) {
                 reportLockedAppOpen(userId, state.tradeId, packageName)
             }
         }
@@ -535,7 +603,8 @@ class AppBlockingService : Service() {
             conn.outputStream.use { os ->
                 os.write("user_id=${java.net.URLEncoder.encode(userId, "UTF-8")}".toByteArray())
             }
-            if (conn.responseCode != 200) return AppStateResult(false, null)
+            // Non-200 / parse issues → UNKNOWN (no popup), not blocked.
+            if (conn.responseCode != 200) return AppStateResult(AppLockState.UNKNOWN, null)
             var body = conn.inputStream.bufferedReader().readText().trim()
             conn.disconnect()
             val jsonStart = body.indexOf('{')
@@ -544,10 +613,22 @@ class AppBlockingService : Service() {
             val payload = json.optJSONObject("payload")
             val state = (payload?.optString("state", "") ?: "").lowercase()
             val tradeId = parseTradeId(payload)
-            return AppStateResult(unlocked = state == "unlocked", tradeId = tradeId)
+            return when (state) {
+                "unlocked" -> AppStateResult(AppLockState.UNBLOCKED, tradeId)
+                "locked" -> AppStateResult(AppLockState.BLOCKED, tradeId)
+                else -> {
+                    // Confirmed response with non-empty state that isn't unlocked → blocked.
+                    // Empty/missing state → UNKNOWN (avoid false popup).
+                    if (state.isNotEmpty()) {
+                        AppStateResult(AppLockState.BLOCKED, tradeId)
+                    } else {
+                        AppStateResult(AppLockState.UNKNOWN, tradeId)
+                    }
+                }
+            }
         } catch (e: Exception) {
             e.printStackTrace()
-            return AppStateResult(false, null)
+            return AppStateResult(AppLockState.UNKNOWN, null)
         }
     }
 

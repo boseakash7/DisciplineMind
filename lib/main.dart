@@ -7,7 +7,6 @@ import 'package:discipline_mind/controller/chat_controller.dart';
 import 'package:discipline_mind/firebase_options.dart';
 import 'package:discipline_mind/services/app_data_refresh_service.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
-import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:discipline_mind/ui/onboarding/post_login_trading_block_screen.dart';
 import 'package:discipline_mind/ui/android_app_block/blocked_app_overlay_page.dart';
@@ -63,11 +62,22 @@ void _refreshUserAlertsOnNotification({int attempt = 0}) {
       ? Get.find<ChatController>()
       : Get.put(ChatController(), permanent: true);
 
-  // If this notification was a DMT score tap/open, ensure we land on Chat tab.
-  if (NotificationHandler.dmtScoreAutoOpenPending) {
+  // If this notification was a DMT score or trade hit tap/open, ensure we land on Chat tab.
+  final openChat = NotificationHandler.dmtScoreAutoOpenPending ||
+      NotificationHandler.tradeHitAutoOpenPending;
+  debugPrint(
+    'FCM_NAV openChat=$openChat '
+    'dmt=${NotificationHandler.dmtScoreAutoOpenPending} '
+    'tradeHit=${NotificationHandler.tradeHitAutoOpenPending}',
+  );
+  if (openChat) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      debugPrint('FCM_NAV navigating to Chat tab (index 2)');
       Get.offAll(() => MainHomeScreen(initialIndex: 2));
     });
+    if (NotificationHandler.tradeHitAutoOpenPending) {
+      NotificationHandler.clearTradeHitAutoOpen();
+    }
     // Also refresh chat after navigation.
     Future.delayed(const Duration(milliseconds: 350), () {
       chatController.loadNewMessages(silent: true);
@@ -142,13 +152,8 @@ Future<void> main() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await GetStorage.init();
 
-  if (Platform.isAndroid) {
-    final blockService = NativeAppBlockService();
-    final blocked = await blockService.getBlockedApps();
-    if (blocked.isNotEmpty) {
-      await blockService.startBlockingService();
-    }
-  }
+  // Do NOT start AppBlockingService here — MethodChannel is not ready before runApp().
+  // Service is started from DisciplineApplication (native) + ensureAndroidTradingBlockRunning after login.
 
   // Register callback as early as possible so notification open events
   // (especially from killed state) don't miss the handler.
@@ -191,6 +196,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       _onAppResumed();
       _enforceAndroidTradingPermissionsIfLoggedIn();
+      // Ensure block service is running after resume / first frame channel ready.
+      unawaited(ensureAndroidTradingBlockRunning());
       _refreshDataOnAppResumed();
     }
   }

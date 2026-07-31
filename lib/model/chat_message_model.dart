@@ -74,6 +74,10 @@ class NewTradeOpportunityMessage extends ChatMessage {
   final String tradeId; // ID of the trade
   /// Previous SL value from payload key `old_stop_loss_history` (edit flow).
   final String oldStopLoss;
+  /// Previous TP value from payload key `old_take_profit_history` (edit flow).
+  final String oldTakeProfit;
+  /// Previous entry from `old_entry_price_history` (GTT edit flow).
+  final String oldEntryPrice;
   /// Outer API `message` when [entity_type] is trade (e.g. instructions).
   final String apiMessage;
 
@@ -83,6 +87,14 @@ class NewTradeOpportunityMessage extends ChatMessage {
   final String tradeName;
   /// Preferred trade card subtitle from payload `symbol`.
   final String tradeSymbol;
+  /// Server timestamp for the message (ISO-8601). Used for 120s countdown.
+  final String timestamp;
+  /// Outer API `entry_changed` — user may edit Entry when true (GTT edit).
+  final bool entryChanged;
+  /// Outer API `sl_changed` — user may edit SL when true.
+  final bool slChanged;
+  /// Outer API `tp_changed` — user may edit Target when true.
+  final bool tpChanged;
 
   const NewTradeOpportunityMessage({
     required this.analystInfo,
@@ -99,14 +111,60 @@ class NewTradeOpportunityMessage extends ChatMessage {
     this.exchange = '',
     this.tradeId = '',
     this.oldStopLoss = '',
+    this.oldTakeProfit = '',
+    this.oldEntryPrice = '',
     this.apiMessage = '',
     this.buttonType = '',
     this.tradeName = '',
     this.tradeSymbol = '',
+    this.timestamp = '',
+    this.entryChanged = false,
+    this.slChanged = true,
+    this.tpChanged = true,
     super.messageId,
     super.isUnread,
     super.actionTaken,
   }) : super(type: ChatMessageType.newTradeOpportunity);
+
+  bool get isGttEdit =>
+      buttonType == 'edit_gtt_button' ||
+      action.toLowerCase() == 'editgtt';
+
+  String get levelsEditCardTitle {
+    if (isGttEdit) return 'GTT Edited';
+    if (slChanged && tpChanged) return 'Levels Edited';
+    if (slChanged) return 'SL Edited';
+    if (tpChanged) return 'Target Edited';
+    return 'Levels Edited';
+  }
+
+  String get levelsEditStepLabel {
+    if (isGttEdit) {
+      return '2. Intimate me once you update the GTT';
+    }
+    if (slChanged && tpChanged) {
+      return '2. Intimate me once you update the levels';
+    }
+    if (slChanged) return '2. Intimate me once you update the SL';
+    if (tpChanged) return '2. Intimate me once you update the Target';
+    return '2. Intimate me once you update the levels';
+  }
+
+  String get levelsEditButtonLabel {
+    if (isGttEdit) return 'GTT Edit';
+    if (slChanged && tpChanged) return 'Levels Updated';
+    if (slChanged) return 'SL Updated';
+    if (tpChanged) return 'Target Updated';
+    return 'Levels Updated';
+  }
+
+  String get levelsEditDialogTitle {
+    if (isGttEdit) return 'Update GTT';
+    if (slChanged && tpChanged) return 'Update Levels';
+    if (slChanged) return 'Update Stop Loss';
+    if (tpChanged) return 'Update Target';
+    return 'Update Levels';
+  }
 }
 
 /// Trade Executed - unlocks trading apps, button is display-only
@@ -168,15 +226,19 @@ class AlertHitWithButtonMessage extends ChatMessage {
   final String text;
   final String buttonLabel;
   final String buttonType;
+  final String hitType;
   final String tradeId;
   final bool isGttHit;
   final String targetHitPrice;
   final NewTradeOpportunityMessage? tradeData;
 
+  bool get isSlHit => _isSlHitType(hitType, buttonType: buttonType);
+
   const AlertHitWithButtonMessage({
     required this.text,
     this.buttonLabel = 'Trade Executed',
     this.buttonType = '',
+    this.hitType = '',
     this.tradeId = '',
     this.isGttHit = false,
     this.targetHitPrice = '',
@@ -203,7 +265,7 @@ String _tradeExecutedButtonLabel(String hitType, String buttonType) {
 }
 
 String _targetHitPriceFromPayload(Map<String, dynamic> p) {
-  for (final key in ['hit_price', 'upper_price', 'gtt_price', 'price']) {
+  for (final key in ['upper_price', 'hit_price', 'gtt_price', 'price']) {
     final v = p[key];
     if (v != null && v.toString().trim().isNotEmpty) {
       return v.toString().trim();
@@ -233,6 +295,17 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
   final isUnread = status == 'unread';
   final buttonTypeOuter = (json['button_type'] ?? '').toString();
   final actionTaken = json['action_taken'];
+  final outerTimestamp = (json['timestamp'] ?? '').toString();
+  // Missing flags default so older edit messages still show expected fields.
+  final entryChanged = json.containsKey('entry_changed')
+      ? _parseBoolFlag(json['entry_changed'])
+      : false;
+  final slChanged = json.containsKey('sl_changed')
+      ? _parseBoolFlag(json['sl_changed'])
+      : true;
+  final tpChanged = json.containsKey('tp_changed')
+      ? _parseBoolFlag(json['tp_changed'])
+      : true;
   final payload = json['payload'];
   final payloadMap = payload is Map<String, dynamic>
       ? payload
@@ -312,7 +385,15 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       final stopLoss = (tp['stop_loss'] ?? '').toString();
       final takeProfit = (tp['take_profit'] ?? '').toString();
       final currentPrice = (tp['current_price'] ?? '').toString();
-      final oldStopLoss = (tp['old_stop_loss_history'] ?? '').toString();
+      final oldStopLoss = (tp['old_stop_loss_history'] ??
+              tp['gtt_old_stop_loss_history'] ??
+              '')
+          .toString();
+      final oldTakeProfit = (tp['old_take_profit_history'] ??
+              tp['gtt_old_take_profit_history'] ??
+              '')
+          .toString();
+      final oldEntryPrice = (tp['old_entry_price_history'] ?? '').toString();
       final action = (tp['action'] ?? '').toString();
       final tradeId =
           (p['trade_id'] ?? tp['trade_id'] ?? tp['id'] ?? tp['trade_uid'] ?? '')
@@ -338,10 +419,16 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         exchange: exchange,
         tradeId: tradeId,
         oldStopLoss: oldStopLoss,
+        oldTakeProfit: oldTakeProfit,
+        oldEntryPrice: oldEntryPrice,
         apiMessage: message.trim(),
         buttonType: buttonTypeOuter,
         tradeName: name,
         tradeSymbol: symbol,
+        timestamp: (tp['timestamp'] ?? outerTimestamp).toString(),
+        entryChanged: entryChanged,
+        slChanged: slChanged,
+        tpChanged: tpChanged,
         messageId: messageId,
         isUnread: isUnread,
         actionTaken: actionTaken,
@@ -353,6 +440,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         text: message.isNotEmpty ? message : 'Your alert has been triggered.',
         buttonLabel: buttonLabel,
         buttonType: buttonType,
+        hitType: hitType,
         tradeId: tradeId,
         isGttHit: isGttHit,
         targetHitPrice: _targetHitPriceFromPayload(p),
@@ -375,7 +463,15 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
     final stopLoss = (p['stop_loss'] ?? '').toString();
     final takeProfit = (p['take_profit'] ?? '').toString();
     final currentPrice = (p['current_price'] ?? '').toString();
-    final oldStopLoss = (p['old_stop_loss_history'] ?? '').toString();
+    final oldStopLoss = (p['old_stop_loss_history'] ??
+            p['gtt_old_stop_loss_history'] ??
+            '')
+        .toString();
+    final oldTakeProfit = (p['old_take_profit_history'] ??
+            p['gtt_old_take_profit_history'] ??
+            '')
+        .toString();
+    final oldEntryPrice = (p['old_entry_price_history'] ?? '').toString();
     final action = (p['action'] ?? '').toString();
     final tradeId = (p['trade_id'] ?? p['id'] ?? p['trade_uid'] ?? '')
         .toString();
@@ -385,6 +481,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
     final apiMessage = message.trim();
 
     final parsed = <ChatMessage>[];
+    final tradeTimestamp = (p['timestamp'] ?? outerTimestamp).toString();
     final tradeMessage = NewTradeOpportunityMessage(
       analystInfo: analystFromPayload.isNotEmpty
           ? analystFromPayload
@@ -400,10 +497,16 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       exchange: exchange,
       tradeId: tradeId,
       oldStopLoss: oldStopLoss,
+      oldTakeProfit: oldTakeProfit,
+      oldEntryPrice: oldEntryPrice,
       apiMessage: apiMessage,
       buttonType: buttonTypeOuter,
       tradeName: name,
       tradeSymbol: symbol,
+      timestamp: tradeTimestamp,
+      entryChanged: entryChanged,
+      slChanged: slChanged,
+      tpChanged: tpChanged,
       messageId: messageId,
       isUnread: isUnread,
       actionTaken: actionTaken,
@@ -433,9 +536,16 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
   ];
 }
 
+bool _parseBoolFlag(dynamic value) {
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  final s = value?.toString().toLowerCase().trim() ?? '';
+  return s == 'true' || s == '1' || s == 'yes';
+}
+
 bool _isTradePromptAction(String action) {
   final a = action.toLowerCase();
-  // Edit flow has its own dedicated UI (edit_button), so avoid generic prompt.
+  // Edit flows have dedicated UI (edit_button / edit_gtt_button).
   return a == 'add' || a == 'update';
 }
 

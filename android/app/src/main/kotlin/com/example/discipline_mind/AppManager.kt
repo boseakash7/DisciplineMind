@@ -68,7 +68,14 @@ object AppManager {
 
     fun isAppBlocked(packageName: String): Boolean = blockedApps.contains(packageName)
 
+    fun isAppBlocked(context: Context, packageName: String): Boolean {
+        loadBlockedApps(context)
+        return blockedApps.contains(packageName)
+    }
+
     fun startBlockingService(context: Context) {
+        loadBlockedApps(context)
+        if (blockedApps.isEmpty()) return
         val intent = Intent(context, AppBlockingService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(intent)
@@ -83,6 +90,11 @@ object AppManager {
     }
 
     fun getBlockedAppsList(): List<String> = blockedApps.toList()
+
+    fun getBlockedAppsList(context: Context): List<String> {
+        loadBlockedApps(context)
+        return blockedApps.toList()
+    }
 
     fun saveMonitoredTradingApps(context: Context, packages: List<String>) {
         val cleaned = packages

@@ -70,7 +70,17 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
     ];
 
     return Scaffold(
-      body: IndexedStack(index: currentIndex, children: screens),
+      body: GestureDetector(
+        onHorizontalDragEnd: (details) {
+          if (details.primaryVelocity == null) return;
+          if (details.primaryVelocity! < -300 && currentIndex < 4) {
+            _onTabSelected(currentIndex + 1);
+          } else if (details.primaryVelocity! > 300 && currentIndex > 0) {
+            _onTabSelected(currentIndex - 1);
+          }
+        },
+        child: IndexedStack(index: currentIndex, children: screens),
+      ),
 
       bottomNavigationBar: SizedBox(
         height: navBarHeight + fabSize / 2 + bottomInset,

@@ -22,6 +22,8 @@ class ChatController extends GetxController {
   final isLoading = false.obs;
   final isRefreshing = false.obs;
   final hasMoreOlderMessages = true.obs;
+  /// True when the last full load failed (e.g. no internet).
+  final loadFailed = false.obs;
 
   List<String> _selectedBlockedPackages() {
     final userId = Common.userData.value?.payload?.id?.toString();
@@ -139,10 +141,16 @@ class ChatController extends GetxController {
           exchange: x.exchange,
           tradeId: x.tradeId,
           oldStopLoss: x.oldStopLoss,
+          oldTakeProfit: x.oldTakeProfit,
+          oldEntryPrice: x.oldEntryPrice,
           apiMessage: x.apiMessage,
           buttonType: x.buttonType,
           tradeName: x.tradeName,
           tradeSymbol: x.tradeSymbol,
+          timestamp: x.timestamp,
+          entryChanged: x.entryChanged,
+          slChanged: x.slChanged,
+          tpChanged: x.tpChanged,
           messageId: x.messageId,
           isUnread: x.isUnread,
           actionTaken: actionTaken,
@@ -171,6 +179,7 @@ class ChatController extends GetxController {
           text: x.text,
           buttonLabel: x.buttonLabel,
           buttonType: x.buttonType,
+          hitType: x.hitType,
           tradeId: x.tradeId,
           isGttHit: x.isGttHit,
           targetHitPrice: x.targetHitPrice,
@@ -213,6 +222,7 @@ class ChatController extends GetxController {
       } else {
         isLoading.value = true;
       }
+      loadFailed.value = false;
     }
 
     try {
@@ -229,16 +239,21 @@ class ChatController extends GetxController {
         final display = _parseDisplayMessages(payload);
         messages.assignAll(display);
         hasMoreOlderMessages.value = true;
+        loadFailed.value = false;
       } else {
-        if (!refresh) {
-          _loadSampleMessages();
+        if (!refresh && !silent) {
+          messages.clear();
+          loadFailed.value = true;
         }
-        if (response.errorMessage != null) {
+        if (response.errorMessage != null && !silent) {
           AppToast.showToast(response.errorMessage!);
         }
       }
     } catch (e) {
-      if (!refresh && !silent) _loadSampleMessages();
+      if (!refresh && !silent) {
+        messages.clear();
+        loadFailed.value = true;
+      }
       if (!silent) AppToast.showError(e);
     } finally {
       if (!silent) {
@@ -368,15 +383,6 @@ class ChatController extends GetxController {
       if (m.tradeId.isEmpty) return true;
       return !openAppDeleteTradeIds.contains(m.tradeId);
     }).toList();
-  }
-
-  void _loadSampleMessages() {
-    messages.assignAll([
-      const SimpleTextMessage(text: 'Hello'),
-      const SimpleTextMessage(text: 'I am Monkk AI Agent.'),
-      const SimpleTextMessage(text: 'Hi', isFromUser: true),
-      const SimpleTextMessage(text: 'Hi'),
-    ]);
   }
 
   void addMessage(ChatMessage msg) {
@@ -652,10 +658,13 @@ class ChatController extends GetxController {
     }
   }
 
-  /// POST `edit/trade` (trade_id + user_id) after user taps SL Trailed.
+  /// POST `edit/trade` (levels) or `edit/gtt` (GTT edit) after user confirms.
+  /// Fields: `trade_id`, `user_id`, optional `new_entry`, `new_sl`, `new_tp`.
   Future<void> acknowledgeSlTrailed(
     NewTradeOpportunityMessage msg, {
+    String? newEntry,
     String? newSl,
+    String? newTarget,
   }) async {
     final userId = Common.userData.value?.payload?.id?.toString();
     if (userId == null || userId.isEmpty) {
@@ -674,23 +683,68 @@ class ChatController extends GetxController {
         'trade_id': msg.tradeId,
         'user_id': userId,
       };
-      final trimmed = (newSl ?? '').trim();
-      if (trimmed.isNotEmpty) {
-        fields['new_sl'] = trimmed;
+      final trimmedEntry = (newEntry ?? '').trim();
+      if (trimmedEntry.isNotEmpty) {
+        fields['new_entry'] = trimmedEntry;
       }
-      final response = await api.postFormData(ApiUrl.editTrade, fields);
+      final trimmedSl = (newSl ?? '').trim();
+      if (trimmedSl.isNotEmpty) {
+        fields['new_sl'] = trimmedSl;
+      }
+      final trimmedTarget = (newTarget ?? '').trim();
+      if (trimmedTarget.isNotEmpty) {
+        fields['new_tp'] = trimmedTarget;
+      }
+      final endpoint = msg.isGttEdit ? ApiUrl.editGtt : ApiUrl.editTrade;
+      final response = await api.postFormData(endpoint, fields);
       if (response.isSuccess) {
         await _applyTradingAppBlock(userId);
-        AppToast.showToast('SL trailed');
+        AppToast.showToast(
+          msg.isGttEdit ? 'GTT updated' : 'Levels updated',
+        );
         await loadMessages(refresh: true);
       } else {
         AppToast.showToast(
-          response.errorMessage ?? 'Could not record SL trail confirmation',
+          response.errorMessage ?? 'Could not record update confirmation',
         );
       }
     } catch (e) {
       AppToast.showError(e);
       print('[ChatController] acknowledgeSlTrailed failed: $e');
+    }
+  }
+
+  /// POST `gtt/missed` (trade_id + user_id) after user taps GTT Missed.
+  Future<void> acknowledgeGttMissed(AlertHitWithButtonMessage msg) async {
+    final userId = Common.userData.value?.payload?.id?.toString();
+    if (userId == null || userId.isEmpty) {
+      AppToast.showToast('Please sign in to confirm');
+      return;
+    }
+    if (msg.tradeId.isEmpty) {
+      AppToast.showToast('Missing trade id');
+      return;
+    }
+    try {
+      final api = Get.isRegistered<ApiService>()
+          ? Get.find<ApiService>()
+          : Get.put(ApiService(), permanent: true);
+      final response = await api.postFormData(ApiUrl.gttMissed, {
+        'trade_id': msg.tradeId,
+        'user_id': userId,
+      });
+      if (response.isSuccess) {
+        await _applyTradingAppBlock(userId);
+        AppToast.showToast('GTT marked as missed');
+        await loadMessages(refresh: true);
+      } else {
+        AppToast.showToast(
+          response.errorMessage ?? 'Could not record GTT missed',
+        );
+      }
+    } catch (e) {
+      AppToast.showError(e);
+      print('[ChatController] acknowledgeGttMissed failed: $e');
     }
   }
 
@@ -828,6 +882,159 @@ class ChatController extends GetxController {
     } catch (e) {
       print('[ChatController] openTradingApp failed: $e');
     }
+  }
+
+  /// Set of trade IDs whose 120s window has expired.
+  final expiredTradeIds = <String>{}.obs;
+
+  static const waitingForTradeRecommendation =
+      'Waiting for Trade Recommendation';
+  static const waitingForApplyGtt =
+      'Waiting for your Action to Apply GTT';
+  static const monitoringSetPrice = 'Monitoring the set Price';
+  static const waitingForApplySlTarget =
+      'Waiting for your Action to Apply SL and Target';
+  static const monitoringSlTarget = 'Monitoring SL and Target levels';
+  static const waitingForEditLevels =
+      'Waiting for your Action to Edit the levels';
+  static const waitingForConfirmHit =
+      'Waiting for your Action to confirm the hit';
+  static const waitingForNextOpportunity =
+      'Waiting for the next Opportunity from the Analyst';
+
+  /// Derives the next-expected waiting status from the latest chat state.
+  String get waitingStatusText {
+    // Touch obs so Obx rebuilds when expiry set changes.
+    // ignore: unused_local_variable
+    final _ = expiredTradeIds.length;
+    return deriveWaitingStatus(messages);
+  }
+
+  /// Subtitle label for the waiting bubble (matches who/what is being waited on).
+  String get waitingStatusSubtitle {
+    final text = waitingStatusText;
+    if (text == waitingForApplyGtt ||
+        text == waitingForApplySlTarget ||
+        text == waitingForEditLevels ||
+        text == waitingForConfirmHit ||
+        text.contains('confirm SL is hit') ||
+        text.contains('confirm Target is hit')) {
+      return 'Waiting for your action';
+    }
+    if (text == monitoringSetPrice || text == monitoringSlTarget) {
+      return 'Monkk is monitoring';
+    }
+    if (text == waitingForNextOpportunity ||
+        text == waitingForTradeRecommendation) {
+      return 'Monkk is waiting';
+    }
+    return 'Monkk is waiting';
+  }
+
+  String deriveWaitingStatus(List<ChatMessage> list) {
+    if (list.isEmpty) return waitingForTradeRecommendation;
+
+    // Newest → oldest: first matching trade/alert state wins.
+    for (var i = list.length - 1; i >= 0; i--) {
+      final msg = list[i];
+
+      if (msg is AlertHitWithButtonMessage) {
+        final btn = msg.buttonType.toLowerCase().trim();
+        final isHitConfirm = btn == 'trade_executed' ||
+            btn == 'sl_executed' ||
+            btn == 'sl_hit' ||
+            btn == 'stop_loss_hit' ||
+            btn == 'stop_loss_executed';
+        if (isHitConfirm) {
+          // User must confirm hit first; only then wait for next opportunity.
+          if (msg.actionTaken == null) {
+            return msg.isSlHit
+                ? 'Waiting for your Action to confirm SL is hit'
+                : 'Waiting for your Action to confirm Target is hit';
+          }
+          return waitingForNextOpportunity;
+        }
+        if (msg.isGttHit) {
+          return msg.actionTaken == null
+              ? waitingForApplySlTarget
+              : monitoringSlTarget;
+        }
+      }
+
+      if (msg is NewTradeOpportunityMessage) {
+        final action = msg.action.toLowerCase().trim();
+        final btn = msg.buttonType.toLowerCase().trim();
+
+        if (btn == 'edit_button' ||
+            btn == 'edit_gtt_button' ||
+            action == 'edit' ||
+            action == 'editgtt') {
+          return msg.actionTaken == null
+              ? waitingForEditLevels
+              : monitoringSlTarget;
+        }
+
+        if (action == 'delete') {
+          // After delete flow, wait for next recommendation unless still pending.
+          return msg.actionTaken == null
+              ? waitingForTradeRecommendation
+              : waitingForTradeRecommendation;
+        }
+
+        if (action == 'add' || action == 'update') {
+          if (isTradeExpired(msg) && msg.actionTaken == null) {
+            return waitingForTradeRecommendation;
+          }
+          return msg.actionTaken == null
+              ? waitingForApplyGtt
+              : monitoringSetPrice;
+        }
+      }
+
+      if (msg is TradeExecutionPromptMessage) {
+        final trade = msg.tradeData;
+        if (isTradeExpired(trade) && msg.actionTaken == null) {
+          return waitingForTradeRecommendation;
+        }
+        return msg.actionTaken == null
+            ? waitingForApplyGtt
+            : monitoringSetPrice;
+      }
+
+      if (msg is TradeExecutedMessage) {
+        return msg.actionTaken == null
+            ? waitingForApplyGtt
+            : monitoringSetPrice;
+      }
+    }
+
+    return waitingForTradeRecommendation;
+  }
+
+  /// Called when 120s countdown expires for a trade. Marks it expired and
+  /// appends the FOMO deletion message.
+  void onTradeCountdownExpired(NewTradeOpportunityMessage msg) {
+    final id = msg.tradeId.trim();
+    if (id.isNotEmpty && expiredTradeIds.contains(id)) return;
+    if (id.isNotEmpty) expiredTradeIds.add(id);
+    // Force Obx rebuild by refreshing the messages list.
+    messages.refresh();
+  }
+
+  /// Whether a trade's 120s window has expired.
+  bool isTradeExpired(NewTradeOpportunityMessage msg) {
+    final id = msg.tradeId.trim();
+    if (id.isNotEmpty && expiredTradeIds.contains(id)) return true;
+    return _isTimestampExpired(msg.timestamp);
+  }
+
+  bool _isTimestampExpired(String timestamp) {
+    if (timestamp.isEmpty) return false;
+    final parsed = DateTime.tryParse(timestamp);
+    if (parsed == null) return false;
+    final now = DateTime.now().toUtc();
+    final msgTime = parsed.toUtc();
+    return now.difference(msgTime).inSeconds >= 120;
   }
 
   /// Called when Trade Executed message is received. Unlocks trading apps.

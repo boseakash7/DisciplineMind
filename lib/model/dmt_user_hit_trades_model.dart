@@ -203,6 +203,7 @@ class DmtHitTrade {
 
   String get displayTitle {
     final t = trade;
+    if (t != null && t.name.trim().isNotEmpty) return t.name.trim();
     if (t != null && t.header.isNotEmpty) return t.header;
     if (tradingsymbol.isNotEmpty) return tradingsymbol;
     return 'Trade';

@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/controller/chat_controller.dart';
 import 'package:discipline_mind/model/chat_message_model.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
+import 'package:discipline_mind/ui/credits/widgets/credits_header_avatar.dart';
 import 'package:discipline_mind/ui/main_home/widgets/dmt_score_popup.dart';
+import 'package:discipline_mind/ui/widgets/ai_waiting_status_bubble.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -78,6 +82,16 @@ class _ChatScreenState extends State<ChatScreen> {
     _textController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  bool _hasUnreadRevealInProgress(List<ChatMessage> list) {
+    for (final msg in list) {
+      if (!msg.isUnread) continue;
+      final id = msg.messageId.trim();
+      if (id.isEmpty) continue;
+      if (!_revealedUnreadMessageIds.contains(id)) return true;
+    }
+    return false;
   }
 
   bool _isNearBottom() {
@@ -361,29 +375,97 @@ class _ChatScreenState extends State<ChatScreen> {
                       });
                     }
                   }
-                  return controller.messages.isEmpty
-                      ? ListView(
-                          controller: _scrollController,
-                          children: const [
-                            SizedBox(
-                              height: 420,
-                              child: Center(
-                                child: Text(
-                                  'No messages yet.',
-                                  textAlign: TextAlign.center,
+                  if (controller.messages.isEmpty) {
+                    if (controller.loadFailed.value) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 32),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.wifi_off_rounded,
+                                size: 48,
+                                color: Colors.grey.shade500,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'Failed to load messages',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey.shade800,
                                 ),
                               ),
-                            ),
-                          ],
-                        )
-                      : ListView.builder(
+                              const SizedBox(height: 8),
+                              Text(
+                                'Check your internet connection and try again.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+                              ElevatedButton(
+                                onPressed: () => controller.loadMessages(),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.primary,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 28,
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                child: const Text(
+                                  'Retry',
+                                  style: TextStyle(fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                    return ListView(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      children: [
+                        AiWaitingStatusBubble(
+                          text: controller.waitingStatusText,
+                          subtitle: controller.waitingStatusSubtitle,
+                        ),
+                      ],
+                    );
+                  }
+                  final showWaiting =
+                      !_hasUnreadRevealInProgress(controller.messages);
+                  return ListView.builder(
                           controller: _scrollController,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 12,
                             vertical: 8,
                           ),
-                          itemCount: controller.messages.length,
+                          itemCount: controller.messages.length +
+                              (showWaiting ? 1 : 0),
                           itemBuilder: (_, i) {
+                            if (showWaiting &&
+                                i == controller.messages.length) {
+                              return AiWaitingStatusBubble(
+                                key: ValueKey(
+                                  'waiting_${controller.waitingStatusText}',
+                                ),
+                                text: controller.waitingStatusText,
+                                subtitle: controller.waitingStatusSubtitle,
+                              );
+                            }
                             final msg = controller.messages[i];
                             final bubble = _buildMessage(
                               context,
@@ -449,16 +531,7 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
           ),
-          Row(
-            children: [
-              const Text(
-                'Credits : 250',
-                style: TextStyle(color: AppColors.primary),
-              ),
-              const SizedBox(width: 10),
-              CircleAvatar(radius: 12, backgroundColor: Colors.grey.shade400),
-            ],
-          ),
+          const CreditsHeaderAvatar(),
         ],
       ),
     );
@@ -701,8 +774,15 @@ class _ChatScreenState extends State<ChatScreen> {
 
   bool _isDeleteTradeAction(NewTradeOpportunityMessage msg) =>
       msg.action.toLowerCase() == 'delete';
-  bool _isEditTradeAction(NewTradeOpportunityMessage msg) =>
-      msg.action.toLowerCase() == 'edit';
+  bool _isEditTradeAction(NewTradeOpportunityMessage msg) {
+    final a = msg.action.toLowerCase();
+    return a == 'edit' || a == 'editgtt';
+  }
+
+  bool _isEditTradeButton(NewTradeOpportunityMessage msg) {
+    final btn = msg.buttonType.toLowerCase();
+    return btn == 'edit_button' || btn == 'edit_gtt_button';
+  }
   bool _showButtons(ChatMessage msg) => msg.actionTaken == null;
 
   String _tradeDeleteStepLine(int n, String api, String fallback) {
@@ -747,7 +827,7 @@ class _ChatScreenState extends State<ChatScreen> {
     NewTradeOpportunityMessage msg,
     ChatController controller,
   ) {
-    if (_isEditTradeAction(msg) && msg.buttonType == 'edit_button') {
+    if (_isEditTradeAction(msg) && _isEditTradeButton(msg)) {
       return _buildTradeEditCombinedMessage(context, msg, controller);
     }
     if (_isDeleteTradeAction(msg) &&
@@ -755,6 +835,11 @@ class _ChatScreenState extends State<ChatScreen> {
             msg.buttonType == 'delete_button')) {
       return _buildTradeDeleteCombinedMessage(context, msg, controller);
     }
+
+    final isAddAction = msg.action.toLowerCase() == 'add';
+    final showCountdown = isAddAction && msg.actionTaken == null;
+    final isExpired = showCountdown && controller.isTradeExpired(msg);
+    final hideMarketPrice = msg.actionTaken != null || isExpired;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -768,9 +853,11 @@ class _ChatScreenState extends State<ChatScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  msg.apiMessage.isNotEmpty
-                      ? msg.apiMessage
-                      : 'New Trade Opportunity is spotted for you',
+                  isExpired
+                      ? 'Trade recommendation expired'
+                      : (msg.apiMessage.isNotEmpty
+                            ? msg.apiMessage
+                            : 'New Trade Opportunity is spotted for you'),
                   style: TextStyle(
                     color: Colors.grey.shade800,
                     fontSize: 14,
@@ -778,7 +865,30 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                _buildTradeOpportunityCard(msg, showInvalidOverlay: false),
+                _buildTradeOpportunityCard(
+                  msg,
+                  showInvalidOverlay: isExpired,
+                  hideMarketPrice: hideMarketPrice,
+                ),
+                if (showCountdown && !isExpired) ...[
+                  const SizedBox(height: 10),
+                  _TradeCountdownTimer(
+                    msg: msg,
+                    onExpired: () => controller.onTradeCountdownExpired(msg),
+                  ),
+                ],
+                if (isExpired) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    'Old published Trade is deleted to save your mind from FOMO.. '
+                    'There is always next Opportunity for Mind Control Traders..',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey.shade700,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -877,7 +987,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  /// Edit flow bubble: SL Edited + trade card + backend message + two buttons.
+  /// Edit flow bubble: levels edited + trade card + backend message + buttons.
   Widget _buildTradeEditCombinedMessage(
     BuildContext context,
     NewTradeOpportunityMessage msg,
@@ -895,7 +1005,9 @@ class _ChatScreenState extends State<ChatScreen> {
     );
     final backendText = msg.apiMessage.trim().isNotEmpty
         ? msg.apiMessage.trim()
-        : 'Open Trading App and Trail your SL to reduce risk.';
+        : (msg.isGttEdit
+              ? 'Open Trading App and update your pending GTT order.'
+              : 'Open Trading App and update your levels to reduce risk.');
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -911,9 +1023,13 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('SL Edited', style: titleStyle),
+                    Text(msg.levelsEditCardTitle, style: titleStyle),
                     const SizedBox(height: 8),
-                    _buildTradeOpportunityCard(msg, showInvalidOverlay: false),
+                    _buildTradeOpportunityCard(
+                      msg,
+                      showInvalidOverlay: false,
+                      hideMarketPrice: msg.actionTaken != null,
+                    ),
                   ],
                 ),
               ),
@@ -942,13 +1058,10 @@ class _ChatScreenState extends State<ChatScreen> {
                       onTap: () => _openTradingAppForMessage(msg, controller),
                     ),
                     const SizedBox(height: 14),
-                    Text(
-                      '2. Intimate me once you Trail your SL',
-                      style: stepStyle,
-                    ),
+                    Text(msg.levelsEditStepLabel, style: stepStyle),
                     const SizedBox(height: 8),
                     _tradePromptPrimaryButton(
-                      label: 'SL Trailed',
+                      label: msg.levelsEditButtonLabel,
                       enabled: _canTapFollowUpAction(msg, controller),
                       onTap: () => _showTrailSlDialog(context, msg, controller),
                     ),
@@ -965,6 +1078,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget _buildTradeOpportunityCard(
     NewTradeOpportunityMessage msg, {
     required bool showInvalidOverlay,
+    bool hideMarketPrice = false,
   }) {
     final tradeName = msg.tradeName.trim().isNotEmpty
         ? msg.tradeName.trim()
@@ -1027,10 +1141,10 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
         const SizedBox(height: 16),
-        (_isEditTradeAction(msg) && msg.buttonType == 'edit_button')
-            ? _buildTradeTimelineForEdit(msg)
-            : _buildTradeTimeline(msg),
-        if (msg.rtt.trim().isNotEmpty) ...[
+        (_isEditTradeAction(msg) && _isEditTradeButton(msg))
+            ? _buildTradeTimelineForEdit(msg, hideMarketPrice: hideMarketPrice)
+            : _buildTradeTimeline(msg, hideMarketPrice: hideMarketPrice),
+        if (!hideMarketPrice && msg.rtt.trim().isNotEmpty) ...[
           const SizedBox(height: 10),
           Align(
             alignment: Alignment.centerLeft,
@@ -1075,6 +1189,10 @@ class _ChatScreenState extends State<ChatScreen> {
     TradeExecutionPromptMessage msg,
     ChatController controller,
   ) {
+    final isExpired = controller.isTradeExpired(msg.tradeData);
+    if (isExpired && msg.actionTaken == null) {
+      return const SizedBox.shrink();
+    }
     return _buildTradeExecutedBlock(
       context,
       msg.tradeData,
@@ -1083,6 +1201,7 @@ class _ChatScreenState extends State<ChatScreen> {
       sourceMessage: msg,
     );
   }
+
 
   Widget _buildTradeExecutedBlock(
     BuildContext context,
@@ -1378,7 +1497,12 @@ class _ChatScreenState extends State<ChatScreen> {
     NewTradeOpportunityMessage msg,
     ChatController controller,
   ) {
+    final canEditEntry = msg.isGttEdit && msg.entryChanged;
+    final canEditSl = msg.slChanged;
+    final canEditTp = msg.tpChanged;
+    final entryController = TextEditingController(text: msg.entryRange);
     final slController = TextEditingController(text: msg.stopLoss);
+    final targetController = TextEditingController(text: msg.frr);
     showChatFadeDialog(
       context: context,
       builder: (ctx) => Dialog(
@@ -1402,9 +1526,9 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 ),
                 alignment: Alignment.centerLeft,
-                child: const Text(
-                  'Trail Stop Loss',
-                  style: TextStyle(
+                child: Text(
+                  msg.levelsEditDialogTitle,
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -1467,7 +1591,16 @@ class _ChatScreenState extends State<ChatScreen> {
                       ],
                     ),
                     const SizedBox(height: 18),
-                    _popupField('New Stop Loss', slController, ''),
+                    if (canEditEntry) ...[
+                      _popupField('Entry Price', entryController, ''),
+                      if (canEditSl || canEditTp) const SizedBox(height: 14),
+                    ],
+                    if (canEditSl) ...[
+                      _popupField('New Stop Loss', slController, ''),
+                      if (canEditTp) const SizedBox(height: 14),
+                    ],
+                    if (canEditTp)
+                      _popupField('Target Price', targetController, ''),
                   ],
                 ),
               ),
@@ -1477,9 +1610,16 @@ class _ChatScreenState extends State<ChatScreen> {
                   width: double.infinity,
                   child: FilledButton(
                     onPressed: () async {
-                      final v = slController.text.trim();
                       Navigator.pop(ctx);
-                      await controller.acknowledgeSlTrailed(msg, newSl: v);
+                      await controller.acknowledgeSlTrailed(
+                        msg,
+                        newEntry: canEditEntry
+                            ? entryController.text.trim()
+                            : null,
+                        newSl: canEditSl ? slController.text.trim() : null,
+                        newTarget:
+                            canEditTp ? targetController.text.trim() : null,
+                      );
                     },
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.primary,
@@ -1505,7 +1645,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildTradeTimeline(NewTradeOpportunityMessage msg) {
+  Widget _buildTradeTimeline(NewTradeOpportunityMessage msg, {bool hideMarketPrice = false}) {
     const dotRadius = 6.0;
     final labels = ['SL', 'Entry', 'Target'];
     final values = [
@@ -1535,7 +1675,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final denom = (maxV - minV).abs();
 
     final rttTrim = msg.rtt.trim();
-    final hasCurrent = rttTrim.isNotEmpty;
+    final hasCurrent = !hideMarketPrice && rttTrim.isNotEmpty;
     final currentNumeric = hasCurrent ? parseNumeric(rttTrim) : null;
 
     return LayoutBuilder(
@@ -1732,7 +1872,10 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildTradeTimelineForEdit(NewTradeOpportunityMessage msg) {
+  Widget _buildTradeTimelineForEdit(
+    NewTradeOpportunityMessage msg, {
+    bool hideMarketPrice = false,
+  }) {
     const dotRadius = 6.0;
     final labels = ['Stop Loss', 'Trail SL', 'Target'];
     final oldSl = msg.oldStopLoss.trim().isNotEmpty
@@ -1765,7 +1908,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final denom = (maxV - minV).abs();
 
     final rttTrim = msg.rtt.trim();
-    final hasCurrent = rttTrim.isNotEmpty;
+    final hasCurrent = !hideMarketPrice && rttTrim.isNotEmpty;
     final currentNumeric = hasCurrent ? parseNumeric(rttTrim) : null;
 
     return LayoutBuilder(
@@ -2184,47 +2327,35 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                   const SizedBox(height: 10),
                 ],
-                GestureDetector(
-                  onTap: _canTapFollowUpAction(msg, controller)
-                      ? () {
-                          if (msg.buttonType == 'trade_executed') {
-                            _showTargetHitConfirmDialog(
-                              context,
-                              msg,
-                              controller,
-                            );
-                          } else if (msg.isGttHit && msg.tradeData != null) {
-                            _showTradeParamsPopup(
-                              context,
-                              msg.tradeData!,
-                              controller,
-                            );
-                          } else {
-                            controller.onTradeExecuted();
-                          }
-                        }
-                      : null,
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(
-                      color: _canTapFollowUpAction(msg, controller)
-                          ? AppColors.primary
-                          : Colors.grey.shade400,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Center(
-                      child: Text(
-                        msg.buttonLabel,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 15,
-                        ),
-                      ),
-                    ),
-                  ),
+                _tradePromptPrimaryButton(
+                  label: msg.buttonLabel,
+                  enabled: _canTapFollowUpAction(msg, controller),
+                  onTap: () {
+                    if (msg.buttonType == 'trade_executed') {
+                      _showTargetHitConfirmDialog(
+                        context,
+                        msg,
+                        controller,
+                      );
+                    } else if (msg.isGttHit && msg.tradeData != null) {
+                      _showTradeParamsPopup(
+                        context,
+                        msg.tradeData!,
+                        controller,
+                      );
+                    } else {
+                      controller.onTradeExecuted();
+                    }
+                  },
                 ),
+                if (msg.isGttHit) ...[
+                  const SizedBox(height: 10),
+                  _tradePromptPrimaryButton(
+                    label: 'GTT Missed',
+                    enabled: _canTapFollowUpAction(msg, controller),
+                    onTap: () => controller.acknowledgeGttMissed(msg),
+                  ),
+                ],
               ],
             ),
           ),
@@ -2392,6 +2523,11 @@ class _TargetHitConfirmDialogState extends State<_TargetHitConfirmDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final isSlHit = widget.msg.isSlHit;
+    final title = isSlHit ? 'Confirm SL hit' : 'Confirm target hit';
+    final subtitle =
+        isSlHit ? 'SL hit on this price' : 'Target hit on this price';
+
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
@@ -2401,9 +2537,9 @@ class _TargetHitConfirmDialogState extends State<_TargetHitConfirmDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Confirm target hit',
-              style: TextStyle(
+            Text(
+              title,
+              style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
                 color: Colors.black87,
@@ -2411,7 +2547,7 @@ class _TargetHitConfirmDialogState extends State<_TargetHitConfirmDialog> {
             ),
             const SizedBox(height: 12),
             Text(
-              'Target hit on this price',
+              subtitle,
               style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
             ),
             const SizedBox(height: 16),
@@ -2654,6 +2790,100 @@ class _DottedLinePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _TradeCountdownTimer extends StatefulWidget {
+  const _TradeCountdownTimer({
+    required this.msg,
+    required this.onExpired,
+  });
+
+  final NewTradeOpportunityMessage msg;
+  final VoidCallback onExpired;
+
+  @override
+  State<_TradeCountdownTimer> createState() => _TradeCountdownTimerState();
+}
+
+class _TradeCountdownTimerState extends State<_TradeCountdownTimer> {
+  late int _secondsRemaining;
+  Timer? _timer;
+  bool _expired = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _calculateRemaining();
+    if (_secondsRemaining > 0) {
+      _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted) return;
+        setState(() {
+          _secondsRemaining--;
+          if (_secondsRemaining <= 0) {
+            _secondsRemaining = 0;
+            _expired = true;
+            _timer?.cancel();
+            widget.onExpired();
+          }
+        });
+      });
+    } else {
+      _expired = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onExpired();
+      });
+    }
+  }
+
+  void _calculateRemaining() {
+    final ts = widget.msg.timestamp;
+    if (ts.isEmpty) {
+      _secondsRemaining = 120;
+      return;
+    }
+    final parsed = DateTime.tryParse(ts);
+    if (parsed == null) {
+      _secondsRemaining = 120;
+      return;
+    }
+    final elapsed = DateTime.now().toUtc().difference(parsed.toUtc()).inSeconds;
+    _secondsRemaining = (120 - elapsed).clamp(0, 120);
+    if (_secondsRemaining <= 0) _expired = true;
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_expired) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.orange.shade300),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.timer_outlined, size: 16, color: Colors.orange.shade700),
+          const SizedBox(width: 6),
+          Text(
+            'Apply GTT within ${_secondsRemaining}s',
+            style: TextStyle(
+              color: Colors.orange.shade800,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _BlinkingCurrentPriceBadge extends StatefulWidget {

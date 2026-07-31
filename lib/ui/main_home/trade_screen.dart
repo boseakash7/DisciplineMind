@@ -2,6 +2,7 @@ import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/model/dmt_level_model.dart';
 import 'package:discipline_mind/model/dmt_user_hit_trades_model.dart';
 import 'package:discipline_mind/services/dmt_levels_service.dart';
+import 'package:discipline_mind/ui/credits/widgets/credits_header_avatar.dart';
 import 'package:discipline_mind/ui/main_home/widgets/expandable_trade_card.dart';
 import 'package:discipline_mind/ui/main_home/widgets/trade_accuracy_ring.dart';
 import 'package:flutter/material.dart';
@@ -64,7 +65,9 @@ class _TradesScreenState extends State<TradesScreen>
     _replayEntrance();
     // Tab entrance already animates; skip duplicate replay when fetch completes.
     _skipNextLoadReplay = true;
-    _levelsService.refreshTabData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _levelsService.refreshTabData();
+    });
   }
 
   @override
@@ -165,9 +168,9 @@ class _TradesScreenState extends State<TradesScreen>
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _returnStat('My Avg', averageReturn),
+                    _returnStat('My Average', averageReturn),
                     _returnStat(
-                      'MCT Avg',
+                      'MCT Average',
                       mctAverageReturn,
                       alignEnd: true,
                     ),
@@ -186,8 +189,8 @@ class _TradesScreenState extends State<TradesScreen>
     if (cleaned.isEmpty || cleaned == '—') return Colors.white;
     final parsed = double.tryParse(cleaned);
     if (parsed == null) return Colors.white;
-    if (parsed > 0) return Colors.green.shade800;
-    if (parsed < 0) return Colors.red.shade800;
+    if (parsed > 0) return const Color(0xFF4CAF50);
+    if (parsed < 0) return const Color(0xFFFF5252);
     return Colors.white;
   }
 
@@ -200,7 +203,7 @@ class _TradesScreenState extends State<TradesScreen>
           label,
           style: TextStyle(
             color: Colors.white.withOpacity(0.85),
-            fontSize: 10,
+            fontSize: 14,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -210,7 +213,7 @@ class _TradesScreenState extends State<TradesScreen>
           style: TextStyle(
             color: _returnPercentColor(value),
             fontWeight: FontWeight.w700,
-            fontSize: 13,
+            fontSize: 17,
           ),
         ),
       ],
@@ -526,16 +529,7 @@ class _TradesHeaderRow extends StatelessWidget {
             ),
           ),
         ),
-        const Row(
-          children: [
-            Text(
-              'Credits : 250',
-              style: TextStyle(color: AppColors.primary),
-            ),
-            SizedBox(width: 10),
-            CircleAvatar(radius: 12),
-          ],
-        ),
+        const CreditsHeaderAvatar(),
       ],
     );
   }

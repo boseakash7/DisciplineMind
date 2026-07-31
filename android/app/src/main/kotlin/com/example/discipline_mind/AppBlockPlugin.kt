@@ -43,12 +43,12 @@ class AppBlockPlugin(private val activity: android.app.Activity) : MethodChannel
                 }
             }
             "getBlockedApps" -> {
-                result.success(AppManager.getBlockedAppsList())
+                result.success(AppManager.getBlockedAppsList(ctx))
             }
             "isAppBlocked" -> {
                 val packageName = call.argument<String>("packageName")
                 if (packageName != null) {
-                    result.success(AppManager.isAppBlocked(packageName))
+                    result.success(AppManager.isAppBlocked(ctx, packageName))
                 } else {
                     result.error("ERROR", "packageName required", null)
                 }
