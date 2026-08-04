@@ -5,7 +5,7 @@ import 'package:discipline_mind/controller/chat_controller.dart';
 import 'package:discipline_mind/model/chat_message_model.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
 import 'package:discipline_mind/ui/credits/widgets/credits_header_avatar.dart';
-import 'package:discipline_mind/ui/main_home/widgets/dmt_score_popup.dart';
+import 'package:discipline_mind/ui/main_home/dmt_score_screen.dart';
 import 'package:discipline_mind/ui/widgets/ai_waiting_status_bubble.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
@@ -82,16 +82,6 @@ class _ChatScreenState extends State<ChatScreen> {
     _textController.dispose();
     _scrollController.dispose();
     super.dispose();
-  }
-
-  bool _hasUnreadRevealInProgress(List<ChatMessage> list) {
-    for (final msg in list) {
-      if (!msg.isUnread) continue;
-      final id = msg.messageId.trim();
-      if (id.isEmpty) continue;
-      if (!_revealedUnreadMessageIds.contains(id)) return true;
-    }
-    return false;
   }
 
   bool _isNearBottom() {
@@ -366,10 +356,12 @@ class _ChatScreenState extends State<ChatScreen> {
                           scoreDate: t.scoreDate,
                           instructionsScore: t.instructionsScore,
                           commitmentScore: t.commitmentScore,
+                          acceptanceScore: t.acceptanceScore,
                           patienceScore: t.patienceScore,
                           consistencyScore: t.consistencyScore,
                           dmtTotalScore: t.dmtTotalScore,
                           dmtMaxScore: t.dmtMaxScore,
+                          hasAcceptanceScore: t.hasAcceptanceScore,
                           animateReveal: true,
                         );
                       });
@@ -438,34 +430,29 @@ class _ChatScreenState extends State<ChatScreen> {
                         vertical: 8,
                       ),
                       children: [
-                        AiWaitingStatusBubble(
-                          text: controller.waitingStatusText,
-                          subtitle: controller.waitingStatusSubtitle,
+                        Padding(
+                          padding: const EdgeInsets.only(top: 48),
+                          child: Center(
+                            child: Text(
+                              'No messages yet',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ),
                         ),
                       ],
                     );
                   }
-                  final showWaiting =
-                      !_hasUnreadRevealInProgress(controller.messages);
                   return ListView.builder(
                           controller: _scrollController,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 12,
                             vertical: 8,
                           ),
-                          itemCount: controller.messages.length +
-                              (showWaiting ? 1 : 0),
+                          itemCount: controller.messages.length,
                           itemBuilder: (_, i) {
-                            if (showWaiting &&
-                                i == controller.messages.length) {
-                              return AiWaitingStatusBubble(
-                                key: ValueKey(
-                                  'waiting_${controller.waitingStatusText}',
-                                ),
-                                text: controller.waitingStatusText,
-                                subtitle: controller.waitingStatusSubtitle,
-                              );
-                            }
                             final msg = controller.messages[i];
                             final bubble = _buildMessage(
                               context,
@@ -545,6 +532,8 @@ class _ChatScreenState extends State<ChatScreen> {
     switch (msg.type) {
       case ChatMessageType.simpleText:
         return _buildSimpleText(context, msg as SimpleTextMessage);
+      case ChatMessageType.aiWaiting:
+        return _buildAiWaiting(msg as AiWaitingMessage);
       case ChatMessageType.agentWithButton:
         return _buildAgentWithButton(context, msg as AgentWithButtonMessage);
       case ChatMessageType.newTradeOpportunity:
@@ -574,6 +563,14 @@ class _ChatScreenState extends State<ChatScreen> {
       case ChatMessageType.dmtScore:
         return _buildDmtScore(context, msg as DmtScoreMessage);
     }
+  }
+
+  Widget _buildAiWaiting(AiWaitingMessage msg) {
+    return AiWaitingStatusBubble(
+      key: ValueKey('ai_waiting_${msg.messageId}_${msg.text}'),
+      text: msg.text,
+      subtitle: msg.subtitle,
+    );
   }
 
   Widget _buildDmtScore(BuildContext context, DmtScoreMessage msg) {
@@ -613,10 +610,12 @@ class _ChatScreenState extends State<ChatScreen> {
                         scoreDate: msg.scoreDate,
                         instructionsScore: msg.instructionsScore,
                         commitmentScore: msg.commitmentScore,
+                        acceptanceScore: msg.acceptanceScore,
                         patienceScore: msg.patienceScore,
                         consistencyScore: msg.consistencyScore,
                         dmtTotalScore: msg.dmtTotalScore,
                         dmtMaxScore: msg.dmtMaxScore,
+                        hasAcceptanceScore: msg.hasAcceptanceScore,
                         animateReveal: shouldAnimate,
                       ).then((_) {
                         if (!mounted || !shouldAnimate || id.isEmpty) return;
@@ -2291,6 +2290,11 @@ class _ChatScreenState extends State<ChatScreen> {
     AlertHitWithButtonMessage msg,
     ChatController controller,
   ) {
+    // Target / SL hit: same two-step "Trading App Unlocked" pattern as other flows.
+    if (!msg.isGttHit) {
+      return _buildTargetHitUnlockedMessage(context, msg, controller);
+    }
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -2319,14 +2323,12 @@ class _ChatScreenState extends State<ChatScreen> {
                   style: TextStyle(fontSize: 14, color: Colors.grey.shade800),
                 ),
                 const SizedBox(height: 12),
-                if (msg.isGttHit) ...[
-                  _tradePromptPrimaryButton(
-                    label: 'Open Trading APP',
-                    enabled: _showButtons(msg),
-                    onTap: () => _openTradingAppForMessage(msg, controller),
-                  ),
-                  const SizedBox(height: 10),
-                ],
+                _tradePromptPrimaryButton(
+                  label: 'Open Trading APP',
+                  enabled: _showButtons(msg),
+                  onTap: () => _openTradingAppForMessage(msg, controller),
+                ),
+                const SizedBox(height: 10),
                 _tradePromptPrimaryButton(
                   label: msg.buttonLabel,
                   enabled: _canTapFollowUpAction(msg, controller),
@@ -2337,7 +2339,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         msg,
                         controller,
                       );
-                    } else if (msg.isGttHit && msg.tradeData != null) {
+                    } else if (msg.tradeData != null) {
                       _showTradeParamsPopup(
                         context,
                         msg.tradeData!,
@@ -2348,14 +2350,85 @@ class _ChatScreenState extends State<ChatScreen> {
                     }
                   },
                 ),
-                if (msg.isGttHit) ...[
-                  const SizedBox(height: 10),
-                  _tradePromptPrimaryButton(
-                    label: 'GTT Missed',
-                    enabled: _canTapFollowUpAction(msg, controller),
-                    onTap: () => controller.acknowledgeGttMissed(msg),
-                  ),
-                ],
+                const SizedBox(height: 10),
+                _tradePromptPrimaryButton(
+                  label: 'GTT Missed',
+                  enabled: _canTapFollowUpAction(msg, controller),
+                  onTap: () => controller.acknowledgeGttMissed(msg),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Target / SL hit bubble: Trading App Unlocked + Open App + confirm hit.
+  Widget _buildTargetHitUnlockedMessage(
+    BuildContext context,
+    AlertHitWithButtonMessage msg,
+    ChatController controller,
+  ) {
+    final stepStyle = TextStyle(
+      fontSize: 13,
+      color: Colors.grey.shade800,
+      height: 1.35,
+    );
+    final titleStyle = TextStyle(
+      color: Colors.grey.shade800,
+      fontSize: 14,
+      fontWeight: FontWeight.bold,
+    );
+
+    // Title is always the unlock header. Step copy is app-owned so we never
+    // duplicate backend `message` when it already contains the same instruction.
+    const title = 'Trading App Unlocked';
+    final isSl = msg.isSlHit;
+    final step1 = isSl
+        ? '1. Open Trading App and make sure SL order is executed'
+        : '1. Open Trading App and make sure Target order is executed';
+    final step2 = isSl
+        ? '2. Intimate me the Price at which the SL was Hit'
+        : '2. Intimate me the Price at which the Target Price was Hit';
+    final confirmLabel = msg.buttonLabel.trim().isNotEmpty
+        ? msg.buttonLabel.trim()
+        : (isSl ? 'Yes, SL is Hit' : 'Yes, Target is Hit');
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _monkkSparkleIcon(),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: titleStyle),
+                const SizedBox(height: 12),
+                Text(step1, style: stepStyle),
+                const SizedBox(height: 8),
+                _tradePromptPrimaryButton(
+                  label: 'Open Trading App',
+                  enabled: _showButtons(msg),
+                  onTap: () => _openTradingAppForMessage(msg, controller),
+                ),
+                const SizedBox(height: 14),
+                Text(step2, style: stepStyle),
+                const SizedBox(height: 8),
+                _tradePromptPrimaryButton(
+                  label: confirmLabel,
+                  enabled: _canTapFollowUpAction(msg, controller),
+                  onTap: () {
+                    if (msg.buttonType == 'trade_executed' || msg.isSlHit) {
+                      _showTargetHitConfirmDialog(context, msg, controller);
+                    } else {
+                      controller.onTradeExecuted();
+                    }
+                  },
+                ),
               ],
             ),
           ),

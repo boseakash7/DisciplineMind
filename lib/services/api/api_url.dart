@@ -48,6 +48,6 @@ class ApiUrl {
   /// Confirms target hit (form: trade_id, user_id, hit_price).
   static const String tradeExecuted = "trade/executed";
 
-  /// Confirms GTT was missed (form: trade_id, user_id).
-  static const String gttMissed = "gtt/missed";
+  /// Confirms GTT was missed (form: user_id, trade_id).
+  static const String gttMissed = "trade/gtt-missed";
 }

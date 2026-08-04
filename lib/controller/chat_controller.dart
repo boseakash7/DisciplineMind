@@ -66,7 +66,9 @@ class ChatController extends GetxController {
         parsed.addAll(chatMessagesFromJson(item));
       }
     }
-    return _dedupeRedundantDeleteTradeButtons(parsed);
+    return _keepOnlyLatestAiWaitingMessage(
+      _dedupeRedundantDeleteTradeButtons(parsed),
+    );
   }
 
   List<ChatMessage> _mergeUniqueMessages({
@@ -85,10 +87,29 @@ class ChatController extends GetxController {
       return !existingIds.contains(id);
     }).toList();
 
-    if (prepend) {
-      return [...filteredIncoming, ...base];
+    final merged = prepend
+        ? [...filteredIncoming, ...base]
+        : [...base, ...filteredIncoming];
+    // Backend replaces AI status messages; incremental sync never deletes old ones
+    // locally, so always keep only the newest `ai_msgs` bubble.
+    return _keepOnlyLatestAiWaitingMessage(merged);
+  }
+
+  /// Backend keeps a single live AI status message. Drop older `ai_msgs` so
+  /// incremental "new messages only" sync does not leave stale bubbles.
+  List<ChatMessage> _keepOnlyLatestAiWaitingMessage(List<ChatMessage> list) {
+    var lastAiIndex = -1;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] is AiWaitingMessage) lastAiIndex = i;
     }
-    return [...base, ...filteredIncoming];
+    if (lastAiIndex < 0) return list;
+
+    final out = <ChatMessage>[];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] is AiWaitingMessage && i != lastAiIndex) continue;
+      out.add(list[i]);
+    }
+    return out;
   }
 
   bool _isDeleteTradeRequestMessage(ChatMessage m) {
@@ -113,6 +134,15 @@ class ChatController extends GetxController {
           text: x.text,
           tradeId: x.tradeId,
           isFromUser: x.isFromUser,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          actionTaken: actionTaken,
+        );
+      case ChatMessageType.aiWaiting:
+        final x = m as AiWaitingMessage;
+        return AiWaitingMessage(
+          text: x.text,
+          tradeId: x.tradeId,
           messageId: x.messageId,
           isUnread: x.isUnread,
           actionTaken: actionTaken,
@@ -195,10 +225,13 @@ class ChatController extends GetxController {
           scoreDate: x.scoreDate,
           instructionsScore: x.instructionsScore,
           commitmentScore: x.commitmentScore,
+          acceptanceScore: x.acceptanceScore,
           patienceScore: x.patienceScore,
           consistencyScore: x.consistencyScore,
           dmtTotalScore: x.dmtTotalScore,
           dmtMaxScore: x.dmtMaxScore,
+          bonusScore: x.bonusScore,
+          hasAcceptanceScore: x.hasAcceptanceScore,
           messageId: x.messageId,
           isUnread: x.isUnread,
           actionTaken: actionTaken,
@@ -714,14 +747,17 @@ class ChatController extends GetxController {
     }
   }
 
-  /// POST `gtt/missed` (trade_id + user_id) after user taps GTT Missed.
+  /// POST `trade/gtt-missed` (user_id + trade_id) after user taps GTT Missed.
   Future<void> acknowledgeGttMissed(AlertHitWithButtonMessage msg) async {
     final userId = Common.userData.value?.payload?.id?.toString();
     if (userId == null || userId.isEmpty) {
       AppToast.showToast('Please sign in to confirm');
       return;
     }
-    if (msg.tradeId.isEmpty) {
+    final tradeId = msg.tradeId.trim().isNotEmpty
+        ? msg.tradeId.trim()
+        : (msg.tradeData?.tradeId.trim() ?? '');
+    if (tradeId.isEmpty) {
       AppToast.showToast('Missing trade id');
       return;
     }
@@ -730,8 +766,8 @@ class ChatController extends GetxController {
           ? Get.find<ApiService>()
           : Get.put(ApiService(), permanent: true);
       final response = await api.postFormData(ApiUrl.gttMissed, {
-        'trade_id': msg.tradeId,
         'user_id': userId,
+        'trade_id': tradeId,
       });
       if (response.isSuccess) {
         await _applyTradingAppBlock(userId);
@@ -840,9 +876,6 @@ class ChatController extends GetxController {
 
   bool canTapFollowUpAction(ChatMessage msg, Set<String> openedKeys) {
     if (msg.actionTaken != null) return false;
-    if (msg is AlertHitWithButtonMessage && !msg.isGttHit) {
-      return true;
-    }
     return hasOpenedTradingApp(msg, openedKeys);
   }
 
@@ -886,130 +919,6 @@ class ChatController extends GetxController {
 
   /// Set of trade IDs whose 120s window has expired.
   final expiredTradeIds = <String>{}.obs;
-
-  static const waitingForTradeRecommendation =
-      'Waiting for Trade Recommendation';
-  static const waitingForApplyGtt =
-      'Waiting for your Action to Apply GTT';
-  static const monitoringSetPrice = 'Monitoring the set Price';
-  static const waitingForApplySlTarget =
-      'Waiting for your Action to Apply SL and Target';
-  static const monitoringSlTarget = 'Monitoring SL and Target levels';
-  static const waitingForEditLevels =
-      'Waiting for your Action to Edit the levels';
-  static const waitingForConfirmHit =
-      'Waiting for your Action to confirm the hit';
-  static const waitingForNextOpportunity =
-      'Waiting for the next Opportunity from the Analyst';
-
-  /// Derives the next-expected waiting status from the latest chat state.
-  String get waitingStatusText {
-    // Touch obs so Obx rebuilds when expiry set changes.
-    // ignore: unused_local_variable
-    final _ = expiredTradeIds.length;
-    return deriveWaitingStatus(messages);
-  }
-
-  /// Subtitle label for the waiting bubble (matches who/what is being waited on).
-  String get waitingStatusSubtitle {
-    final text = waitingStatusText;
-    if (text == waitingForApplyGtt ||
-        text == waitingForApplySlTarget ||
-        text == waitingForEditLevels ||
-        text == waitingForConfirmHit ||
-        text.contains('confirm SL is hit') ||
-        text.contains('confirm Target is hit')) {
-      return 'Waiting for your action';
-    }
-    if (text == monitoringSetPrice || text == monitoringSlTarget) {
-      return 'Monkk is monitoring';
-    }
-    if (text == waitingForNextOpportunity ||
-        text == waitingForTradeRecommendation) {
-      return 'Monkk is waiting';
-    }
-    return 'Monkk is waiting';
-  }
-
-  String deriveWaitingStatus(List<ChatMessage> list) {
-    if (list.isEmpty) return waitingForTradeRecommendation;
-
-    // Newest → oldest: first matching trade/alert state wins.
-    for (var i = list.length - 1; i >= 0; i--) {
-      final msg = list[i];
-
-      if (msg is AlertHitWithButtonMessage) {
-        final btn = msg.buttonType.toLowerCase().trim();
-        final isHitConfirm = btn == 'trade_executed' ||
-            btn == 'sl_executed' ||
-            btn == 'sl_hit' ||
-            btn == 'stop_loss_hit' ||
-            btn == 'stop_loss_executed';
-        if (isHitConfirm) {
-          // User must confirm hit first; only then wait for next opportunity.
-          if (msg.actionTaken == null) {
-            return msg.isSlHit
-                ? 'Waiting for your Action to confirm SL is hit'
-                : 'Waiting for your Action to confirm Target is hit';
-          }
-          return waitingForNextOpportunity;
-        }
-        if (msg.isGttHit) {
-          return msg.actionTaken == null
-              ? waitingForApplySlTarget
-              : monitoringSlTarget;
-        }
-      }
-
-      if (msg is NewTradeOpportunityMessage) {
-        final action = msg.action.toLowerCase().trim();
-        final btn = msg.buttonType.toLowerCase().trim();
-
-        if (btn == 'edit_button' ||
-            btn == 'edit_gtt_button' ||
-            action == 'edit' ||
-            action == 'editgtt') {
-          return msg.actionTaken == null
-              ? waitingForEditLevels
-              : monitoringSlTarget;
-        }
-
-        if (action == 'delete') {
-          // After delete flow, wait for next recommendation unless still pending.
-          return msg.actionTaken == null
-              ? waitingForTradeRecommendation
-              : waitingForTradeRecommendation;
-        }
-
-        if (action == 'add' || action == 'update') {
-          if (isTradeExpired(msg) && msg.actionTaken == null) {
-            return waitingForTradeRecommendation;
-          }
-          return msg.actionTaken == null
-              ? waitingForApplyGtt
-              : monitoringSetPrice;
-        }
-      }
-
-      if (msg is TradeExecutionPromptMessage) {
-        final trade = msg.tradeData;
-        if (isTradeExpired(trade) && msg.actionTaken == null) {
-          return waitingForTradeRecommendation;
-        }
-        return msg.actionTaken == null
-            ? waitingForApplyGtt
-            : monitoringSetPrice;
-      }
-
-      if (msg is TradeExecutedMessage) {
-        return msg.actionTaken == null
-            ? waitingForApplyGtt
-            : monitoringSetPrice;
-      }
-    }
-
-    return waitingForTradeRecommendation;
-  }
 
   /// Called when 120s countdown expires for a trade. Marks it expired and
   /// appends the FOMO deletion message.

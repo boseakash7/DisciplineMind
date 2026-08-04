@@ -7,6 +7,7 @@ enum ChatMessageType {
   agentWithButton, // e.g. "Register for Demo" button
   alertHitWithButton, // GTT or upper/lower alert hit - shows text + button to unlock
   dmtScore, // Daily discipline analysis score card
+  aiWaiting, // Backend AI status bubble (`message_type: ai_msgs`)
 }
 
 /// Base chat message
@@ -41,6 +42,35 @@ class SimpleTextMessage extends ChatMessage {
     super.actionTaken,
   })
     : super(type: ChatMessageType.simpleText);
+}
+
+/// Backend AI waiting / status bubble (`message_type: ai_msgs`).
+class AiWaitingMessage extends ChatMessage {
+  final String text;
+  final String tradeId;
+
+  const AiWaitingMessage({
+    required this.text,
+    this.tradeId = '',
+    super.messageId,
+    super.isUnread,
+    super.actionTaken,
+  }) : super(type: ChatMessageType.aiWaiting);
+
+  /// Presentation-only subtitle for the waiting bubble UI.
+  String get subtitle {
+    final t = text.toLowerCase();
+    if (t.contains('waiting for your action') ||
+        t.contains('confirm sl') ||
+        t.contains('confirm target') ||
+        t.contains('confirm the hit')) {
+      return 'Waiting for your action';
+    }
+    if (t.contains('monitoring')) {
+      return 'Monkk is monitoring';
+    }
+    return 'Monkk is waiting';
+  }
 }
 
 /// Agent message with a button (e.g. Register for Demo)
@@ -201,20 +231,30 @@ class DmtScoreMessage extends ChatMessage {
   final String scoreDate;
   final String instructionsScore;
   final String commitmentScore;
+  final String acceptanceScore;
   final String patienceScore;
   final String consistencyScore;
   final String dmtTotalScore;
   final String dmtMaxScore;
+
+  /// Optional API `bonus_score` (sum of consistency + patience).
+  final String bonusScore;
+
+  /// True when API payload included `acceptance_score`.
+  final bool hasAcceptanceScore;
 
   const DmtScoreMessage({
     this.headline = 'DMT Score',
     this.scoreDate = '',
     this.instructionsScore = '0',
     this.commitmentScore = '0',
+    this.acceptanceScore = '0',
     this.patienceScore = '0',
     this.consistencyScore = '0',
     this.dmtTotalScore = '0',
     this.dmtMaxScore = '60',
+    this.bonusScore = '0',
+    this.hasAcceptanceScore = false,
     super.messageId,
     super.isUnread,
     super.actionTaken,
@@ -260,8 +300,8 @@ bool _isSlHitType(String hitType, {String buttonType = ''}) {
 }
 
 String _tradeExecutedButtonLabel(String hitType, String buttonType) {
-  if (_isSlHitType(hitType, buttonType: buttonType)) return 'Yes SL hit';
-  return 'Yes! Target is hit';
+  if (_isSlHitType(hitType, buttonType: buttonType)) return 'Yes, SL is Hit';
+  return 'Yes, Target is Hit';
 }
 
 String _targetHitPriceFromPayload(Map<String, dynamic> p) {
@@ -343,18 +383,39 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
     ];
   }
 
+  /// Backend AI waiting/status messages — never treat as trade cards.
+  if (messageType.toLowerCase() == 'ai_msgs' ||
+      messageType.toLowerCase() == 'ai_msg') {
+    return [
+      AiWaitingMessage(
+        text: message.isNotEmpty ? message : 'Monkk is waiting',
+        tradeId: relatedTradeId,
+        messageId: messageId,
+        isUnread: isUnread,
+        actionTaken: actionTaken,
+      ),
+    ];
+  }
+
   if (messageType == 'dmt_score' || entityType == 'dmt_score') {
     final p = payloadMap ?? <String, dynamic>{};
+    final hasAcceptance = p.containsKey('acceptance_score');
     return [
       DmtScoreMessage(
         headline: message.isNotEmpty ? message : 'DMT Score',
         scoreDate: (p['score_date'] ?? '').toString(),
-        instructionsScore: (p['instructions_score'] ?? '0').toString(),
+        instructionsScore: (p['instructions_score'] ??
+                p['process_score'] ??
+                '0')
+            .toString(),
         commitmentScore: (p['commitment_score'] ?? '0').toString(),
+        acceptanceScore: (p['acceptance_score'] ?? '0').toString(),
         patienceScore: (p['patience_score'] ?? '0').toString(),
         consistencyScore: (p['consistency_score'] ?? '0').toString(),
         dmtTotalScore: (p['dmt_total_score'] ?? '0').toString(),
         dmtMaxScore: (p['dmt_max_score'] ?? '60').toString(),
+        bonusScore: (p['bonus_score'] ?? '0').toString(),
+        hasAcceptanceScore: hasAcceptance,
         messageId: messageId,
         isUnread: isUnread,
         actionTaken: actionTaken,
@@ -368,7 +429,14 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         : <String, dynamic>{};
     final buttonType = (json['button_type'] ?? '').toString();
     final hitType = (p['hit_type'] ?? '').toString();
-    final buttonLabel = buttonType == 'trade_executed'
+    final isSlHit = _isSlHitType(hitType, buttonType: buttonType);
+    final isTradeExecutedConfirm = buttonType == 'trade_executed' ||
+        buttonType == 'sl_executed' ||
+        buttonType == 'sl_hit' ||
+        buttonType == 'stop_loss_hit' ||
+        buttonType == 'stop_loss_executed' ||
+        isSlHit;
+    final buttonLabel = isTradeExecutedConfirm
         ? _tradeExecutedButtonLabel(hitType, buttonType)
         : (p['button_label'] ?? p['buttonLabel'] ?? 'Trade Executed').toString();
     final tradeId = (p['trade_id'] ?? p['id'] ?? '').toString();
@@ -395,7 +463,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
           .toString();
       final oldEntryPrice = (tp['old_entry_price_history'] ?? '').toString();
       final action = (tp['action'] ?? '').toString();
-      final tradeId =
+      final nestedTradeId =
           (p['trade_id'] ?? tp['trade_id'] ?? tp['id'] ?? tp['trade_uid'] ?? '')
               .toString();
       final analystFromTrade = (tp['analyst_info'] ?? tp['analystInfo'] ?? '')
@@ -417,7 +485,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         lotNumbers: const [1, 1, 1, 1],
         action: action,
         exchange: exchange,
-        tradeId: tradeId,
+        tradeId: nestedTradeId,
         oldStopLoss: oldStopLoss,
         oldTakeProfit: oldTakeProfit,
         oldEntryPrice: oldEntryPrice,
@@ -435,13 +503,17 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       );
     }
 
+    final resolvedTradeId = (tradeData?.tradeId.trim().isNotEmpty ?? false)
+        ? tradeData!.tradeId
+        : tradeId;
+
     return [
       AlertHitWithButtonMessage(
-        text: message.isNotEmpty ? message : 'Your alert has been triggered.',
+        text: message.isNotEmpty ? message : 'Trading App Unlocked',
         buttonLabel: buttonLabel,
         buttonType: buttonType,
         hitType: hitType,
-        tradeId: tradeId,
+        tradeId: resolvedTradeId,
         isGttHit: isGttHit,
         targetHitPrice: _targetHitPriceFromPayload(p),
         tradeData: tradeData,
