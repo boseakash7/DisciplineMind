@@ -12,11 +12,35 @@ import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_apps_service.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+/// Why chat is being synced — controls force vs stale-gated fetch.
+enum ChatSyncReason {
+  /// App returned from background.
+  resume,
+
+  /// FCM / local notification received or opened.
+  notification,
+
+  /// User switched to Chat tab.
+  tabFocus,
+
+  /// Pull-to-refresh / Sync button / explicit user action.
+  manual,
+
+  /// Generic internal refresh after an API action.
+  afterAction,
+}
 
 class ChatController extends GetxController {
   final NativeAppBlockService _blockService = NativeAppBlockService();
   final AppBlockPreferencesService _prefs = AppBlockPreferencesService();
+
+  static const _pendingSyncKey = 'chat_sync_pending';
+  static const _pendingFullReloadKey = 'chat_full_reload_pending';
+  static const _minSyncGap = Duration(seconds: 12);
+  static const int tradeWindowSeconds = 120;
 
   final messages = <ChatMessage>[].obs;
   final isLoading = false.obs;
@@ -24,6 +48,9 @@ class ChatController extends GetxController {
   final hasMoreOlderMessages = true.obs;
   /// True when the last full load failed (e.g. no internet).
   final loadFailed = false.obs;
+
+  DateTime? _lastSuccessfulSyncAt;
+  Future<void>? _syncInFlight;
 
   List<String> _selectedBlockedPackages() {
     final userId = Common.userData.value?.payload?.id?.toString();
@@ -37,6 +64,103 @@ class ChatController extends GetxController {
   void onInit() {
     super.onInit();
     loadMessages();
+  }
+
+  /// Lightweight flag for background FCM / missed syncs. Safe across isolates
+  /// after [GetStorage.init].
+  static void markPendingSync() {
+    try {
+      GetStorage().write(_pendingSyncKey, true);
+    } catch (_) {}
+  }
+
+  static bool consumePendingSync() {
+    try {
+      final box = GetStorage();
+      final pending = box.read(_pendingSyncKey) == true;
+      if (pending) box.remove(_pendingSyncKey);
+      return pending;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static bool hasPendingSync() {
+    try {
+      return GetStorage().read(_pendingSyncKey) == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Full message list reload (not incremental). Needed when backend deletes a trade.
+  static void markPendingFullReload() {
+    try {
+      GetStorage().write(_pendingFullReloadKey, true);
+      markPendingSync();
+    } catch (_) {}
+  }
+
+  static bool consumePendingFullReload() {
+    try {
+      final box = GetStorage();
+      final pending = box.read(_pendingFullReloadKey) == true;
+      if (pending) box.remove(_pendingFullReloadKey);
+      return pending;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Single entry-point for chat refresh. Coalesces parallel callers and skips
+  /// redundant network calls unless [force] / notification / pending / stale.
+  Future<void> syncChat({
+    ChatSyncReason reason = ChatSyncReason.manual,
+    bool force = false,
+  }) async {
+    final userId = Common.userData.value?.payload?.id?.toString();
+    if (userId == null || userId.isEmpty) return;
+
+    final pending = consumePendingSync();
+    final fullReload = consumePendingFullReload();
+    final shouldForce = force ||
+        pending ||
+        fullReload ||
+        reason == ChatSyncReason.resume ||
+        reason == ChatSyncReason.notification ||
+        reason == ChatSyncReason.manual ||
+        reason == ChatSyncReason.afterAction;
+
+    if (!shouldForce && _lastSuccessfulSyncAt != null) {
+      final age = DateTime.now().difference(_lastSuccessfulSyncAt!);
+      if (age < _minSyncGap) return;
+    }
+
+    if (_syncInFlight != null) {
+      if (fullReload) {
+        return _syncInFlight!.then(
+          (_) => loadMessages(refresh: true, silent: true),
+        );
+      }
+      return _syncInFlight!;
+    }
+
+    _syncInFlight = _runSync(
+      silent: reason != ChatSyncReason.manual,
+      fullReload: fullReload,
+    ).whenComplete(() => _syncInFlight = null);
+    return _syncInFlight!;
+  }
+
+  Future<void> _runSync({
+    required bool silent,
+    bool fullReload = false,
+  }) async {
+    if (fullReload) {
+      await loadMessages(refresh: true, silent: silent);
+      return;
+    }
+    await loadNewMessages(silent: silent);
   }
 
   String _lastKnownMessageId() {
@@ -137,6 +261,7 @@ class ChatController extends GetxController {
           messageId: x.messageId,
           isUnread: x.isUnread,
           actionTaken: actionTaken,
+          timestamp: x.timestamp,
         );
       case ChatMessageType.aiWaiting:
         final x = m as AiWaitingMessage;
@@ -146,6 +271,7 @@ class ChatController extends GetxController {
           messageId: x.messageId,
           isUnread: x.isUnread,
           actionTaken: actionTaken,
+          timestamp: x.timestamp,
         );
       case ChatMessageType.agentWithButton:
         final x = m as AgentWithButtonMessage;
@@ -153,6 +279,9 @@ class ChatController extends GetxController {
           text: x.text,
           buttonLabel: x.buttonLabel,
           actionTaken: actionTaken,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          timestamp: x.timestamp,
         );
       case ChatMessageType.newTradeOpportunity:
         final x = m as NewTradeOpportunityMessage;
@@ -170,6 +299,7 @@ class ChatController extends GetxController {
           action: x.action,
           exchange: x.exchange,
           tradeId: x.tradeId,
+          tradeUid: x.tradeUid,
           oldStopLoss: x.oldStopLoss,
           oldTakeProfit: x.oldTakeProfit,
           oldEntryPrice: x.oldEntryPrice,
@@ -193,6 +323,7 @@ class ChatController extends GetxController {
           messageId: x.messageId,
           isUnread: x.isUnread,
           actionTaken: actionTaken,
+          timestamp: x.timestamp,
         );
       case ChatMessageType.tradeExecuted:
         final x = m as TradeExecutedMessage;
@@ -202,6 +333,7 @@ class ChatController extends GetxController {
           messageId: x.messageId,
           isUnread: x.isUnread,
           actionTaken: actionTaken,
+          timestamp: x.timestamp,
         );
       case ChatMessageType.alertHitWithButton:
         final x = m as AlertHitWithButtonMessage;
@@ -217,6 +349,7 @@ class ChatController extends GetxController {
           messageId: x.messageId,
           isUnread: x.isUnread,
           actionTaken: actionTaken,
+          timestamp: x.timestamp,
         );
       case ChatMessageType.dmtScore:
         final x = m as DmtScoreMessage;
@@ -232,9 +365,12 @@ class ChatController extends GetxController {
           dmtMaxScore: x.dmtMaxScore,
           bonusScore: x.bonusScore,
           hasAcceptanceScore: x.hasAcceptanceScore,
+          acceptanceIsNa: x.acceptanceIsNa,
+          acceptanceNote: x.acceptanceNote,
           messageId: x.messageId,
           isUnread: x.isUnread,
           actionTaken: actionTaken,
+          timestamp: x.timestamp,
         );
     }
   }
@@ -273,6 +409,7 @@ class ChatController extends GetxController {
         messages.assignAll(display);
         hasMoreOlderMessages.value = true;
         loadFailed.value = false;
+        _lastSuccessfulSyncAt = DateTime.now();
       } else {
         if (!refresh && !silent) {
           messages.clear();
@@ -341,6 +478,7 @@ class ChatController extends GetxController {
             });
           }
         }
+        _lastSuccessfulSyncAt = DateTime.now();
       } else if (!silent && response.errorMessage != null) {
         AppToast.showToast(response.errorMessage!);
       }
@@ -422,9 +560,79 @@ class ChatController extends GetxController {
     messages.add(msg);
   }
 
-  void sendTextMessage(String text) {
-    if (text.trim().isEmpty) return;
-    addMessage(SimpleTextMessage(text: text.trim(), isFromUser: true));
+  Future<void> sendTextMessage(String text) async {
+    final query = text.trim();
+    if (query.isEmpty) return;
+
+    addMessage(
+      SimpleTextMessage(
+        text: query,
+        isFromUser: true,
+        timestamp: DateTime.now().toUtc().toIso8601String(),
+      ),
+    );
+
+    final waitingMsgId = 'ai_waiting_${DateTime.now().millisecondsSinceEpoch}';
+    addMessage(
+      AiWaitingMessage(
+        text: 'Thinking...',
+        messageId: waitingMsgId,
+        timestamp: DateTime.now().toUtc().toIso8601String(),
+      ),
+    );
+
+    try {
+      final userId = Common.userData.value?.payload?.id?.toString() ??
+          GetStorage().read<String>('user_id') ??
+          '123';
+
+      final response = await ApiService().postJson(
+        ApiUrl.llmAsk,
+        {
+          'user_id': userId,
+          'user_query': query,
+        },
+      );
+
+      messages.removeWhere((m) => m.messageId == waitingMsgId);
+
+      if (response.isSuccess && response.data != null) {
+        final payload = response.data['payload'];
+        if (payload is Map<String, dynamic> &&
+            payload['response_markdown'] != null) {
+          final replyText = payload['response_markdown'].toString();
+          if (replyText.isNotEmpty) {
+            addMessage(
+              SimpleTextMessage(
+                text: replyText,
+                isFromUser: false,
+                timestamp: DateTime.now().toUtc().toIso8601String(),
+              ),
+            );
+            return;
+          }
+        }
+      }
+
+      final errorMsg =
+          response.errorMessage ?? 'Unable to get response from AI.';
+      addMessage(
+        SimpleTextMessage(
+          text: errorMsg,
+          isFromUser: false,
+          timestamp: DateTime.now().toUtc().toIso8601String(),
+        ),
+      );
+    } catch (e) {
+      messages.removeWhere((m) => m.messageId == waitingMsgId);
+      addMessage(
+        SimpleTextMessage(
+          text: 'Error getting AI response. Please try again.',
+          isFromUser: false,
+          timestamp: DateTime.now().toUtc().toIso8601String(),
+        ),
+      );
+    }
   }
 
   /// Called when user submits trade params from New Trade Opportunity popup.
@@ -917,33 +1125,57 @@ class ChatController extends GetxController {
     }
   }
 
-  /// Set of trade IDs whose 120s window has expired.
-  final expiredTradeIds = <String>{}.obs;
+  /// Prevents a second full reload if the 120s timer rebuilds before backend
+  /// has dropped the trade.
+  final _expiryRefreshRequested = <String>{};
 
-  /// Called when 120s countdown expires for a trade. Marks it expired and
-  /// appends the FOMO deletion message.
+  /// Old payload `id` is often reused (e.g. "1") across new trades.
+  static bool _isLegacyReusableTradeId(String id) {
+    if (id.length >= 8) return false;
+    return int.tryParse(id) != null;
+  }
+
+  static String _expiryKey(NewTradeOpportunityMessage msg) {
+    final uid = msg.tradeUid.trim();
+    if (uid.isNotEmpty) return uid;
+    final id = msg.tradeId.trim();
+    if (id.isNotEmpty && !_isLegacyReusableTradeId(id)) return id;
+    final messageId = msg.messageId.trim();
+    if (messageId.isNotEmpty) return messageId;
+    return '${msg.tradeId}_${msg.timestamp}';
+  }
+
+  /// ISO-8601 or unix seconds/millis.
+  static DateTime? parseMessageTime(String timestamp) {
+    final raw = timestamp.trim();
+    if (raw.isEmpty) return null;
+    final iso = DateTime.tryParse(raw);
+    if (iso != null) return iso.toUtc();
+    final n = int.tryParse(raw);
+    if (n == null) return null;
+    if (n > 9999999999) {
+      return DateTime.fromMillisecondsSinceEpoch(n, isUtc: true);
+    }
+    return DateTime.fromMillisecondsSinceEpoch(n * 1000, isUtc: true);
+  }
+
+  /// After 120s, reload chat so backend can drop the trade and send its text.
   void onTradeCountdownExpired(NewTradeOpportunityMessage msg) {
-    final id = msg.tradeId.trim();
-    if (id.isNotEmpty && expiredTradeIds.contains(id)) return;
-    if (id.isNotEmpty) expiredTradeIds.add(id);
-    // Force Obx rebuild by refreshing the messages list.
-    messages.refresh();
+    if (!isTimedTradeAction(msg.action)) return;
+    final id = _expiryKey(msg);
+    if (id.trim().isEmpty) return;
+    if (!_expiryRefreshRequested.add(id)) return;
+    loadMessages(refresh: true, silent: true);
   }
 
-  /// Whether a trade's 120s window has expired.
-  bool isTradeExpired(NewTradeOpportunityMessage msg) {
-    final id = msg.tradeId.trim();
-    if (id.isNotEmpty && expiredTradeIds.contains(id)) return true;
-    return _isTimestampExpired(msg.timestamp);
-  }
+  /// Only new trades (`add`) have a 120s apply window. Edit flows are not timed out.
+  static bool isTimedTradeAction(String action) =>
+      action.toLowerCase() == 'add';
 
-  bool _isTimestampExpired(String timestamp) {
-    if (timestamp.isEmpty) return false;
-    final parsed = DateTime.tryParse(timestamp);
-    if (parsed == null) return false;
-    final now = DateTime.now().toUtc();
-    final msgTime = parsed.toUtc();
-    return now.difference(msgTime).inSeconds >= 120;
+  /// Add / edit / editGtt / update — show edit-specific UI (not expiry).
+  static bool isEditTradeAction(String action) {
+    final a = action.toLowerCase();
+    return a == 'edit' || a == 'editgtt' || a == 'update';
   }
 
   /// Called when Trade Executed message is received. Unlocks trading apps.

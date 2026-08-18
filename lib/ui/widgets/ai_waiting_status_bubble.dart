@@ -72,11 +72,11 @@ class _AiWaitingStatusBubbleState extends State<AiWaitingStatusBubble>
         child: Padding(
           padding: const EdgeInsets.only(bottom: 10, top: 6),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (widget.showAvatar) ...[
                 _AnimatedAvatar(pulse: _pulse),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
               ],
               Flexible(
                 child: AnimatedBuilder(
@@ -209,37 +209,13 @@ class _AnimatedAvatar extends StatelessWidget {
       animation: pulse,
       builder: (context, child) {
         final scale = 1.0 + (pulse.value * 0.04);
-        final ringOpacity = 0.10 + (pulse.value * 0.12);
-        return SizedBox(
-          width: 40,
-          height: 40,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Transform.scale(
-                scale: scale,
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: AppColors.primary.withOpacity(ringOpacity),
-                  ),
-                ),
-              ),
-              child!,
-            ],
-          ),
-        );
+        return Transform.scale(scale: scale, child: child);
       },
-      child: Container(
-        width: 34,
-        height: 34,
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-          color: AppColors.primary,
-        ),
-        child: const Icon(Icons.auto_awesome, color: Colors.white, size: 18),
+      child: Image.asset(
+        'assets/ai_chat.png',
+        width: 28,
+        height: 28,
+        fit: BoxFit.contain,
       ),
     );
   }

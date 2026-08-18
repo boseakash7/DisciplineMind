@@ -55,7 +55,10 @@ class AppDataRefreshService extends GetxService {
       _needsAnalysisRefresh ||
       _needsTradesRefresh;
 
-  Future<void> refreshAllTabs({bool force = true}) async {
+  Future<void> refreshAllTabs({
+    bool force = true,
+    bool includeChat = true,
+  }) async {
     if (_refreshInFlight) return;
     _refreshInFlight = true;
     try {
@@ -75,16 +78,29 @@ class AppDataRefreshService extends GetxService {
         await levels.fetchUserHitTrades(level.id, force: force);
       }
 
-      if (Get.isRegistered<ChatController>()) {
-        await Get.find<ChatController>().loadNewMessages(silent: true);
+      if (includeChat && Get.isRegistered<ChatController>()) {
+        await Get.find<ChatController>().syncChat(
+          reason: ChatSyncReason.afterAction,
+        );
       }
     } finally {
       _refreshInFlight = false;
     }
   }
 
-  Future<void> refreshIfNeeded({bool force = true}) async {
-    if (!hasPendingTabData) return;
-    await refreshAllTabs(force: force);
+  Future<void> refreshIfNeeded({
+    bool force = true,
+    bool includeChat = true,
+  }) async {
+    if (!hasPendingTabData && !includeChat) return;
+    if (!hasPendingTabData && includeChat) {
+      if (Get.isRegistered<ChatController>()) {
+        await Get.find<ChatController>().syncChat(
+          reason: ChatSyncReason.resume,
+        );
+      }
+      return;
+    }
+    await refreshAllTabs(force: force, includeChat: includeChat);
   }
 }

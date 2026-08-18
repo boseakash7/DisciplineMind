@@ -50,4 +50,10 @@ class ApiUrl {
 
   /// Confirms GTT was missed (form: user_id, trade_id).
   static const String gttMissed = "trade/gtt-missed";
+
+  /// Endpoint to fetch dynamic app config keys (GET, JSON).
+  static const String configKeys = "config/keys";
+
+  /// Endpoint to send user query to LLM AI (POST JSON: user_id, user_query).
+  static const String llmAsk = "llm/ask";
 }

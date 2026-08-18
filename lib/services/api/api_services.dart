@@ -175,6 +175,25 @@ class ApiService extends GetxService {
     }
   }
 
+  /// POST request with JSON body
+  Future<ApiResponse<dynamic>> postJson(
+    String endpoint,
+    Map<String, dynamic> body, {
+    Map<String, String>? headers,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse("${ApiConfig.baseUrl}$endpoint"),
+        headers: {...ApiConfig.defaultHeaders, ...?headers},
+        body: jsonEncode(body),
+      );
+
+      return _processResponse(response);
+    } catch (e) {
+      return _failureResponse(e);
+    }
+  }
+
   /// Process API response (success & error)
   /// Strips leading HTML (e.g. <br /> from PHP) before parsing JSON.
   ApiResponse<dynamic> _processResponse(http.Response response) {

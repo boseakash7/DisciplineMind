@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSFamilyControlsUsageDescription</key>
 	<string>This app helps users stay focused by blocking apps</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>We need microphone access to record voice messages for speech-to-text conversion.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

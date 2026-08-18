@@ -12,12 +12,14 @@ import 'package:discipline_mind/ui/onboarding/post_login_trading_block_screen.da
 import 'package:discipline_mind/ui/android_app_block/blocked_app_overlay_page.dart';
 import 'package:discipline_mind/ui/main_home/main_home.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'ui/splash_screen.dart';
@@ -46,6 +48,7 @@ void _refreshUserAlertsOnNotification({int attempt = 0}) {
   // When app is opened from a killed state via notification, autoLogin may not
   // have restored the session yet. Retry briefly so the refresh still happens.
   if (userId == null || userId.isEmpty) {
+    ChatController.markPendingSync();
     if (attempt < 6) {
       Future.delayed(Duration(milliseconds: 350 + attempt * 250), () {
         _refreshUserAlertsOnNotification(attempt: attempt + 1);
@@ -78,19 +81,30 @@ void _refreshUserAlertsOnNotification({int attempt = 0}) {
     if (NotificationHandler.tradeHitAutoOpenPending) {
       NotificationHandler.clearTradeHitAutoOpen();
     }
-    // Also refresh chat after navigation.
-    Future.delayed(const Duration(milliseconds: 350), () {
-      chatController.loadNewMessages(silent: true);
-    });
   }
 
   alertController.fetchUserAlerts(userId);
-  chatController.loadNewMessages(silent: true);
+  // One coalesced sync — covers notification + any simultaneous resume call.
+  unawaited(
+    chatController.syncChat(reason: ChatSyncReason.notification, force: true),
+  );
 }
 
 void _refreshChatOnAppResumed() {
-  if (!Get.isRegistered<ChatController>()) return;
-  unawaited(Get.find<ChatController>().loadNewMessages(silent: true));
+  if (!Get.isRegistered<ChatController>()) {
+    // Ensure controller exists so resume sync never no-ops after login.
+    final userId = Common.userData.value?.payload?.id?.toString();
+    if (userId == null || userId.isEmpty) return;
+    Get.put(ChatController(), permanent: true);
+  }
+  // Every resume: one check for new messages (not notification-only).
+  // Coalesce still prevents a duplicate if notification sync is already in-flight.
+  unawaited(
+    Get.find<ChatController>().syncChat(
+      reason: ChatSyncReason.resume,
+      force: true,
+    ),
+  );
 }
 
 /// After minimize → reopen: reload stale tab data and chat when online again.
@@ -103,7 +117,8 @@ void _refreshDataOnAppResumed() {
   final refresh = Get.isRegistered<AppDataRefreshService>()
       ? Get.find<AppDataRefreshService>()
       : Get.put(AppDataRefreshService(), permanent: true);
-  unawaited(refresh.refreshIfNeeded(force: true));
+  // Tabs only — chat already handled above (avoids double chat API).
+  unawaited(refresh.refreshIfNeeded(force: true, includeChat: false));
 }
 
 bool _initialMessageCheckDone = false;
@@ -151,6 +166,14 @@ Future<void> main() async {
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await GetStorage.init();
+  try {
+    await dotenv.load(fileName: ".env");
+  } catch (e) {
+    if (kDebugMode) debugPrint('Dotenv load warning: $e');
+  }
+
+  // Must be registered before runApp; background isolate only sets a pending flag.
+  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
   // Do NOT start AppBlockingService here — MethodChannel is not ready before runApp().
   // Service is started from DisciplineApplication (native) + ensureAndroidTradingBlockRunning after login.

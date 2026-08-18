@@ -41,6 +41,8 @@ Future<void> showDmtScorePopup(
   required String dmtTotalScore,
   required String dmtMaxScore,
   bool hasAcceptanceScore = false,
+  bool acceptanceIsNa = false,
+  String acceptanceNote = '',
   bool animateReveal = false,
 }) {
   final effectiveAnimate = kDmtScoreAlwaysAnimate || animateReveal;
@@ -62,6 +64,8 @@ Future<void> showDmtScorePopup(
           dmtTotalScore: dmtTotalScore,
           dmtMaxScore: dmtMaxScore,
           hasAcceptanceScore: hasAcceptanceScore,
+          acceptanceIsNa: acceptanceIsNa,
+          acceptanceNote: acceptanceNote,
           animateReveal: effectiveAnimate,
         );
       },
@@ -105,15 +109,20 @@ class _RowData {
   final String label;
   final double score;
   final double max;
+  final bool showAsNa;
+  final String naLabel;
 
   const _RowData({
     required this.letter,
     required this.label,
     required this.score,
     required this.max,
+    this.showAsNa = false,
+    this.naLabel = 'N/A',
   });
 
-  double get progress => DmtScoreCard.progressFraction(score, max);
+  double get progress =>
+      showAsNa ? 0 : DmtScoreCard.progressFraction(score, max);
 }
 
 class DmtScoreScreen extends StatefulWidget {
@@ -126,6 +135,8 @@ class DmtScoreScreen extends StatefulWidget {
   final String dmtTotalScore;
   final String dmtMaxScore;
   final bool hasAcceptanceScore;
+  final bool acceptanceIsNa;
+  final String acceptanceNote;
   final bool animateReveal;
 
   const DmtScoreScreen({
@@ -139,6 +150,8 @@ class DmtScoreScreen extends StatefulWidget {
     required this.dmtTotalScore,
     required this.dmtMaxScore,
     this.hasAcceptanceScore = false,
+    this.acceptanceIsNa = false,
+    this.acceptanceNote = '',
     this.animateReveal = false,
   });
 
@@ -160,6 +173,7 @@ class _DmtScoreScreenState extends State<DmtScoreScreen>
   late List<double> _rowProgress;
   late List<double> _rowScores;
   late List<double> _rowCircleScale;
+  late List<String> _rowNaTexts;
   double _totalDisplayed = 0;
   double _ringProgress = 0;
 
@@ -198,29 +212,35 @@ class _DmtScoreScreenState extends State<DmtScoreScreen>
         score: commitment,
         max: _categoryMax,
       ),
-      if (widget.hasAcceptanceScore)
+      if (widget.hasAcceptanceScore || widget.acceptanceIsNa)
         _RowData(
           letter: 'A',
           label: 'Acceptance',
           score: acceptance,
           max: _categoryMax,
+          showAsNa: widget.acceptanceIsNa || acceptance == 0,
+          naLabel: widget.acceptanceNote.trim().isNotEmpty
+              ? widget.acceptanceNote.trim()
+              : 'N/A',
         ),
     ];
 
-    // Always show Consistency / Patience in the bonus popup (including 0).
+    // Bonus popup / card: only include Consistency / Patience when non-zero.
     _bonuses = [
-      _BonusItem(
-        letter: 'C',
-        title: 'Consistency',
-        description: 'You stayed consistent throughout the day.',
-        points: consistency,
-      ),
-      _BonusItem(
-        letter: 'P',
-        title: 'Patience',
-        description: 'You showed great patience and control!',
-        points: patience,
-      ),
+      if (consistency != 0)
+        _BonusItem(
+          letter: 'C',
+          title: 'Consistency',
+          description: 'You stayed consistent throughout the day.',
+          points: consistency,
+        ),
+      if (patience != 0)
+        _BonusItem(
+          letter: 'P',
+          title: 'Patience',
+          description: 'You showed great patience and control!',
+          points: patience,
+        ),
     ];
 
     _baseTotal = process +
@@ -233,6 +253,7 @@ class _DmtScoreScreenState extends State<DmtScoreScreen>
     _rowProgress = List.filled(_rows.length, 0);
     _rowScores = List.filled(_rows.length, 0);
     _rowCircleScale = List.filled(_rows.length, 0);
+    _rowNaTexts = List.filled(_rows.length, '');
 
     _bonusCardCtrl = AnimationController(
       vsync: this,
@@ -270,6 +291,7 @@ class _DmtScoreScreenState extends State<DmtScoreScreen>
         _rowCircleScale[i] = 1;
         _rowProgress[i] = _rows[i].progress;
         _rowScores[i] = _rows[i].score;
+        _rowNaTexts[i] = _rows[i].showAsNa ? _rows[i].naLabel : '';
       }
       _totalDisplayed = _finalTotal;
       _ringProgress =
@@ -293,6 +315,19 @@ class _DmtScoreScreenState extends State<DmtScoreScreen>
         curve: Curves.easeOutBack,
         onTick: (t) => setState(() => _rowCircleScale[r] = t),
       );
+      if (row.showAsNa) {
+        setState(() {
+          _rowProgress[r] = 0;
+          _rowScores[r] = 0;
+          _rowNaTexts[r] = '';
+        });
+        await _typeText(
+          text: row.naLabel,
+          durationMs: (row.naLabel.length * 28).clamp(400, 1400),
+          onTick: (partial) => setState(() => _rowNaTexts[r] = partial),
+        );
+        continue;
+      }
       await Future.wait([
         _tween(
           durationMs: 200,
@@ -406,6 +441,25 @@ class _DmtScoreScreenState extends State<DmtScoreScreen>
     }
   }
 
+  Future<void> _typeText({
+    required String text,
+    required int durationMs,
+    required ValueChanged<String> onTick,
+  }) async {
+    if (text.isEmpty) {
+      onTick('');
+      return;
+    }
+    final delay = (durationMs / text.length).round().clamp(12, 40);
+    final buffer = StringBuffer();
+    for (var i = 0; i < text.length; i++) {
+      if (!mounted) return;
+      buffer.write(text[i]);
+      onTick(buffer.toString());
+      await Future<void>.delayed(Duration(milliseconds: delay));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final footerText = (_showBonusCard && _bonusTotal != 0)
@@ -445,6 +499,7 @@ class _DmtScoreScreenState extends State<DmtScoreScreen>
                               progress: _rowProgress,
                               scores: _rowScores,
                               circleScales: _rowCircleScale,
+                              naTexts: _rowNaTexts,
                             ),
                             if (_showBonusCard) ...[
                               const SizedBox(height: 12),
@@ -616,12 +671,14 @@ class _BreakdownSection extends StatelessWidget {
   final List<double> progress;
   final List<double> scores;
   final List<double> circleScales;
+  final List<String> naTexts;
 
   const _BreakdownSection({
     required this.rows,
     required this.progress,
     required this.scores,
     required this.circleScales,
+    required this.naTexts,
   });
 
   @override
@@ -636,6 +693,10 @@ class _BreakdownSection extends StatelessWidget {
             progress: progress[i],
             score: scores[i],
             circleScale: circleScales[i],
+            showAsNa: rows[i].showAsNa,
+            naLabel: rows[i].showAsNa
+                ? (naTexts.length > i ? naTexts[i] : '')
+                : rows[i].naLabel,
           ),
         );
       }),
@@ -649,6 +710,8 @@ class _ScoreRow extends StatelessWidget {
   final double progress;
   final double score;
   final double circleScale;
+  final bool showAsNa;
+  final String naLabel;
 
   const _ScoreRow({
     required this.letter,
@@ -656,12 +719,14 @@ class _ScoreRow extends StatelessWidget {
     required this.progress,
     required this.score,
     required this.circleScale,
+    this.showAsNa = false,
+    this.naLabel = 'N/A',
   });
 
   @override
   Widget build(BuildContext context) {
-    final scoreText = DmtScoreCard.formatNumber(score);
-    final isNeg = DmtScoreCard.isNegative(score);
+    final scoreText = showAsNa ? naLabel : DmtScoreCard.formatNumber(score);
+    final isNeg = !showAsNa && DmtScoreCard.isNegative(score);
     final scoreColor = isNeg ? _C.danger : _C.navy;
 
     return Row(
@@ -689,26 +754,39 @@ class _ScoreRow extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 7),
-              Row(
-                children: [
-                  Expanded(
-                    child: _ProgressBar(
-                      progress: progress,
-                      isNegative: isNeg,
-                    ),
+              if (showAsNa)
+                Text(
+                  scoreText.isEmpty ? ' ' : scoreText,
+                  style: TextStyle(
+                    color: scoreColor,
+                    fontSize: naLabel.length > 8 || scoreText.length > 8
+                        ? 12
+                        : 15,
+                    fontWeight: FontWeight.w600,
+                    height: 1.3,
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    scoreText,
-                    style: TextStyle(
-                      color: scoreColor,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      height: 1,
+                )
+              else
+                Row(
+                  children: [
+                    Expanded(
+                      child: _ProgressBar(
+                        progress: progress,
+                        isNegative: isNeg,
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                    const SizedBox(width: 8),
+                    Text(
+                      scoreText,
+                      style: TextStyle(
+                        color: scoreColor,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        height: 1,
+                      ),
+                    ),
+                  ],
+                ),
             ],
           ),
         ),

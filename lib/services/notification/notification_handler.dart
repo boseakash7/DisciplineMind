@@ -1,9 +1,23 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:discipline_mind/controller/chat_controller.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:get_storage/get_storage.dart';
+
+/// Background isolate entry — only marks a pending chat sync flag (no API).
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  try {
+    await GetStorage.init();
+    ChatController.markPendingSync();
+    if (NotificationHandler.isTradeExpiredNotification(message.data)) {
+      ChatController.markPendingFullReload();
+    }
+  } catch (_) {}
+}
 
 /// Handles FCM and local notifications: shows notification when app is open (foreground)
 /// and triggers callback to refresh data (e.g. user alerts).
@@ -68,6 +82,15 @@ class NotificationHandler {
         .toLowerCase();
   }
 
+  static bool isTradeExpiredNotification(Map<String, dynamic> data) {
+    return notificationTypeOf(data) == 'trade_expired';
+  }
+
+  static void _maybeMarkTradeExpiredReload(Map<String, dynamic> data) {
+    if (!isTradeExpiredNotification(data)) return;
+    ChatController.markPendingFullReload();
+  }
+
   static void _logNotificationType({
     required String source,
     required Map<String, dynamic> data,
@@ -98,6 +121,7 @@ class NotificationHandler {
     if (type != 'trade' &&
         type != 'trade_hit' &&
         type != 'new_trade_opportunity' &&
+        type != 'trade_expired' &&
         !isTradeFlag) {
       return;
     }
@@ -173,6 +197,7 @@ class NotificationHandler {
           _logNotificationType(source: 'localTap', data: data);
           _maybeMarkDmtScoreAutoOpen(data);
           _maybeMarkTradeHitAutoOpen(data);
+          _maybeMarkTradeExpiredReload(data);
         }
       }
     } catch (e) {
@@ -199,6 +224,8 @@ class NotificationHandler {
       _logNotificationType(source: 'onMessageOpenedApp', data: message.data);
       _maybeMarkDmtScoreAutoOpen(message.data);
       _maybeMarkTradeHitAutoOpen(message.data);
+      _maybeMarkTradeExpiredReload(message.data);
+      ChatController.markPendingSync();
       onNotificationReceived?.call();
     });
     _firebaseInited = true;
@@ -207,6 +234,8 @@ class NotificationHandler {
   /// When app is in foreground, FCM does not show system notification on Android — show local instead.
   Future<void> _handleForegroundMessage(RemoteMessage message) async {
     _logNotificationData(source: 'onMessage', message: message);
+    _maybeMarkTradeExpiredReload(message.data);
+    ChatController.markPendingSync();
     onNotificationReceived?.call();
 
     if (Platform.isAndroid) {
@@ -321,6 +350,7 @@ class NotificationHandler {
         _logNotificationType(source: 'getInitialMessage', data: message.data);
         _maybeMarkDmtScoreAutoOpen(message.data);
         _maybeMarkTradeHitAutoOpen(message.data);
+        _maybeMarkTradeExpiredReload(message.data);
         onNotificationReceived?.call();
       }
     });
