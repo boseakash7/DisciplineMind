@@ -15,6 +15,7 @@ class CustomTextField extends StatelessWidget {
   final String? Function(String?)? validator;
   final TextInputType keyboardType;
   final int? maxLength;
+  final EdgeInsetsGeometry? contentPadding;
 
   CustomTextField({
     super.key,
@@ -29,6 +30,7 @@ class CustomTextField extends StatelessWidget {
     this.validator,
     this.maxLength,
     this.keyboardType = TextInputType.text,
+    this.contentPadding,
   });
 
   @override
@@ -66,7 +68,9 @@ class CustomTextField extends StatelessWidget {
           borderSide: borderSide?? BorderSide(color: Colors.blue, width: 1.5),
         ),
         errorStyle: const TextStyle(color: Colors.red, fontSize: 12),
-        contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+        contentPadding:
+            contentPadding ??
+            const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
       ),
     );
   }
@@ -204,6 +208,7 @@ class NavButton extends StatelessWidget {
 class PrimaryButton extends StatelessWidget {
   final String text;
   final Color color;
+  final Gradient? gradient;
   final VoidCallback? onPressed;BorderSide? side;
   final double borderRadius;
   final double? textsize;
@@ -216,6 +221,7 @@ double? width;
     this.textsize,
     required this.onPressed,
     this.color = AppColors.actionRed,
+    this.gradient,
     this.borderRadius = 8.0,
     this.height,
     this.side,
@@ -225,6 +231,47 @@ double? width;
 
   @override
   Widget build(BuildContext context) {
+    final child = isLoading
+        ? const SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(
+              color: AppColors.white,
+              strokeWidth: 2.5,
+            ),
+          )
+        : Text(
+            text,
+            style: TextStyle(
+              color: AppColors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: textsize ?? 16,
+              letterSpacing: 1.2,
+            ),
+          );
+
+    if (gradient != null) {
+      return SizedBox(
+        width: width ?? double.infinity,
+        height: height ?? 55,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: gradient,
+            borderRadius: BorderRadius.circular(borderRadius),
+            border: side != null ? Border.fromBorderSide(side!) : null,
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(borderRadius),
+              onTap: isLoading ? null : onPressed,
+              child: Center(child: child),
+            ),
+          ),
+        ),
+      );
+    }
+
     return SizedBox(
       width:width?? double.infinity,
       height:height?? 55,
@@ -237,24 +284,7 @@ double? width;
           elevation: 0,
         ),
         onPressed: isLoading ? null : onPressed, // Disable button when loading
-        child: isLoading
-            ? const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  color: AppColors.white,
-                  strokeWidth: 2.5,
-                ),
-              )
-            : Text(
-                text,
-                style:  TextStyle(
-                  color: AppColors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: textsize?? 16,
-                  letterSpacing: 1.2,
-                ),
-              ),
+        child: child,
       ),
     );
   }

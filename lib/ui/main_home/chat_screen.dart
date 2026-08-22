@@ -1,10 +1,12 @@
 import 'package:discipline_mind/common/app_colors.dart';
+import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/controller/chat_controller.dart';
 import 'package:discipline_mind/model/chat_message_model.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
 import 'package:discipline_mind/ui/main_home/DisciplineMindProfileScreen.dart';
-import 'package:discipline_mind/ui/main_home/discipline_mind_intro_screen.dart';
 import 'package:discipline_mind/ui/main_home/widgets/dmt_score_popup.dart';
+import 'package:discipline_mind/ui/onboarding/trading_profile_flow.dart';
+import 'package:discipline_mind/ui/widgets/answer_honestly_modal.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -85,52 +87,27 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// Divider color used inside the (always-white) trade card stays the same
   /// in both themes since the card itself stays white per design.
-void _showDisciplineMindPopup() {
-  final isDark = Theme.of(context).brightness == Brightness.dark;
-
-  showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (context) => AlertDialog(
-      backgroundColor: isDark ? const Color(0xFF1E222A) : Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: Text(
-        "Welcome to Monkk",
-        style: TextStyle(
-          color: isDark ? Colors.white : Colors.black87,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-      content: Text(
-        "Do you want to learn DisciplineMind and improve your trading mindset?",
-        style: TextStyle(
-          color: isDark ? Colors.white70 : Colors.black87,
-          fontSize: 15,
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text("No, Later", style: TextStyle(color: isDark ? Colors.white70 : null)),
-        ),
-        ElevatedButton(
-          onPressed: () {
-           Navigator.pop(context);
-  Navigator.push(
-    context,
-    MaterialPageRoute(builder: (_) => const DisciplineMindIntroScreen()),
-  );
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.primary,
-            foregroundColor: Colors.white,
+  /// Shown once per screen entry, in place of the old "Welcome to Monkk"
+  /// dialog. Same trigger point, new design + blurred barrier.
+  void _showDisciplineMindPopup() {
+    showAnswerHonestlyModal(
+      context,
+      onConfirm: () {
+        final userId = Common.userData.value?.payload?.id?.toString();
+        if (userId == null) return;
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => TradingProfileFlow(
+              userId: userId,
+              onComplete: () => Navigator.of(context).pop(),
+            ),
           ),
-          child: const Text("Yes, Let's Start"),
-        ),
-      ],
-    ),
-  );
-}
+        );
+      },
+    );
+  }
+
   @override
   void initState() {
     super.initState();

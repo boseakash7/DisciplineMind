@@ -27,6 +27,11 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   final AuthController authController = Get.find<AuthController>();
   final SmsConsentService _smsConsentService = SmsConsentService();
 
+  static const List<Color> _brandGradient = [
+    Color(0xFFAF28FC),
+    Color(0xFF1D4BF9),
+  ];
+
   static const int _otpLength = 4;
   static const int _resendSeconds = 30;
 
@@ -163,6 +168,16 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
     }
   }
 
+  // ==================== GRADIENT HELPERS ====================
+  Widget _gradientTint({required Widget child}) {
+    return ShaderMask(
+      blendMode: BlendMode.srcIn,
+      shaderCallback: (bounds) =>
+          const LinearGradient(colors: _brandGradient).createShader(bounds),
+      child: child,
+    );
+  }
+
   // ==================== OTP BOXES ====================
   Widget _buildOtpBox(
     int index, {
@@ -174,20 +189,19 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
     final text = _otpController.text;
     final digit = index < text.length ? text[index] : '';
     final isCurrent = index == text.length;
+    final isFocused = isCurrent && _otpFocusNode.hasFocus;
+    const borderWidth = 2.0;
 
-    return Container(
-      width: 48,
-      height: 60,
+    final content = Container(
+      width: isFocused ? 48 - borderWidth * 2 : 48,
+      height: isFocused ? 60 - borderWidth * 2 : 60,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: boxFillColor,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: isCurrent && _otpFocusNode.hasFocus
-              ? AppColors.primary
-              : boxBorderColor,
-          width: 2,
-        ),
+        borderRadius: BorderRadius.circular(isFocused ? 4 : 6),
+        border: isFocused
+            ? null
+            : Border.all(color: boxBorderColor, width: borderWidth),
       ),
       child: Text(
         digit,
@@ -197,6 +211,19 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
           color: textColor,
         ),
       ),
+    );
+
+    if (!isFocused) {
+      return content;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(borderWidth),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(colors: _brandGradient),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: content,
     );
   }
 
@@ -234,16 +261,22 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
 
               InkWell(
                 onTap: () => Get.to(() => PhoneLoginScreen()),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      widget.phone,
-                      style: const TextStyle(fontSize: 15, color: AppColors.primary, fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(width: 6),
-                    const Icon(Icons.edit, size: 16, color: AppColors.primary),
-                  ],
+                child: _gradientTint(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        widget.phone,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      const Icon(Icons.edit, size: 16, color: Colors.white),
+                    ],
+                  ),
                 ),
               ),
 
@@ -309,15 +342,29 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
                         style: TextStyle(color: secondaryTextColor, fontSize: 14),
                         children: [
                           const TextSpan(text: "Didn't receive the code? "),
-                          TextSpan(
-                            text: _secondsLeft > 0 ? "Resend in ${_secondsLeft}s" : "Resend OTP",
-                            style: TextStyle(
-                              color: _secondsLeft > 0
-                                  ? (isDark ? Colors.grey.shade300 : Colors.grey.shade500)
-                                  : AppColors.primary,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
+                          _secondsLeft > 0
+                              ? TextSpan(
+                                  text: "Resend in ${_secondsLeft}s",
+                                  style: TextStyle(
+                                    color: isDark
+                                        ? Colors.grey.shade300
+                                        : Colors.grey.shade500,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                )
+                              : WidgetSpan(
+                                  alignment: PlaceholderAlignment.middle,
+                                  child: _gradientTint(
+                                    child: const Text(
+                                      "Resend OTP",
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                         ],
                       ),
                     ),
@@ -327,7 +374,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
 
               Obx(() => PrimaryButton(
                     text: "Verify OTP",
-                    color: AppColors.primary,
+                    gradient: const LinearGradient(colors: _brandGradient),
                     height: 45,
                     width: MediaQuery.sizeOf(context).width * 0.84,
                     textsize: 20,

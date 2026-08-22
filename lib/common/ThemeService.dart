@@ -11,19 +11,17 @@ class ThemeService {
   final GetStorage _box = GetStorage();
   final String _themeKey = 'theme_mode';
 
-  final RxBool _isDarkMode = RxBool(true);
+  final RxBool _isDarkMode = RxBool(false);
 
   bool get isDarkMode => _isDarkMode.value;
 
+  // App is light-theme only for now — the theme switcher UI is hidden, so
+  // this always resolves to light regardless of any previously saved
+  // preference. switchTheme()/loadSavedTheme() are kept intact below in
+  // case theme switching gets re-enabled later.
   ThemeMode get themeMode {
-    final saved = _box.read(_themeKey);
-    if (saved == 'light') {
-      _isDarkMode.value = false;
-      return ThemeMode.light;
-    } else {
-      _isDarkMode.value = true;
-      return ThemeMode.dark;
-    }
+    _isDarkMode.value = false;
+    return ThemeMode.light;
   }
 
   // Ab async — write ko await karta hai taake disk pe save hone ki
@@ -42,10 +40,8 @@ class ThemeService {
   }
 
   void loadSavedTheme() {
-    final saved = _box.read(_themeKey);
-    final isDark = saved != 'light';
-    _isDarkMode.value = isDark;
-    _updateStatusBar(isDark);
+    _isDarkMode.value = false;
+    _updateStatusBar(false);
   }
 
   void _updateStatusBar(bool isDark) {

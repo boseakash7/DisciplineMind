@@ -9,7 +9,7 @@
       "client_info": {
         "mobilesdk_app_id": "1:827424636921:android:dcdae8d116b15dc498c728",
         "android_client_info": {
-          "package_name": "com.discipline.mind"
+            "package_name": "com.discipline.mind"
         }
       },
       "oauth_client": [],

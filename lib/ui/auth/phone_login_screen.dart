@@ -11,6 +11,7 @@ class PhoneLoginScreen extends StatelessWidget {
 
   final AuthController authController = Get.put(AuthController());
   final TextEditingController phoneController = TextEditingController();
+  final TextEditingController nameController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
   @override
@@ -30,7 +31,7 @@ class PhoneLoginScreen extends StatelessWidget {
           child: Column(
             children: [
               const SizedBox(height: 80),
-              Image.asset(!isDark?"assets/lightthemelogo.png": "assets/logo.png", height:!isDark?100: 120),
+              Image.asset("assets/logo.jpg", height: 100),
               // const SizedBox(height: 16),
               // Text(
               //   "Discipline Mind",
@@ -46,12 +47,37 @@ class PhoneLoginScreen extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: TextStyle(color: secondaryTextColor, fontSize: 14),
               ),
-              const SizedBox(height: 48),
+              const SizedBox(height: 20),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: CustomTextField(
+                  hint: "Enter your Name",
+                  borderSide: BorderSide(color: AppColors.bordercolor),
+                  contentPadding: const EdgeInsets.symmetric(
+                    vertical: 11,
+                    horizontal: 16,
+                  ),
+                  icon: null,
+                  controller: nameController,
+                  keyboardType: TextInputType.name,
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return "Name is required";
+                    }
+                    return null;
+                  },
+                ),
+              ),
+              const SizedBox(height: 20),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 10),
                 child: CustomTextField(
                   hint: "Enter 10 digit mobile number",
                   borderSide: BorderSide(color: AppColors.bordercolor),
+                  contentPadding: const EdgeInsets.symmetric(
+                    vertical: 11,
+                    horizontal: 16,
+                  ),
                   inputFormatters: [
                     LengthLimitingTextInputFormatter(10),
                     FilteringTextInputFormatter.digitsOnly,
@@ -82,11 +108,14 @@ class PhoneLoginScreen extends StatelessWidget {
                   },
                 ),
               ),
-              const SizedBox(height: 80),
+              const SizedBox(height: 64),
               Obx(
                 () => PrimaryButton(height: 45,width: MediaQuery.sizeOf(context).width*.84,
                   text: "SEND OTP",borderRadius: 100,
-                  color: AppColors.primary,textsize: 20,
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFAF28FC), Color(0xFF1D4BF9)],
+                  ),
+                  textsize: 20,
                   isLoading: authController.isLoading.value,
                   onPressed: () async {
                     if (!_formKey.currentState!.validate()) return;

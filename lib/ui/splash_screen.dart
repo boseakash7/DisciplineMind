@@ -79,7 +79,6 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -99,9 +98,7 @@ class _SplashScreenState extends State<SplashScreen>
                   ),
                 );
               },
-              child: Image.asset(
-             !isDark?"assets/lightthemelogo.png": "assets/logo.png", height: 100
-              ),
+              child: Image.asset("assets/logo.jpg", height: 100),
             ),
 
             const SizedBox(height: 20),

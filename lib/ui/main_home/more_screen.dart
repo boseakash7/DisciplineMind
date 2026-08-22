@@ -1,8 +1,9 @@
-import 'package:discipline_mind/common/ThemeService.dart';
+﻿import 'package:discipline_mind/common/ThemeService.dart';
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/ui/android_app_block/app_usage_stats_page.dart';
 import 'package:discipline_mind/ui/main_home/alert_main.dart';
+import 'package:discipline_mind/ui/main_home/mct_lessons_screen.dart';
 import 'package:discipline_mind/ui/settings/app_block_settings_screen.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -13,13 +14,16 @@ class MoreScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Obx(() {                    // ← This makes it reactive
+    return Obx(() {
+      // Ã¢â€ Â This makes it reactive
       final isDark = ThemeService().isDarkMode;
 
       return Scaffold(
-        backgroundColor: isDark ? AppColors.darkBackground : AppColors.lightBackground,
+        backgroundColor: isDark
+            ? AppColors.darkBackground
+            : AppColors.lightBackground,
         body: SafeArea(
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -29,7 +33,9 @@ class MoreScreen extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.w700,
-                    color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
+                    color: isDark
+                        ? AppColors.darkTextPrimary
+                        : AppColors.lightTextPrimary,
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -37,7 +43,9 @@ class MoreScreen extends StatelessWidget {
                   'Manage your account and app preferences',
                   style: TextStyle(
                     fontSize: 13,
-                    color: isDark ? AppColors.darkTextSecondary : Colors.grey.shade700,
+                    color: isDark
+                        ? AppColors.darkTextSecondary
+                        : Colors.grey.shade700,
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -47,7 +55,9 @@ class MoreScreen extends StatelessWidget {
                   title: 'Price Alerts',
                   subtitle: 'Manage your alert list and statuses',
                   onTap: () => Navigator.push(
-                      context, MaterialPageRoute(builder: (_) => AlertsMainScreen())),
+                    context,
+                    MaterialPageRoute(builder: (_) => AlertsMainScreen()),
+                  ),
                 ),
                 const SizedBox(height: 12),
 
@@ -57,7 +67,9 @@ class MoreScreen extends StatelessWidget {
                   subtitle: 'Choose which trading app should stay locked',
                   onTap: () => Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => const AppBlockSettingsScreen()),
+                    MaterialPageRoute(
+                      builder: (_) => const AppBlockSettingsScreen(),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -68,19 +80,43 @@ class MoreScreen extends StatelessWidget {
                   subtitle: 'View tracked usage and blocking activity',
                   onTap: () {
                     if (defaultTargetPlatform == TargetPlatform.android) {
-                      Navigator.push(context,
-                          MaterialPageRoute(builder: (_) => const AppUsageStatsPage()));
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const AppUsageStatsPage(),
+                        ),
+                      );
                     } else {
-                      Get.snackbar('Not Available', 'App tracking is available on Android only');
+                      Get.snackbar(
+                        'Not Available',
+                        'App tracking is available on Android only',
+                      );
                     }
                   },
                 ),
                 const SizedBox(height: 12),
 
-                // Theme Switcher
-                _themeTile(isDark: isDark),
-
+                _buildTile(
+                  icon: Icons.play_lesson_outlined,
+                  title: 'MCT Lessons',
+                  subtitle: 'Watch protocol videos for Mind Control Trading',
+                  onTap: () {
+                    final userId = Common.userData.value?.payload?.id
+                        ?.toString();
+                    if (userId == null) return;
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => MctLessonsScreen(userId: userId),
+                      ),
+                    );
+                  },
+                ),
                 const SizedBox(height: 12),
+
+                // Theme Switcher — hidden while the app is light-theme only.
+                // _themeTile(isDark: isDark) kept below (unused) so the
+                // switcher can be re-enabled later without rebuilding it.
 
                 _buildTile(
                   icon: Icons.logout,
@@ -168,7 +204,9 @@ class MoreScreen extends StatelessWidget {
                       subtitle,
                       style: TextStyle(
                         fontSize: 13,
-                        color: isDark ? AppColors.darkTextSecondary : Colors.grey.shade600,
+                        color: isDark
+                            ? AppColors.darkTextSecondary
+                            : Colors.grey.shade600,
                       ),
                     ),
                   ],
@@ -189,8 +227,12 @@ class MoreScreen extends StatelessWidget {
   Widget _themeTile({required bool isDark}) {
     final cardBg = isDark ? AppColors.darkSurface : Colors.white;
     final cardBorder = isDark ? AppColors.darkBorder : Colors.grey.shade300;
-    final titleCol = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
-    final subtitleCol = isDark ? AppColors.darkTextSecondary : Colors.grey.shade600;
+    final titleCol = isDark
+        ? AppColors.darkTextPrimary
+        : AppColors.lightTextPrimary;
+    final subtitleCol = isDark
+        ? AppColors.darkTextSecondary
+        : Colors.grey.shade600;
 
     return InkWell(
       borderRadius: BorderRadius.circular(14),
@@ -260,3 +302,4 @@ class MoreScreen extends StatelessWidget {
     );
   }
 }
+

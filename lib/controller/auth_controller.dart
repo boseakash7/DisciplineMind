@@ -35,17 +35,21 @@ class AuthController extends GetxController {
       Get.offAll(() => MainHomeScreen(initialIndex: 2));
       return;
     }
+
     if (Platform.isAndroid && !await hasAndroidTradingBlockPermissions()) {
       Get.offAll(() => const PostLoginTradingBlockScreen());
       return;
     }
     if (appBlockPrefs.isSetupComplete(userId: userId)) {
-      Get.offAll(() => MainHomeScreen(initialIndex: 2));
+      Get.offAll(() => const MainHomeScreen(initialIndex: 2));
     } else {
       Get.offAll(() => const AppBlockSettingsScreen(isFirstSetup: true));
     }
   }
 
+Future<void> goToHomeAfterAuth() async {
+  await _navigateAfterLogin();
+}
   Future<void> _syncFcmAndSubscribe(String userId) async {
     await Common.getFcmToken();
     if (Common.fcmToken.isNotEmpty) {
@@ -59,7 +63,10 @@ class AuthController extends GetxController {
   }
 
   /// Call after OTP verify (existing user) or when restoring a saved session.
-  Future<void> applyLoggedInUser(LoginResponseModel model) async {
+  Future<void> applyLoggedInUser(
+    LoginResponseModel model, {
+    bool navigateAfterLogin = true,
+  }) async {
     final id = model.payload?.id?.toString();
     if (id == null) {
       AppToast.showToast("Something went wrong");
@@ -73,7 +80,9 @@ class AuthController extends GetxController {
     } catch (e) {
       AppToast.showToast(e.toString());
     }
-    await _navigateAfterLogin();
+    if (navigateAfterLogin) {
+      await _navigateAfterLogin();
+    }
   }
 
   Future<bool> sendOtp(String phone) async {
@@ -102,35 +111,37 @@ class AuthController extends GetxController {
   }
 
   Future<VerifyOtpPayload?> verifyOtp(String phone, String otp) async {
-  isLoading.value = true;
-  try {
-    final ApiResponse response = await apiService.postFormData(
-      ApiUrl.verifyOtpUrl,
-      {"phone": _normalizePhone(phone), "otp": otp},
-    );
+    isLoading.value = true;
+    try {
+      final ApiResponse response = await apiService.postFormData(
+        ApiUrl.verifyOtpUrl,
+        {"phone": _normalizePhone(phone), "otp": otp},
+      );
 
-    if (!response.isSuccess) {
-      AppToast.showToast(response.errorMessage ?? "Invalid OTP");
-      isLoading.value = false;
-      return null;
-    }
+      if (!response.isSuccess) {
+        AppToast.showToast(response.errorMessage ?? "Invalid OTP");
+        isLoading.value = false;
+        return null;
+      }
 
-    final data = Map<String, dynamic>.from(response.data as Map);
-    final payload = VerifyOtpResponse.fromJson(data).payload;
+      final data = Map<String, dynamic>.from(response.data as Map);
+      final payload = VerifyOtpResponse.fromJson(data).payload;
 
-    if (payload == null) {
-      AppToast.showToast("Something went wrong. Please try again.");
-      isLoading.value = false; // failure -> spinner turant band
-      return null;
-    }
+      if (payload == null) {
+        AppToast.showToast("Something went wrong. Please try again.");
+        isLoading.value = false; // failure -> spinner turant band
+        return null;
+      }
 
-    AppToast.showToast("OTP verified successfully");
+      AppToast.showToast("OTP verified successfully");
       return payload;
-  } catch (e) {
-    AppToast.showToast("Something went wrong. Please try again.");
-    isLoading.value = false; // exception -> spinner turant band
-    return null;
-  }}
+    } catch (e) {
+      AppToast.showToast("Something went wrong. Please try again.");
+      isLoading.value = false; // exception -> spinner turant band
+      return null;
+    }
+  }
+
   Future<void> autoLogin() async {
     final session = storage.getUserSession();
     if (session != null && session.payload?.id != null) {
@@ -150,6 +161,7 @@ class AuthController extends GetxController {
     required String email,
     required String phone,
     String? password,
+    bool navigateAfterLogin = true,  
   }) async {
     try {
       isLoading.value = true;
@@ -192,7 +204,8 @@ class AuthController extends GetxController {
         }
 
         AppToast.showToast("Account created successfully!");
-        await applyLoggedInUser(loginModel);
+        // await applyLoggedInUser(loginModel);
+         await applyLoggedInUser(loginModel, navigateAfterLogin: navigateAfterLogin);
       } else {
         AppToast.showToast(response.errorMessage ?? "Failed to create account");
       }
