@@ -4,6 +4,7 @@ import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/ui/android_app_block/app_usage_stats_page.dart';
 import 'package:discipline_mind/ui/main_home/alert_main.dart';
 import 'package:discipline_mind/ui/main_home/mct_lessons_screen.dart';
+import 'package:discipline_mind/ui/main_home/trade_process.dart';
 import 'package:discipline_mind/ui/settings/app_block_settings_screen.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -112,8 +113,30 @@ class MoreScreen extends StatelessWidget {
                     );
                   },
                 ),
+
                 const SizedBox(height: 12),
 
+
+                _buildTile(
+                  icon: Icons.track_changes,
+                  title: 'Mind Control Trading',
+                  subtitle: 'Set up your trading process',
+                  onTap: () {
+                    final userId = Common.userData.value?.payload?.id?.toString();
+
+                    if (userId == null) return;
+
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => TradingProcessScreen(
+                          userId: userId,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 12),
                 // Theme Switcher — hidden while the app is light-theme only.
                 // _themeTile(isDark: isDark) kept below (unused) so the
                 // switcher can be re-enabled later without rebuilding it.
@@ -132,6 +155,8 @@ class MoreScreen extends StatelessWidget {
       );
     });
   }
+
+
 
   // Regular menu tile
   Widget _buildTile({
