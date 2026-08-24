@@ -79,6 +79,9 @@ flutter:
 
   assets:
     - assets/ai_chat.png
+    - assets/Zeno AI App Icon.jpg
+    - assets/Zeno AI Brand Logo.png
+    - assets/no_bg_icon.png
     - .env
 
   # An image asset can refer to one or more resolution-specific "variants", see

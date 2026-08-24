@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="overlay_navy">#16161D</color>
+    <color name="overlay_purple">#7C3AED</color>
+    <color name="overlay_purple_bright">#8B5CF6</color>
+    <color name="overlay_purple_deep">#5B21B6</color>
+    <color name="overlay_purple_soft">#C4B5FD</color>
+    <color name="overlay_blue">#3B82F6</color>
+    <color name="overlay_text_secondary">#4B5563</color>
+    <color name="overlay_card_bg">#FAF8FF</color>
+    <color name="overlay_card_border">#EDE9FE</color>
+    <color name="overlay_icon_circle">#F3EEFF</color>
+    <color name="overlay_white">#FFFFFF</color>
+    <color name="overlay_line">#D8B4FE</color>
+</resources>

@@ -9,7 +9,6 @@ import android.app.usage.UsageStats
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
@@ -17,12 +16,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.view.Gravity
 import android.view.WindowManager
-import android.graphics.PorterDuff
-import android.graphics.drawable.GradientDrawable
 import android.widget.FrameLayout
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import io.flutter.embedding.android.FlutterView
 import io.flutter.embedding.engine.FlutterEngine
@@ -88,6 +82,8 @@ class AppBlockingService : Service() {
     /** Throttle UNKNOWN re-fetch so we don't spam /app/state every poll tick. */
     private var lastStateFetchAttemptMs: Long = 0
     private val stateRefetchCooldownMs = 2_000L
+    @Volatile
+    private var lastTradeId: String? = null
 
     private enum class AppLockState {
         BLOCKED,
@@ -202,6 +198,19 @@ class AppBlockingService : Service() {
                         } else {
                             result.error("INVALID_ARGS", "package required", null)
                         }
+                    }
+                    "goHome" -> {
+                        sendUserHome()
+                        result.success(true)
+                    }
+                    "getLockStatus" -> {
+                        result.success(
+                            hashMapOf(
+                                "hasActiveTrade" to !lastTradeId.isNullOrBlank(),
+                                "tradeId" to (lastTradeId ?: ""),
+                                "package" to overlayPackage,
+                            )
+                        )
                     }
                     else -> result.notImplemented()
                 }
@@ -344,6 +353,7 @@ class AppBlockingService : Service() {
             } else {
                 AppStateResult(AppLockState.UNKNOWN, null)
             }
+            lastTradeId = state.tradeId
             if (state.state == AppLockState.BLOCKED &&
                 !state.tradeId.isNullOrBlank() &&
                 userId != null
@@ -380,11 +390,18 @@ class AppBlockingService : Service() {
                             temporaryUnblocked.remove(packageName)
                             if (lastAllowedApp == packageName) lastAllowedApp = ""
                             // Show only after confirmed BLOCKED, and only if still on screen.
-                            if (stillForeground &&
-                                (!overlayShowing || currentForegroundApp != packageName)
-                            ) {
-                                currentForegroundApp = packageName
-                                showOverlay(packageName)
+                            if (stillForeground) {
+                                if (overlayShowing && currentForegroundApp == packageName) {
+                                    overlayView?.let {
+                                        MindControlGuardOverlay.bindStatus(
+                                            it,
+                                            !lastTradeId.isNullOrBlank(),
+                                        )
+                                    }
+                                } else if (!overlayShowing || currentForegroundApp != packageName) {
+                                    currentForegroundApp = packageName
+                                    showOverlay(packageName)
+                                }
                             }
                         }
                     }
@@ -459,71 +476,22 @@ class AppBlockingService : Service() {
             gravity = Gravity.CENTER
         }
 
-        // Native overlay — matches BlockedAppOverlayPage Flutter design
-        val appName = getAppDisplayName(packageName)
-        val dp = resources.displayMetrics.density
-
-        val lockIcon = ImageView(this).apply {
-            setImageResource(android.R.drawable.ic_lock_lock)
-            setColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
-        }
-        val iconSize = (80 * dp).toInt()
-
-        val titleText = TextView(this).apply {
-            setTextColor(Color.WHITE)
-            textSize = 22f
-            text = "$appName is blocked"
-            gravity = Gravity.CENTER
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-        }
-
-        val msgText = TextView(this).apply {
-            setTextColor(Color.argb(230, 255, 255, 255)) // white ~90%
-            textSize = 14f
-            text = "You have an active price alert. Stay focused on your goals."
-            gravity = Gravity.CENTER
-        }
-
-        val btnBackground = GradientDrawable().apply {
-            setColor(Color.WHITE)
-            cornerRadius = (8 * dp)
-        }
-        val forceUnblockBtn = TextView(this).apply {
-            text = "Force Unblock"
-            setTextColor(Color.parseColor("#DD000000")) // black87
-            textSize = 15f
-            gravity = Gravity.CENTER
-            background = btnBackground
-            setPadding((32 * dp).toInt(), (14 * dp).toInt(), (32 * dp).toInt(), (14 * dp).toInt())
-            setOnClickListener { performForceUnblock(packageName) }
-        }
-
-        val nativeContent = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#DD000000")) // black87 — matches Flutter Material color
-            gravity = Gravity.CENTER
-            setPadding((32 * dp).toInt(), 0, (32 * dp).toInt(), 0)
-
-            addView(lockIcon, LinearLayout.LayoutParams(iconSize, iconSize))
-            addView(titleText, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = (24 * dp).toInt() })
-            addView(msgText, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = (12 * dp).toInt() })
-            addView(forceUnblockBtn, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = (24 * dp).toInt() })
-        }
+        // Native overlay — Mind Control Guard lock screen
+        val nativeContent = MindControlGuardOverlay.create(
+            context = this,
+            hasActiveTrade = !lastTradeId.isNullOrBlank(),
+            onWillControl = { sendUserHome() },
+            onSkip = { performForceUnblock(packageName) },
+        )
         overlayView = FrameLayout(this).apply {
-            setBackgroundColor(Color.parseColor("#DD000000")) // black87
-            addView(nativeContent, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            ))
+            setBackgroundColor(0xFFFFFFFF.toInt())
+            addView(
+                nativeContent,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                ),
+            )
         }
         try {
             windowManager.addView(overlayView, params)
@@ -669,13 +637,18 @@ class AppBlockingService : Service() {
         }
     }
 
-    private fun getAppDisplayName(packageName: String): String {
-        return when (packageName) {
-            "com.zerodha.kite3" -> "Zerodha Kite"
-            "in.upstox.app" -> "Upstox"
-            "com.nextbillion.groww" -> "Groww"
-            else -> "This app"
+    /** I WILL CONTROL: leave the trading app and keep the lock. */
+    private fun sendUserHome() {
+        try {
+            val home = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(home)
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
+        hideOverlay()
     }
 
     /** Force Unblock: one-time bypass for this app only. Next open (if alerts exist) will block again. */

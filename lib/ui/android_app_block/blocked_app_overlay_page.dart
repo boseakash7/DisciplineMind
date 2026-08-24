@@ -3,15 +3,14 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:http/http.dart' as http;
 
 import '../../model/user_alert_model.dart';
-import '../../services/trading_apps_service.dart';
 import '../../services/api/api_config.dart';
 import '../../services/api/api_url.dart';
 import '../../services/native_app_block_service.dart';
+import 'mind_control_guard_lock_screen.dart';
 
 class BlockedAppOverlayPage extends StatefulWidget {
   const BlockedAppOverlayPage({super.key});
@@ -30,7 +29,7 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
   String? _blockedPackageName;
   bool _isLoading = true;
   bool _isChecking = false;
-  String _statusMessage = 'Checking alerts...';
+  bool _hasActiveTrade = false;
   void _safeSetState(VoidCallback fn) {
     if (mounted) setState(fn);
   }
@@ -42,12 +41,18 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
       _isLoading = false;
       _isChecking = false;
       _blockedPackageName = 'blocked_app';
-      _statusMessage = 'You have an active alert. Stay focused on your goals.';
     });
+    _refreshLockStatus();
     _checkAndUnblockIfNeeded();
   }
 
-  /// Get blocked app package from native; retry a few times (engine may not be ready immediately).
+  Future<void> _refreshLockStatus() async {
+    final active = await _blockService.hasActiveTrade();
+    if (!mounted) return;
+    if (active) {
+      _safeSetState(() => _hasActiveTrade = true);
+    }
+  }
   Future<String?> _getCurrentBlockedAppWithRetry() async {
     const maxAttempts = 10;
     const delayMs = 200;
@@ -82,13 +87,11 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
     if (!mounted) return;
     // If still loading after work finished (or timeout), force show blocked state
     if (_isLoading || _isChecking) {
-      _safeSetState(() {
-        _isLoading = false;
-        _isChecking = false;
-        _statusMessage =
-            'You have an active alert. Stay focused on your goals.';
-        _blockedPackageName ??= 'blocked_app';
-      });
+        _safeSetState(() {
+          _isLoading = false;
+          _isChecking = false;
+          _blockedPackageName ??= 'blocked_app';
+        });
     }
   }
 
@@ -96,13 +99,11 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
     try {
       final userId = _storage.read<String>('user_id');
       if (userId == null || userId.isEmpty) {
-        _safeSetState(() => _statusMessage = 'No user. Unblocking...');
         await _unblockAndClose();
         return;
       }
 
       final packageFuture = _getCurrentBlockedAppWithRetry();
-      _safeSetState(() => _statusMessage = 'Checking your alert...');
       final keepBlocked = await _shouldKeepBlocked(userId);
       if (!mounted) return;
 
@@ -111,20 +112,17 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
       _safeSetState(() => _blockedPackageName = package ?? _blockedPackageName);
 
       if (!keepBlocked) {
-        _safeSetState(() => _statusMessage = 'No active alert. Unblocking...');
         await _unblockAndClose();
       } else {
         _safeSetState(() {
           _isLoading = false;
           _isChecking = false;
-          _statusMessage =
-              'You have an active alert. Stay focused on your goals.';
         });
+        await _refreshLockStatus();
       }
     } catch (e) {
       if (!mounted) return;
       print('[BlockedAppOverlay] Error: $e');
-      _safeSetState(() => _statusMessage = 'Error. Keeping blocked.');
       _safeSetState(() {
         _isLoading = false;
         _isChecking = false;
@@ -185,6 +183,13 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
       final hasPending = alerts.any(
         (a) => (a.status ?? '').toLowerCase() == 'pending',
       );
+      final hasTrade = alerts.any((a) {
+        final tid = (a.tradeId ?? '').trim();
+        return tid.isNotEmpty && tid != '0' && tid.toLowerCase() != 'null';
+      });
+      if (mounted) {
+        _safeSetState(() => _hasActiveTrade = hasTrade);
+      }
       final keepBlocked = hasPending;
       print(
         '[BlockedAppOverlay] alertsCount=${alerts.length} pending=$hasPending → keepBlocked=$keepBlocked',
@@ -197,16 +202,15 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
     }
   }
 
-  static String _appDisplayName(String? package) {
-    if (package == null || package.isEmpty || package == 'blocked_app') {
-      return 'This app';
+  Future<void> _willControl() async {
+    try {
+      final sentHome = await _blockService.goHome();
+      if (!sentHome) {
+        await _blockService.closeOverlay();
+      }
+    } catch (e) {
+      print('[BlockedAppOverlay] willControl failed: $e');
     }
-    if (Get.isRegistered<TradingAppsService>()) {
-      final name =
-          Get.find<TradingAppsService>().displayNameForPackage(package);
-      if (name != package) return name;
-    }
-    return package;
   }
 
   Future<void> _forceUnblockTemporary() async {
@@ -250,69 +254,11 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.black87,
-      child: SafeArea(
-        child: _isLoading || _isChecking
-            ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const CircularProgressIndicator(color: Colors.white),
-                    const SizedBox(height: 24),
-                    Text(
-                      _statusMessage,
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.9),
-                        fontSize: 14,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              )
-            : Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 32),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.lock, size: 80, color: Colors.white),
-                      const SizedBox(height: 24),
-                      Text(
-                        '${_appDisplayName(_blockedPackageName)} is blocked',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        _statusMessage,
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.9),
-                          fontSize: 14,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 24),
-                      ElevatedButton(
-                        onPressed: _forceUnblockTemporary,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: Colors.black87,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 32,
-                            vertical: 14,
-                          ),
-                        ),
-                        child: const Text('Force Unblock'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+      color: Colors.white,
+      child: MindControlGuardLockScreen(
+        hasActiveTrade: _hasActiveTrade,
+        onWillControl: _willControl,
+        onSkip: _forceUnblockTemporary,
       ),
     );
   }

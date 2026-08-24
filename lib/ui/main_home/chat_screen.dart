@@ -561,19 +561,47 @@ class _ChatScreenState extends State<ChatScreen> {
     return '${day.day} $month ${day.year}';
   }
 
+  /// Index where the latest same-time unread burst starts, or -1 if none.
+  ///
+  /// Walks from the newest unread message backward while each previous
+  /// unread message is within [_unreadBurstWindow] of the next one.
+  /// Older unread outside that burst stay unread; the "New Messages" tag
+  /// only appears above this last cluster.
+  static const _unreadBurstWindow = Duration(seconds: 1);
+
+  int _latestUnreadBurstStartIndex(List<ChatMessage> messages) {
+    var end = -1;
+    for (var i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].isUnread) {
+        end = i;
+        break;
+      }
+    }
+    if (end < 0) return -1;
+
+    var start = end;
+    while (start > 0) {
+      final prev = messages[start - 1];
+      if (!prev.isUnread) break;
+      final tCurr = ChatController.parseMessageTime(messages[start].timestamp);
+      final tPrev = ChatController.parseMessageTime(prev.timestamp);
+      if (tCurr == null || tPrev == null) break;
+      if (tCurr.difference(tPrev).abs() > _unreadBurstWindow) break;
+      start--;
+    }
+    return start;
+  }
+
   List<_ChatFeedItem> _buildChatFeedItems(List<ChatMessage> messages) {
     final items = <_ChatFeedItem>[];
     DateTime? lastDay;
-    var insertedNewMessages = false;
+    final newMessagesAt = _latestUnreadBurstStartIndex(messages);
 
     for (var i = 0; i < messages.length; i++) {
       final msg = messages[i];
       final day = _messageDay(msg);
 
-      final shouldShowNewMessages =
-          !insertedNewMessages && msg.isUnread;
-      if (shouldShowNewMessages) {
-        insertedNewMessages = true;
+      if (i == newMessagesAt) {
         items.add(const _ChatFeedNewMessages());
       }
 
