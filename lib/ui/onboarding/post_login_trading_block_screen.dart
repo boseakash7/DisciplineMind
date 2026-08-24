@@ -7,11 +7,20 @@ import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:discipline_mind/ui/main_home/main_home.dart';
 import 'package:discipline_mind/ui/settings/app_block_settings_screen.dart';
-import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 
+// ============================================================================
+// POST LOGIN TRADING BLOCK SCREEN
+//
+// This used to show the "Permission 1 / Permission 2" screens directly.
+// That UI now lives inside TradingProcessScreen (steps 5 & 6), so this
+// screen is just a lightweight redirect: it checks whether the user has
+// already finished the Mind Control Trading setup and/or already granted
+// the required Android permissions, applies the app block if it can, and
+// routes the user to the right place — without showing any permission UI
+// itself.
+// ============================================================================
 class PostLoginTradingBlockScreen extends StatefulWidget {
   const PostLoginTradingBlockScreen({super.key});
 
@@ -21,422 +30,63 @@ class PostLoginTradingBlockScreen extends StatefulWidget {
 }
 
 class _PostLoginTradingBlockScreenState
-    extends State<PostLoginTradingBlockScreen>
-    with WidgetsBindingObserver {
+    extends State<PostLoginTradingBlockScreen> {
   final _blockService = NativeAppBlockService();
   final _prefs = AppBlockPreferencesService();
-  bool _busy = false;
-  bool _hasOverlay = false;
-  bool _hasUsage = false;
-  bool _isDark = true;
 
   String? get _userId => Common.userData.value?.payload?.id?.toString();
-  bool get _allGranted => _hasOverlay && _hasUsage;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _refreshPermissions();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _resolveAndRedirect());
   }
 
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _refreshPermissions();
-    }
-  }
-
-  Future<void> _refreshPermissions() async {
-    if (!Platform.isAndroid) return;
-
-    final p = await _blockService.checkPermissions();
-
-    if (!mounted) return;
-
-    setState(() {
-      _hasOverlay = p['hasOverlayPermission'] == true;
-      _hasUsage = p['hasUsageStatsPermission'] == true;
-    });
-
-    // Auto continue removed as per your request
-  }
-
-  // Both buttons trigger both permissions
-  Future<void> _requestBothPermissions() async {
-    setState(() => _busy = true);
-
-    try {
-      // Request Overlay Permission
-      if (!_hasOverlay) {
-        await _blockService.requestOverlayPermission();
-        await Future.delayed(const Duration(milliseconds: 700));
-        await _refreshPermissions();
-      }
-
-      // Request Usage Stats Permission
-      if (!_hasUsage) {
-        await _blockService.requestUsageStatsPermission();
-        await Future.delayed(const Duration(milliseconds: 700));
-        await _refreshPermissions();
-      }
-
-      if (!_allGranted && mounted) {
-        AppToast.showToast('Please grant both permissions from settings.');
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _onEnablePermission1() async {
-    await _requestBothPermissions();
-  }
-
-  Future<void> _onEnablePermission2() async {
-    await _requestBothPermissions();
-  }
-
-  Future<void> _continue() async {
+  Future<void> _resolveAndRedirect() async {
     final userId = _userId;
+
+    // No logged-in user id — nothing to set up, just go home.
     if (userId == null || userId.isEmpty) {
       Get.offAll(() => const MainHomeScreen(initialIndex: 2));
       return;
     }
 
-    setState(() => _busy = true);
-
-    try {
-      if (Platform.isAndroid) {
-        final updated = await _blockService.checkPermissions();
-        final ok = (updated['hasOverlayPermission'] ?? false) &&
-            (updated['hasUsageStatsPermission'] ?? false);
-
-        if (!mounted) return;
-
-        if (!ok) {
-          AppToast.showToast('Please allow both permissions before continuing.');
-          return;
-        }
-        await applyAndroidTradingAppBlock();
-      }
-
+    // Off-Android there's no overlay/usage-stats permission concept at all.
+    if (!Platform.isAndroid) {
       if (_prefs.isSetupComplete(userId: userId)) {
         Get.offAll(() => const MainHomeScreen(initialIndex: 2));
       } else {
         Get.offAll(() => const AppBlockSettingsScreen(isFirstSetup: true));
       }
-    } finally {
-      if (mounted) setState(() => _busy = false);
+      return;
+    }
+
+    // On Android: if the required permissions are already granted (e.g. the
+    // user granted them earlier via the TradingProcessScreen flow), (re)apply
+    // the block and continue as normal.
+    final permissions = await _blockService.checkPermissions();
+    final hasOverlay = permissions['hasOverlayPermission'] == true;
+    final hasUsage = permissions['hasUsageStatsPermission'] == true;
+
+    if (hasOverlay && hasUsage) {
+      await applyAndroidTradingAppBlock();
+    }
+
+    if (!mounted) return;
+
+    if (_prefs.isSetupComplete(userId: userId)) {
+      Get.offAll(() => const MainHomeScreen(initialIndex: 2));
+    } else {
+      // Permissions (if still missing) will be requested as part of the
+      // TradingProcessScreen setup flow, not here.
+      Get.offAll(() => const AppBlockSettingsScreen(isFirstSetup: true));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!Platform.isAndroid) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        final userId = _userId;
-        if (userId != null && _prefs.isSetupComplete(userId: userId)) {
-          Get.offAll(() => const MainHomeScreen(initialIndex: 2));
-        } else if (userId != null) {
-          Get.offAll(() => const AppBlockSettingsScreen(isFirstSetup: true));
-        } else {
-          Get.offAll(() => const MainHomeScreen(initialIndex: 2));
-        }
-      });
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
-    final bg = _isDark ? const Color(0xFF08080F) : const Color(0xFFF0F0F8);
-    final cardBg = _isDark ? const Color(0xFF0F0F1A) : const Color(0xFFFFFFFF);
-    final blueAccent = const Color(0xFF3A5BFF);
-    final grantedGreen = const Color(0xFF22D47E);
-    final textPrimary = _isDark ? Colors.white : const Color(0xFF0A0A18);
-    final textMuted = _isDark ? const Color(0xFF8888AA) : const Color(0xFF66667A);
-    final iconColor = _isDark ? Colors.white70 : const Color(0xFF0A0A18).withOpacity(0.6);
-
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: (_isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark)
-          .copyWith(
-        statusBarColor: Colors.transparent,
-        systemNavigationBarColor: _isDark ? Colors.black : Colors.white,
-        systemNavigationBarIconBrightness:
-            _isDark ? Brightness.light : Brightness.dark,
-      ),
-      child: Scaffold(
-        backgroundColor: bg,
-        body: SafeArea(
-          child: Stack(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-                child: Column(
-                  children: [
-                    const SizedBox(height: 8),
-                    Image.asset("assets/permision.png",height: 100),
-                    const SizedBox(height: 28),
-
-                    RichText(
-                      textAlign: TextAlign.center,
-                      text: TextSpan(
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                          color: textPrimary,
-                          height: 1.3,
-                        ),
-                        children: [
-                          const TextSpan(text: 'Permissions required to use '),
-                          TextSpan(
-                            text: 'Monkk AI',
-                            style: TextStyle(color: blueAccent),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    Text(
-                      'We need the following permissions to provide\nyou the best experience',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: textMuted,
-                        height: 1.5,
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-
-                    // Permission Card 1
-                    _PermissionCard(
-                      cardBg: cardBg,
-                      blueAccent: blueAccent,
-                      grantedGreen: grantedGreen,
-                      btnLabel: 'ENABLE PERMISSION I',
-                      statusLabel: 'DISPLAY OVER OTHER APPS GRANTED',
-                      granted: _hasOverlay,
-                      enableActive: !_hasOverlay,
-                      onEnable: _onEnablePermission1,
-                      isDark: _isDark,
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Permission Card 2
-                    _PermissionCard(
-                      cardBg: cardBg,
-                      blueAccent: blueAccent,
-                      grantedGreen: grantedGreen,
-                      btnLabel: 'ENABLE PERMISSION II',
-                      statusLabel: 'USAGE ACCESS PERMISSION GRANTED',
-                      granted: _hasUsage,
-                      enableActive: _hasOverlay && !_hasUsage,
-                      onEnable: _onEnablePermission2,
-                      isDark: _isDark,
-                    ),
-
-                    const Spacer(),
-
-                    SizedBox(
-                      width: MediaQuery.sizeOf(context).width*.75,
-                      height: 45,
-                      child: ElevatedButton(
-                        onPressed: (_allGranted && !_busy) ? _continue : null,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: blueAccent,
-                          disabledBackgroundColor: _isDark
-                              ? const Color(0xFF1A1A2E)
-                              : const Color(0xFFD8D8E8),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(100),
-                          ),
-                          elevation: 0,
-                        ),
-                        child: _busy
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    'CONTINUE',
-                                    style: TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: 1.5,
-                                      color: _allGranted
-                                          ? Colors.white
-                                          : (_isDark
-                                              ? const Color(0xFF44445A)
-                                              : const Color(0xFFAAAAAA)),
-                                    ),
-                                  ),
-                                  // const SizedBox(width: 10),
-                                  // Icon(
-                                  //   Icons.arrow_forward_rounded,
-                                  //   size: 20,
-                                  //   color: _allGranted
-                                  //       ? Colors.white
-                                  //       : (_isDark
-                                  //           ? const Color(0xFF44445A)
-                                  //           : const Color(0xFFAAAAAA)),
-                                  // ),
-                                ],
-                              ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                ),
-              ),
-
-              // Positioned(
-              //   top: 8,
-              //   right: 8,
-              //   child: GestureDetector(
-              //     onTap: () => setState(() => _isDark = !_isDark),
-              //     child: AnimatedContainer(
-              //       duration: const Duration(milliseconds: 250),
-              //       width: 44,
-              //       height: 44,
-              //       decoration: BoxDecoration(
-              //         color: _isDark
-              //             ? const Color(0xFF1A1A2E)
-              //             : const Color(0xFFE2E2F0),
-              //         borderRadius: BorderRadius.circular(100),
-              //       ),
-              //       child: Icon(
-              //         _isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-              //         color: iconColor,
-              //         size: 20,
-              //       ),
-              //     ),
-              //   ),
-              // ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// Permission Card
-class _PermissionCard extends StatelessWidget {
-  const _PermissionCard({
-    required this.cardBg,
-    required this.blueAccent,
-    required this.grantedGreen,
-    required this.btnLabel,
-    required this.statusLabel,
-    required this.granted,
-    required this.enableActive,
-    required this.onEnable,
-    required this.isDark,
-  });
-
-  final Color cardBg;
-  final Color blueAccent;
-  final Color grantedGreen;
-  final String btnLabel;
-  final String statusLabel;
-  final bool granted;
-  final bool enableActive;
-  final VoidCallback onEnable;
-  final bool isDark;
-
-  @override
-  Widget build(BuildContext context) {
-    final bool isActive = enableActive || granted;
-
-    final Color btnBg = isActive ? Colors.white : const Color(0xFF64748B);
-    final Color btnText = isActive ? Colors.black : const Color(0xFFCBD5E1);
-    final Color btnBorder = isActive ? Colors.white : const Color(0xFF64748B);
-
-    final Color statusColor = granted
-        ? grantedGreen
-        : (isDark ? const Color(0xFF555570) : const Color(0xFFAAAAAA));
-
-    final Color borderColor = granted
-        ? grantedGreen.withOpacity(0.25)
-        : (isDark ? const Color(0xFF1E1E35) : const Color(0xFFDDDDEE));
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 250),
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: borderColor, width: 1),
-      ),
-      child: Column(
-        children: [
-          SizedBox(
-            width: MediaQuery.sizeOf(context).width*.6,
-            height: 45,
-            child: ElevatedButton(
-              onPressed: enableActive ? onEnable : null,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: btnBg,
-                disabledBackgroundColor: btnBg,
-                foregroundColor: btnText,
-                disabledForegroundColor: btnText,
-                elevation: 0,
-                side: BorderSide(color: btnBorder, width: 1.5),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(100),
-                ),
-              ),
-              child: Text(
-                granted ? '$btnLabel' : btnLabel,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.2,
-                  color: btnText,
-                ),
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 10),
-
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                granted
-                    ? Icons.check_box_rounded
-                    : Icons.check_box_outline_blank_rounded,
-                color: statusColor,
-                size: 14,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                statusLabel,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.9,
-                  color: statusColor,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+    return const Scaffold(
+      body: Center(child: CircularProgressIndicator()),
     );
   }
 }

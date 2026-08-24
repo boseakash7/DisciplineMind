@@ -1,51 +1,55 @@
+import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:discipline_mind/services/app_block_preferences_service.dart';
+import 'package:discipline_mind/services/native_app_block_service.dart';
+import 'package:discipline_mind/services/trading_block_bootstrap.dart';
+import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get_storage/get_storage.dart';
 
 // ============================================================================
 // TYPE SCALE — single source of truth for text sizes across this flow.
-// Previously sizes were scattered ad-hoc (7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5,
-// 11, 12, 12.5, 13, 14, 18, 19, 20, 22...) which made hierarchy inconsistent
-// and pushed several labels below a comfortably readable size on a real
-// device. This collapses everything onto a clean scale.
 // ============================================================================
 class _Type {
-  static const double micro = 10; // tiniest captions (word counts, hints)
-  static const double caption = 11; // secondary captions / subtext
-  static const double body = 12; // standard body text, list items
-  static const double bodyStrong = 12; // bold body (kept same size as body)
-  static const double label = 13; // field labels, broker names, tags
-  static const double value = 14; // emphasized values (risk amount, time)
-  static const double cardTitle = 15; // option/instrument card titles
-  static const double sectionTitle = 16; // step header ("Step X of 6")
-  static const double screenSubtitle = 13; // subtitle under a step title
-  static const double screenTitle = 20; // step title ("Trading Segment")
-  static const double heading = 24; // "You're All Set!"
-  static const double buttonLabel = 15; // CTA button text
-  static const double logo = 47; // "zeno" wordmark
-  static const double logoBadge = 22; // "AI" chip
-  static const double hero = 56; // "Z" hero letter
+  static const double micro = 10;
+  static const double caption = 11;
+  static const double body = 12;
+  static const double bodyStrong = 12;
+  static const double label = 13;
+  static const double value = 14;
+  static const double cardTitle = 15;
+  static const double sectionTitle = 16;
+  static const double screenSubtitle = 13;
+  static const double screenTitle = 20;
+  static const double heading = 24;
+  static const double buttonLabel = 15;
+  static const double logo = 47;
+  static const double logoBadge = 22;
+  static const double hero = 56;
 }
 
 class TradingProcessScreen extends StatefulWidget {
   const TradingProcessScreen({
     super.key,
     required this.userId,
+    this.skipWelcome = false,
   });
 
   final String userId;
+  final bool skipWelcome;
 
   @override
-  State<TradingProcessScreen> createState() =>
-      _TradingProcessScreenState();
+  State<TradingProcessScreen> createState() => _TradingProcessScreenState();
 }
 
-class _TradingProcessScreenState extends State<TradingProcessScreen> {
-  final PageController _pageController = PageController();
-  final TextEditingController _capitalController =
-  TextEditingController(text: _formatIndianNumber(500000));
+class _TradingProcessScreenState extends State<TradingProcessScreen>
+    with WidgetsBindingObserver {
+  late final PageController _pageController = PageController(
+    initialPage: widget.skipWelcome ? 1 : 0,
+  );
+  final TextEditingController _capitalController = TextEditingController();
   final FocusNode _capitalFocusNode = FocusNode();
 
   // ============================================================
@@ -66,9 +70,6 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
 
   static const Color red = Color(0xFFCC3B4D);
 
-  // Disabled-button color pulled out so every gated CTA across the flow
-  // (Next, Enable Permission, Set Up My Process) looks identical instead of
-  // one-off greys drifting apart.
   static const Color disabled = Color(0xFFB8B4C5);
 
   static const LinearGradient primaryGradient = LinearGradient(
@@ -81,40 +82,37 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
   // CAPITAL LIMITS
   // ============================================================
 
-  static const int minCapital = 1000; // ₹1,000 floor
-  static const int maxCapital = 999999999; // ~99.99 crore ceiling
+  static const int minCapital = 1000;
+  static const int maxCapital = 999999999;
 
   // ============================================================
   // STATE
   // ============================================================
 
-  int currentPage = 0;
+  late int currentPage = widget.skipWelcome ? 1 : 0;
 
-  String tradingSegment = 'Options';
-  String instrument = 'Nifty 50';
-  String brokerage = 'Zerodha Kite';
+  String? tradingSegment;
+  String? instrument;
+  String? brokerage;
 
-  int tradingCapital = 500000;
-  int tradesPerDay = 1;
-  TimeOfDay marketEntryTimeOfDay = const TimeOfDay(hour: 10, minute: 0);
+  int tradingCapital = 0;
+  int? tradesPerDay;
+  TimeOfDay? marketEntryTimeOfDay;
 
-  bool termsAccepted = true;
-
-  // Whether the Trading Capital field is currently editable. Starts locked
-  // (read-only, view mode) and only becomes editable when the pencil icon
-  // (or the field itself) is tapped — it re-locks once it loses focus.
+  bool termsAccepted = false;
   bool _isCapitalEditable = false;
 
-  // Max risk auto-derives from capital — always exactly 2%, always in sync.
   int get maxRiskPerTrade => (tradingCapital * 0.02).round();
 
   String get capitalInWords => tradingCapital > 0
       ? '${_numberToWordsIndian(tradingCapital)} Rupees Only'
       : 'Zero Rupees Only';
 
-  // Capital validity — drives the error state and whether Step 3 can proceed.
   bool get isCapitalValid =>
       tradingCapital >= minCapital && tradingCapital <= maxCapital;
+
+  bool get _step3Valid =>
+      isCapitalValid && tradesPerDay != null && marketEntryTimeOfDay != null;
 
   String? get capitalErrorText {
     if (tradingCapital <= 0) return 'Enter your trading capital';
@@ -128,6 +126,29 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
   }
 
   // ============================================================
+  // PERMISSIONS (merged in from the old post-login permission screen)
+  // ============================================================
+
+  final _blockService = NativeAppBlockService();
+  final _prefs = AppBlockPreferencesService();
+
+  bool _permissionBusy = false;
+  bool _hasOverlay = false;
+  bool _hasUsage = false;
+
+  // Guards against overlapping calls to _refreshPermissions (e.g. the
+  // lifecycle "resumed" callback firing while another check is in flight).
+  bool _refreshInFlight = false;
+
+  // True while we are waiting for the user to come back from the system
+  // Settings screen after tapping "Enable Permission". Used so we only
+  // show the "please grant" toast once they've actually had a chance to
+  // grant it (on resume), never before.
+  bool _awaitingPermissionResult = false;
+
+  bool get _allPermissionsGranted => _hasOverlay && _hasUsage;
+
+  // ============================================================
   // INIT
   // ============================================================
 
@@ -135,8 +156,9 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
   void initState() {
     super.initState();
 
-    // Auto-lock the capital field back into read-only view mode the
-    // moment it loses focus (tap elsewhere, keyboard dismissed, etc).
+    WidgetsBinding.instance.addObserver(this);
+    _refreshPermissions();
+
     _capitalFocusNode.addListener(() {
       if (!_capitalFocusNode.hasFocus && mounted) {
         setState(() {
@@ -152,52 +174,152 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _pageController.dispose();
     _capitalController.dispose();
     _capitalFocusNode.dispose();
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      final wasAwaitingResult = _awaitingPermissionResult;
+      _awaitingPermissionResult = false;
+
+      _refreshPermissions(showToastIfMissing: wasAwaitingResult).then((_) {
+        // Whatever happened (granted or not), the user has made their
+        // choice and returned — stop showing the button spinner.
+        if (mounted && _permissionBusy) {
+          setState(() => _permissionBusy = false);
+        }
+      });
+    }
+  }
+
+  /// Single source of truth for checking + reacting to permission state.
+  /// Only this method decides whether to auto-advance to the next step,
+  /// which avoids the double-trigger race that used to happen when both
+  /// the button-tap flow and the app-resume flow tried to advance pages
+  /// independently.
+  Future<void> _refreshPermissions({bool showToastIfMissing = false}) async {
+    if (!Platform.isAndroid) return;
+    if (_refreshInFlight) return;
+    _refreshInFlight = true;
+
+    try {
+      final p = await _blockService.checkPermissions();
+      if (!mounted) return;
+
+      final newOverlay = p['hasOverlayPermission'] == true;
+      final newUsage = p['hasUsageStatsPermission'] == true;
+
+      setState(() {
+        _hasOverlay = newOverlay;
+        _hasUsage = newUsage;
+      });
+
+      // Only advance / warn based on whichever permission step the user
+      // is actually sitting on right now.
+      if (currentPage == 5) {
+        if (newOverlay) {
+          nextPage();
+        } else if (showToastIfMissing) {
+          AppToast.showToast(
+              'Please grant the "Display over other apps" permission.');
+        }
+      } else if (currentPage == 6) {
+        if (newUsage) {
+          nextPage();
+        } else if (showToastIfMissing) {
+          AppToast.showToast('Please grant the "Usage Access" permission.');
+        }
+      }
+    } finally {
+      _refreshInFlight = false;
+    }
+  }
+
+  Future<void> _requestOverlayPermission() async {
+    setState(() {
+      _permissionBusy = true;
+      _awaitingPermissionResult = true;
+    });
+    // This opens the system Settings screen. We do NOT check the result
+    // here — the app will be paused while the user is in Settings, and
+    // didChangeAppLifecycleState(resumed) will pick up the result as soon
+    // as they come back. Checking here on a fixed timer used to race with
+    // that callback and could fire navigation twice.
+    await _blockService.requestOverlayPermission();
+  }
+
+  Future<void> _requestUsagePermission() async {
+    setState(() {
+      _permissionBusy = true;
+      _awaitingPermissionResult = true;
+    });
+    await _blockService.requestUsageStatsPermission();
+  }
+
   // ============================================================
   // NAVIGATION
+  //
+  // Pages: 0 = Welcome, 1 = Step1, 2 = Step2, 3 = Step3, 4 = Step4,
+  // 5 = Permission1, 6 = Permission2, 7 = Success.
   // ============================================================
 
   void nextPage() {
     if (currentPage >= 7) return;
 
-    // Block navigation forward from the capital step until it's valid.
-    if (currentPage == 3 && !isCapitalValid) {
-      setState(() {}); // trigger error text to show
+    if (currentPage == 3 && !_step3Valid) {
+      setState(() {});
       return;
     }
 
-    final next = currentPage + 1;
+    var next = currentPage + 1;
+
+    if (Platform.isAndroid) {
+      if (next == 5 && _hasOverlay) next = 6;
+      if (next == 6 && _hasUsage) next = 7;
+    } else if (next == 5) {
+      // No permission steps needed off Android.
+      next = 7;
+    }
 
     setState(() {
       currentPage = next;
     });
 
-    _pageController.animateToPage(
-      next,
-      duration: const Duration(milliseconds: 280),
-      curve: Curves.easeOut,
-    );
+    if (_pageController.hasClients) {
+      _pageController.animateToPage(
+        next,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOut,
+      );
+    }
   }
 
   void previousPage() {
-    if (currentPage <= 0) return;
+    final floor = widget.skipWelcome ? 1 : 0;
+    if (currentPage <= floor) return;
 
-    final previous = currentPage - 1;
+    var previous = currentPage - 1;
+
+    if (!Platform.isAndroid && (previous == 5 || previous == 6)) {
+      previous = 4;
+    }
 
     setState(() {
       currentPage = previous;
     });
 
-    _pageController.animateToPage(
-      previous,
-      duration: const Duration(milliseconds: 280),
-      curve: Curves.easeOut,
-    );
+    if (_pageController.hasClients) {
+      _pageController.animateToPage(
+        previous,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOut,
+      );
+    }
   }
 
   // ============================================================
@@ -206,22 +328,37 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: PageView(
-          controller: _pageController,
-          physics: const NeverScrollableScrollPhysics(),
-          children: [
-            _welcomeScreen(),
-            _step1Screen(),
-            _step2Screen(),
-            _step3Screen(),
-            _step4Screen(),
-            _permission1Screen(),
-            _permission2Screen(),
-            _successScreen(),
-          ],
+    final floor = widget.skipWelcome ? 1 : 0;
+
+    // Intercept the system back button / predictive-back gesture so that,
+    // while inside this multi-step flow, it steps back one page instead
+    // of popping the entire screen. This is what was causing the flow to
+    // suddenly exit ("automatic back") right after returning from the
+    // Settings permission screen — the OS back navigation was reaching
+    // this route with nothing to stop it.
+    return PopScope(
+      canPop: currentPage <= floor,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        previousPage();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: PageView(
+            controller: _pageController,
+            physics: const NeverScrollableScrollPhysics(),
+            children: [
+              _welcomeScreen(),
+              _step1Screen(),
+              _step2Screen(),
+              _step3Screen(),
+              _step4Screen(),
+              _permissionStep1Screen(),
+              _permissionStep2Screen(),
+              _successScreen(),
+            ],
+          ),
         ),
       ),
     );
@@ -231,24 +368,14 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
   // COMMON PAGE
   // ============================================================
 
-  Widget _page({
-    required Widget child,
-  }) {
+  Widget _page({required Widget child}) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final height = math.max(
-          0.0,
-          constraints.maxHeight - 16,
-        );
+        final height = math.max(0.0, constraints.maxHeight - 16);
 
         return SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(
-            20,
-            8,
-            20,
-            8,
-          ),
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
           child: SizedBox(
             height: height,
             child: child,
@@ -267,15 +394,10 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
       child: Column(
         children: [
           const SizedBox(height: 20),
-
           _zenoLogoImage(),
-
           const SizedBox(height: 13),
-
           _logoHero(),
-
           const SizedBox(height: 5),
-
           const Text(
             'Trade with a Calm Mind.\nWin with Discipline.',
             textAlign: TextAlign.center,
@@ -287,12 +409,10 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
               letterSpacing: -0.3,
             ),
           ),
-
           const SizedBox(height: 11),
-
           const Text(
             'Set up your Mind Control Trading\n'
-                'Process in 6 simple steps.',
+                'Process in 4 simple steps.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: _Type.caption,
@@ -300,31 +420,21 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
               color: ink,
             ),
           ),
-
           const SizedBox(height: 17),
-
           _gradientButton(
             text: 'Define My Process',
             onTap: nextPage,
           ),
-
           const SizedBox(height: 14),
-
           _mctCard(),
-
           const Spacer(),
-
           _welcomeBottom(),
-
           const SizedBox(height: 4),
         ],
       ),
     );
   }
 
-  // Replaces the old "zeno AI" wordmark + "MIND CONTROL TRADING" underline
-  // text with a single logo image. Make sure 'assets/zeno_logo.png' is
-  // declared under `flutter: assets:` in pubspec.yaml.
   Widget _zenoLogoImage() {
     return Image.asset(
       'assets/new_logo_zeno_ai.jpg',
@@ -333,9 +443,6 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
     );
   }
 
-  // Self-contained illustration — renders the actual image with no
-  // gradient background box behind it. Make sure the asset is declared
-  // under `flutter: assets:` in pubspec.yaml.
   Widget _logoHero() {
     return SizedBox(
       height: 190,
@@ -350,16 +457,11 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
   Widget _mctCard() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 12,
-        vertical: 11,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
       decoration: BoxDecoration(
         color: const Color(0xFFFAF9FE),
         borderRadius: BorderRadius.circular(11),
-        border: Border.all(
-          color: const Color(0xFFE6E3EF),
-        ),
+        border: Border.all(color: const Color(0xFFE6E3EF)),
       ),
       child: Row(
         children: [
@@ -410,18 +512,14 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         ...List.generate(
-          5,
+          4,
               (index) => Container(
             width: index == 0 ? 8 : 7,
             height: index == 0 ? 8 : 7,
-            margin: const EdgeInsets.symmetric(
-              horizontal: 3,
-            ),
+            margin: const EdgeInsets.symmetric(horizontal: 3),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: index == 0
-                  ? purple
-                  : const Color(0xFFD9D7E3),
+              color: index == 0 ? purple : const Color(0xFFD9D7E3),
             ),
           ),
         ),
@@ -450,28 +548,21 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
       step: 1,
       title: 'Trading Segment',
       subtitle: 'Choose how you want to trade',
+      nextEnabled: tradingSegment != null,
       content: [
         _largeOptionCard(
           title: 'Options',
           subtitle: 'Trade with defined risk',
           icon: Icons.bar_chart_rounded,
           selected: tradingSegment == 'Options',
-          onTap: () {
-            setState(() {
-              tradingSegment = 'Options';
-            });
-          },
+          onTap: () => setState(() => tradingSegment = 'Options'),
         ),
         _largeOptionCard(
           title: 'Futures',
           subtitle: 'Trade with lower margin',
           icon: Icons.link_rounded,
           selected: tradingSegment == 'Futures',
-          onTap: () {
-            setState(() {
-              tradingSegment = 'Futures';
-            });
-          },
+          onTap: () => setState(() => tradingSegment = 'Futures'),
         ),
       ],
     );
@@ -486,36 +577,25 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
       step: 2,
       title: 'Select Instrument',
       subtitle: 'Choose the index you want to trade',
+      nextEnabled: instrument != null,
       content: [
         _instrumentCard(
           title: 'Nifty 50',
           selected: instrument == 'Nifty 50',
           type: InstrumentType.nifty,
-          onTap: () {
-            setState(() {
-              instrument = 'Nifty 50';
-            });
-          },
+          onTap: () => setState(() => instrument = 'Nifty 50'),
         ),
         _instrumentCard(
           title: 'BankNifty',
           selected: instrument == 'BankNifty',
           type: InstrumentType.bank,
-          onTap: () {
-            setState(() {
-              instrument = 'BankNifty';
-            });
-          },
+          onTap: () => setState(() => instrument = 'BankNifty'),
         ),
         _instrumentCard(
           title: 'Sensex',
           selected: instrument == 'Sensex',
           type: InstrumentType.sensex,
-          onTap: () {
-            setState(() {
-              instrument = 'Sensex';
-            });
-          },
+          onTap: () => setState(() => instrument = 'Sensex'),
         ),
         const Spacer(),
         _masterInstrumentCard(),
@@ -533,7 +613,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
       step: 3,
       title: 'Trading Capital & Rules',
       subtitle: 'Set your capital and trading discipline',
-      nextEnabled: isCapitalValid,
+      nextEnabled: _step3Valid,
       content: [
         const Text(
           'Trading Capital',
@@ -543,11 +623,8 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
             color: ink,
           ),
         ),
-
         const SizedBox(height: 6),
-
         _capitalField(),
-
         if (capitalErrorText != null) ...[
           const SizedBox(height: 5),
           Text(
@@ -559,49 +636,28 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
             ),
           ),
         ],
-
         const SizedBox(height: 8),
-
         _wordsCard(),
-
         const SizedBox(height: 13),
-
         _tradingPlanCard(),
-
-        // Extra discipline warning — only shown once 2 trades/day is picked,
-        // since a second trade is where overtrading and revenge-trading
-        // risk actually shows up.
         if (tradesPerDay == 2) ...[
           const SizedBox(height: 9),
           _twoTradesWarningCard(),
         ],
-
         const SizedBox(height: 10),
-
         _marketTimeField(),
-
         const SizedBox(height: 9),
-
         _smartRuleCard(),
       ],
     );
   }
 
-  // Trading Capital — a real, editable field backed by a TextInputFormatter.
-  // The field starts LOCKED (readOnly) in a clean "view" state; tapping the
-  // pencil icon (or the value itself) unlocks it, focuses it, and places
-  // the cursor at the end so you can start typing immediately. It re-locks
-  // automatically once it loses focus (see FocusNode listener in initState).
-  // Every dependent value (words + 2% risk) reads straight off
-  // `tradingCapital`, so it updates the instant the field changes.
   Widget _capitalField() {
     final hasError = capitalErrorText != null;
 
     return Container(
       height: 46,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 11,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 11),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(9),
@@ -650,38 +706,35 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
               ),
               onChanged: _onCapitalChanged,
               onTap: () {
-                // Tapping the value itself also unlocks editing, matching
-                // what most people expect from a "view value" field.
                 if (!_isCapitalEditable) {
-                  setState(() {
-                    _isCapitalEditable = true;
-                  });
+                  setState(() => _isCapitalEditable = true);
                   _capitalController.selection = TextSelection.collapsed(
                     offset: _capitalController.text.length,
                   );
                 }
               },
               onEditingComplete: () {
-                setState(() {
-                  _isCapitalEditable = false;
-                });
+                setState(() => _isCapitalEditable = false);
                 _capitalFocusNode.unfocus();
               },
             ),
           ),
-          // Pencil icon unlocks the field, focuses it, and puts the cursor
-          // at the end — this is what actually makes it "work" now. It
-          // swaps to a check mark while editing so there's clear feedback.
           GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () {
-              setState(() {
-                _isCapitalEditable = true;
-              });
-              _capitalFocusNode.requestFocus();
-              _capitalController.selection = TextSelection.collapsed(
-                offset: _capitalController.text.length,
-              );
+              if (_isCapitalEditable) {
+                // Confirm and exit edit mode — this used to just re-enter
+                // edit mode every time, so the "done" check icon never
+                // actually finished editing.
+                setState(() => _isCapitalEditable = false);
+                _capitalFocusNode.unfocus();
+              } else {
+                setState(() => _isCapitalEditable = true);
+                _capitalFocusNode.requestFocus();
+                _capitalController.selection = TextSelection.collapsed(
+                  offset: _capitalController.text.length,
+                );
+              }
             },
             child: Padding(
               padding: const EdgeInsets.all(4),
@@ -699,40 +752,27 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
     );
   }
 
-  // The formatter has already cleaned and re-grouped the text by the time
-  // this fires, so this just needs to parse it back into an int.
   void _onCapitalChanged(String formattedValue) {
     final digitsOnly = formattedValue.replaceAll(RegExp(r'[^0-9]'), '');
     final parsed = digitsOnly.isEmpty ? 0 : int.parse(digitsOnly);
-
-    setState(() {
-      tradingCapital = parsed;
-    });
+    setState(() => tradingCapital = parsed);
   }
 
   Widget _wordsCard() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: 8,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: lightGreen,
         borderRadius: BorderRadius.circular(9),
-        border: Border.all(
-          color: const Color(0xFFD7EEE4),
-        ),
+        border: Border.all(color: const Color(0xFFD7EEE4)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
             'In words:',
-            style: TextStyle(
-              fontSize: _Type.micro,
-              color: grey,
-            ),
+            style: TextStyle(fontSize: _Type.micro, color: grey),
           ),
           const SizedBox(height: 2),
           Text(
@@ -755,9 +795,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
       decoration: BoxDecoration(
         color: const Color(0xFFFAF9FE),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: const Color(0xFFE6E3EF),
-        ),
+        border: Border.all(color: const Color(0xFFE6E3EF)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -825,19 +863,17 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
                 ),
               ),
               Text(
-                marketEntryTimeOfDay.format(context),
-                style: const TextStyle(
+                marketEntryTimeOfDay != null
+                    ? marketEntryTimeOfDay!.format(context)
+                    : '--:--',
+                style: TextStyle(
                   fontSize: _Type.value,
                   fontWeight: FontWeight.w800,
-                  color: green,
+                  color: marketEntryTimeOfDay != null ? green : grey,
                 ),
               ),
               const SizedBox(width: 4),
-              const Icon(
-                Icons.access_time_rounded,
-                color: green,
-                size: 12,
-              ),
+              const Icon(Icons.access_time_rounded, color: green, size: 12),
             ],
           ),
         ],
@@ -849,11 +885,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
     final selected = tradesPerDay == value;
 
     return GestureDetector(
-      onTap: () {
-        setState(() {
-          tradesPerDay = value;
-        });
-      },
+      onTap: () => setState(() => tradesPerDay = value),
       child: Container(
         width: 39,
         height: 26,
@@ -862,9 +894,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
           color: selected ? purple : Colors.white,
           borderRadius: BorderRadius.circular(5),
           border: Border.all(
-            color: selected
-                ? purple
-                : const Color(0xFFE0DDE8),
+            color: selected ? purple : const Color(0xFFE0DDE8),
           ),
         ),
         child: Text(
@@ -882,16 +912,11 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
   Widget _twoTradesWarningCard() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 9,
-        vertical: 8,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
       decoration: BoxDecoration(
         color: const Color(0xFFFFF6EC),
         borderRadius: BorderRadius.circular(9),
-        border: Border.all(
-          color: const Color(0xFFFBE3C4),
-        ),
+        border: Border.all(color: const Color(0xFFFBE3C4)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -933,23 +958,15 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
       onTap: _pickMarketTime,
       child: Container(
         height: 46,
-        padding: const EdgeInsets.symmetric(
-          horizontal: 10,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(9),
-          border: Border.all(
-            color: const Color(0xFFD5D2E1),
-          ),
+          border: Border.all(color: const Color(0xFFD5D2E1)),
         ),
         child: Row(
           children: [
-            const Icon(
-              Icons.access_time_rounded,
-              color: purple,
-              size: 18,
-            ),
+            const Icon(Icons.access_time_rounded, color: purple, size: 18),
             const SizedBox(width: 8),
             const Text(
               'Market Entry Time',
@@ -961,18 +978,17 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
             ),
             const Spacer(),
             Text(
-              marketEntryTimeOfDay.format(context),
-              style: const TextStyle(
+              marketEntryTimeOfDay != null
+                  ? marketEntryTimeOfDay!.format(context)
+                  : 'Select Time',
+              style: TextStyle(
                 fontSize: _Type.value,
                 fontWeight: FontWeight.w700,
-                color: ink,
+                color: marketEntryTimeOfDay != null ? ink : grey,
               ),
             ),
             const SizedBox(width: 5),
-            const Icon(
-              Icons.keyboard_arrow_down_rounded,
-              size: 17,
-            ),
+            const Icon(Icons.keyboard_arrow_down_rounded, size: 17),
           ],
         ),
       ),
@@ -982,10 +998,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
   Widget _smartRuleCard() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 9,
-        vertical: 8,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
       decoration: BoxDecoration(
         color: lightGreen,
         borderRadius: BorderRadius.circular(9),
@@ -999,11 +1012,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
               color: green,
               borderRadius: BorderRadius.circular(6),
             ),
-            child: const Icon(
-              Icons.check,
-              color: Colors.white,
-              size: 14,
-            ),
+            child: const Icon(Icons.check, color: Colors.white, size: 14),
           ),
           const SizedBox(width: 8),
           const Expanded(
@@ -1026,14 +1035,11 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
   Future<void> _pickMarketTime() async {
     final picked = await showTimePicker(
       context: context,
-      initialTime: marketEntryTimeOfDay,
+      initialTime: marketEntryTimeOfDay ?? TimeOfDay.now(),
     );
 
     if (picked == null) return;
-
-    setState(() {
-      marketEntryTimeOfDay = picked;
-    });
+    setState(() => marketEntryTimeOfDay = picked);
   }
 
   // ============================================================
@@ -1046,6 +1052,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
       title: 'Select Your Broking App',
       subtitle: 'Choose the app you will use\n'
           'exclusively for Mind Control Trading.',
+      nextEnabled: brokerage != null,
       content: [
         _brokerCard(
           title: 'Zerodha Kite',
@@ -1076,22 +1083,14 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
     final selected = brokerage == title;
 
     return GestureDetector(
-      onTap: () {
-        setState(() {
-          brokerage = title;
-        });
-      },
+      onTap: () => setState(() => brokerage = title),
       child: Container(
         width: double.infinity,
         height: 44,
         margin: const EdgeInsets.only(bottom: 7),
-        padding: const EdgeInsets.symmetric(
-          horizontal: 10,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
         decoration: BoxDecoration(
-          color: selected
-              ? const Color(0xFFFBF8FF)
-              : Colors.white,
+          color: selected ? const Color(0xFFFBF8FF) : Colors.white,
           borderRadius: BorderRadius.circular(9),
           border: Border.all(
             color: selected ? purple : border,
@@ -1100,10 +1099,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
         ),
         child: Row(
           children: [
-            _brokerLogo(
-              logo,
-              logoColor,
-            ),
+            _brokerLogo(logo, logoColor),
             const SizedBox(width: 11),
             Expanded(
               child: Text(
@@ -1119,9 +1115,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
               selected
                   ? Icons.radio_button_checked
                   : Icons.radio_button_unchecked,
-              color: selected
-                  ? purple
-                  : const Color(0xFF85838F),
+              color: selected ? purple : const Color(0xFF85838F),
               size: 18,
             ),
           ],
@@ -1130,10 +1124,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
     );
   }
 
-  Widget _brokerLogo(
-      String text,
-      Color color,
-      ) {
+  Widget _brokerLogo(String text, Color color) {
     return Container(
       width: 27,
       height: 27,
@@ -1156,10 +1147,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
   Widget _brokerInfoCard() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: 10,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         color: const Color(0xFFF8F4FF),
         borderRadius: BorderRadius.circular(10),
@@ -1173,11 +1161,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
               color: const Color(0xFFEAE3FF),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(
-              Icons.shield_outlined,
-              color: purple,
-              size: 18,
-            ),
+            child: const Icon(Icons.shield_outlined, color: purple, size: 18),
           ),
           const SizedBox(width: 9),
           const Expanded(
@@ -1199,289 +1183,272 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
   }
 
   // ============================================================
-  // PERMISSION 1
+  // PERMISSION STEP 1 — Display over other apps
   // ============================================================
 
-  Widget _permission1Screen() {
-    return _permissionPage(
-      step: 5,
+  Widget _permissionStep1Screen() {
+    return _permissionPageLayout(
+      key: const ValueKey('perm1'),
       title: 'Enable Permission 1',
-      highlighted: '[ Display over the Top ]',
       description:
       'This permission helps Zeno AI stay visible during live market hours and guide you to stay disciplined.',
-      child: _permissionIllustration(
-        asset: 'assets/trade-phonne.png',
-      ),
+      illustration: _permissionIllustration(asset: 'assets/trade-phonne.png'),
       bottom: _psychologicalTraps(),
+      granted: _hasOverlay,
+      onEnable: _requestOverlayPermission,
     );
   }
 
   // ============================================================
-  // PERMISSION 2
+  // PERMISSION STEP 2 — Package usage stats
   // ============================================================
 
-  Widget _permission2Screen() {
-    return _permissionPage(
-      step: 6,
+  Widget _permissionStep2Screen() {
+    return _permissionPageLayout(
+      key: const ValueKey('perm2'),
       title: 'Enable Permission 2',
-      highlighted: '[ Package Usage Stats ]',
       description:
       'This permission helps Zeno AI track your trading process discipline during the session and measure your overall discipline across different parameters.',
-      child: _permissionIllustration(
-        asset: 'assets/zenoai_trade.png',
-      ),
+      illustration: _permissionIllustration(asset: 'assets/zenoai_trade.png'),
       bottom: _usageInsights(),
+      granted: _hasUsage,
+      onEnable: _requestUsagePermission,
     );
   }
 
-  // ================================================================
-  // PERMISSION ILLUSTRATION — renders the actual image with no gradient
-  // background box behind it (bg removed as requested). Make sure the
-  // asset is declared under `flutter: assets:` in pubspec.yaml.
-  // ================================================================
-  Widget _permissionIllustration({
-    String asset = 'assets/zenoai_trade.png',
-  }) {
-    return SizedBox(
-      height: 142,
-      width: double.infinity,
-      child: Image.asset(
-        asset,
-        fit: BoxFit.contain,
-      ),
-    );
-  }
-
-  Widget _permissionPage({
-    required int step,
+  Widget _permissionPageLayout({
+    required Key key,
     required String title,
-    required String highlighted,
     required String description,
-    required Widget child,
+    required Widget illustration,
     required Widget bottom,
+    required bool granted,
+    required VoidCallback onEnable,
   }) {
-    return _page(
-      child: Column(
-        children: [
-          _header(step),
-
-          const SizedBox(height: 20),
-
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: _Type.screenTitle,
-              fontWeight: FontWeight.w800,
-              color: ink,
-            ),
-          ),
-
-          const SizedBox(height: 2),
-
-          Text(
-            highlighted,
-            style: const TextStyle(
-              fontSize: _Type.value,
-              fontWeight: FontWeight.w800,
-              color: purple,
-            ),
-          ),
-
-          const SizedBox(height: 13),
-
-          child,
-
-          const SizedBox(height: 10),
-
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              description,
-              style: const TextStyle(
-                fontSize: _Type.caption,
-                height: 1.45,
-                color: ink,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 9),
-
-          bottom,
-
-          const Spacer(),
-
-          // Buttons now sit side-by-side in a single row instead of
-          // stacked: the gradient CTA takes the remaining space, and the
-          // "Skip" text button sits beside it.
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: _gradientButton(
-                  text: 'Enable Permission',
-                  onTap: nextPage,
+    return Column(
+      key: key,
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+            child: Column(
+              children: [
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: _Type.screenTitle,
+                    fontWeight: FontWeight.w800,
+                    color: ink,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              TextButton(
-                onPressed: nextPage,
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                  minimumSize: const Size(0, 46),
+                const SizedBox(height: 20),
+                illustration,
+                const SizedBox(height: 20),
+                Text(
+                  description,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: _Type.label,
+                    height: 1.5,
+                    fontWeight: FontWeight.w500,
+                    color: grey,
+                  ),
                 ),
-                child: const Text(
-                  'Skip',
-                  style: TextStyle(
-                    fontSize: _Type.body,
-                    fontWeight: FontWeight.w600,
-                    color: purple,
+                const SizedBox(height: 20),
+                bottom,
+              ],
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+          child: SizedBox(
+            width: double.infinity,
+            height: 46,
+            child: Opacity(
+              opacity: (_permissionBusy || granted) ? 0.6 : 1,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: primaryGradient,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: (_permissionBusy || granted) ? null : onEnable,
+                    child: Center(
+                      child: _permissionBusy
+                          ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                          : Text(
+                        granted
+                            ? 'Permission Granted'
+                            : 'Enable Permission',
+                        style: const TextStyle(
+                          fontSize: _Type.buttonLabel,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ],
-          ),
-
-          const SizedBox(height: 2),
-        ],
-      ),
-    );
-  }
-
-  Widget _psychologicalTraps() {
-    return Column(
-      children: [
-        const Align(
-          alignment: Alignment.centerLeft,
-          child: Text(
-            'It protects you from psychological traps:',
-            style: TextStyle(
-              fontSize: _Type.body,
-              fontWeight: FontWeight.w700,
-              color: ink,
             ),
           ),
-        ),
-        const SizedBox(height: 6),
-        _trap(
-          icon: Icons.psychology_alt_outlined,
-          iconBg: const Color(0xFFE9E5FF),
-          text: 'FOMO (Before the Trade)',
-        ),
-        _trap(
-          icon: Icons.warning_amber_rounded,
-          iconBg: const Color(0xFFFFE8DC),
-          text: 'Fear & Greed (During the Trade)',
-        ),
-        _trap(
-          icon: Icons.sentiment_dissatisfied_outlined,
-          iconBg: const Color(0xFFFFE3ED),
-          text: 'Revenge Trading (After the Outcome)',
         ),
       ],
     );
   }
 
-  Widget _trap({
-    required IconData icon,
-    required Color iconBg,
-    required String text,
-  }) {
-    return Container(
+  Widget _permissionIllustration({required String asset}) {
+    return SizedBox(
+      height: 142,
       width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 4),
-      padding: const EdgeInsets.symmetric(
-        horizontal: 7,
-        vertical: 5,
-      ),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFAF8FE),
-        borderRadius: BorderRadius.circular(7),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 21,
-            height: 21,
-            decoration: BoxDecoration(
-              color: iconBg,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Icon(
-              icon,
-              size: 13,
-              color: purple,
-            ),
-          ),
-          const SizedBox(width: 7),
-          Text(
-            text,
-            style: const TextStyle(
-              fontSize: _Type.caption,
-              fontWeight: FontWeight.w600,
-              color: ink,
-            ),
-          ),
-        ],
-      ),
+      child: Image.asset(asset, fit: BoxFit.contain),
     );
   }
 
-  Widget _usageInsights() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 9,
-        vertical: 8,
-      ),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFAF8FE),
-        borderRadius: BorderRadius.circular(9),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'You will get insights on:',
+  Widget _psychologicalTraps() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(bottom: 10),
+          child: Text(
+            'It protects you from psychological traps',
             style: TextStyle(
-              fontSize: _Type.body,
+              fontSize: _Type.label,
               fontWeight: FontWeight.w700,
               color: ink,
             ),
           ),
-          const SizedBox(height: 5),
-          _usageItem('Process Discipline'),
-          _usageItem('Emotional Control'),
-          _usageItem('Rule Adherence'),
-          _usageItem('Consistency Score'),
-        ],
-      ),
+        ),
+        _trapRow(
+          icon: Icons.access_time_filled_rounded,
+          iconBg: purple,
+          title: 'FOMO',
+          subtitle: '(Before the Trade)',
+        ),
+        const SizedBox(height: 10),
+        _trapRow(
+          icon: Icons.favorite_rounded,
+          iconBg: const Color(0xFFFF9F4A),
+          title: 'Fear & Greed',
+          subtitle: '(During the Trade)',
+        ),
+        const SizedBox(height: 10),
+        _trapRow(
+          icon: Icons.replay_rounded,
+          iconBg: const Color(0xFFFF4A7D),
+          title: 'Revenge Trading',
+          subtitle: '(After the Outcome)',
+        ),
+      ],
     );
   }
 
-  Widget _usageItem(String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.check_box_rounded,
-            size: 13,
-            color: purple,
+  Widget _trapRow({
+    required IconData icon,
+    required Color iconBg,
+    required String title,
+    required String subtitle,
+  }) {
+    return Row(
+      children: [
+        Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            color: iconBg,
+            borderRadius: BorderRadius.circular(8),
           ),
-          const SizedBox(width: 6),
-          Text(
-            text,
-            style: const TextStyle(
-              fontSize: _Type.caption,
-              fontWeight: FontWeight.w600,
+          child: Icon(icon, color: Colors.white, size: 16),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: _Type.label,
+            fontWeight: FontWeight.w700,
+            color: ink,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          subtitle,
+          style: const TextStyle(
+            fontSize: _Type.body,
+            fontWeight: FontWeight.w500,
+            color: grey,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _usageInsights() {
+    const items = [
+      'Process Discipline',
+      'Emotional Control',
+      'Rule Adherence',
+      'Consistency Score',
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(bottom: 10),
+          child: Text(
+            'You will get insights on:',
+            style: TextStyle(
+              fontSize: _Type.label,
+              fontWeight: FontWeight.w700,
               color: ink,
             ),
           ),
-        ],
-      ),
+        ),
+        ...items.map(
+              (label) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(
+              children: [
+                Container(
+                  width: 20,
+                  height: 20,
+                  decoration: BoxDecoration(
+                    gradient: primaryGradient,
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: const Icon(
+                    Icons.check_rounded,
+                    color: Colors.white,
+                    size: 14,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: _Type.label,
+                    fontWeight: FontWeight.w600,
+                    color: ink,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1490,11 +1457,19 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
   // ============================================================
 
   Widget _successScreen() {
+    final canSubmit = termsAccepted &&
+        isCapitalValid &&
+        tradingSegment != null &&
+        instrument != null &&
+        brokerage != null &&
+        tradesPerDay != null &&
+        marketEntryTimeOfDay != null &&
+        (!Platform.isAndroid || _allPermissionsGranted);
+
     return _page(
       child: Column(
         children: [
           const SizedBox(height: 8),
-
           SizedBox(
             height: 105,
             width: double.infinity,
@@ -1502,18 +1477,12 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
               alignment: Alignment.center,
               children: [
                 ..._confetti(),
-
                 Container(
                   width: 68,
                   height: 68,
                   decoration: const BoxDecoration(
                     shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      colors: [
-                        purple,
-                        violet,
-                      ],
-                    ),
+                    gradient: LinearGradient(colors: [purple, violet]),
                   ),
                   child: const Icon(
                     Icons.check_rounded,
@@ -1524,7 +1493,6 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
               ],
             ),
           ),
-
           const Text(
             "You're All Set!",
             style: TextStyle(
@@ -1533,9 +1501,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
               color: ink,
             ),
           ),
-
           const SizedBox(height: 7),
-
           const Text(
             'Your Mind Control Trading Process\n'
                 'is ready to go.',
@@ -1546,65 +1512,34 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
               color: grey,
             ),
           ),
-
           const SizedBox(height: 15),
-
-          _successItem(
-            'Discipline is your edge',
-            Icons.shield_rounded,
-          ),
-          _successItem(
-            'Process is your protection',
-            Icons.shield_rounded,
-          ),
-          _successItem(
-            'Consistency is your strength',
-            Icons.shield_rounded,
-          ),
-          _successItem(
-            'Patience is your power',
-            Icons.radio_button_checked,
-          ),
-
+          _successItem('Discipline is your edge', Icons.shield_rounded),
+          _successItem('Process is your protection', Icons.shield_rounded),
+          _successItem('Consistency is your strength', Icons.shield_rounded),
+          _successItem('Patience is your power', Icons.radio_button_checked),
           const SizedBox(height: 12),
-
           GestureDetector(
-            onTap: () {
-              setState(() {
-                termsAccepted = !termsAccepted;
-              });
-            },
+            onTap: () => setState(() => termsAccepted = !termsAccepted),
             child: Row(
               children: [
                 Container(
                   width: 19,
                   height: 19,
                   decoration: BoxDecoration(
-                    color: termsAccepted
-                        ? purple
-                        : Colors.white,
+                    color: termsAccepted ? purple : Colors.white,
                     borderRadius: BorderRadius.circular(5),
                     border: Border.all(
-                      color: termsAccepted
-                          ? purple
-                          : const Color(0xFFAAA7B5),
+                      color: termsAccepted ? purple : const Color(0xFFAAA7B5),
                     ),
                   ),
                   child: termsAccepted
-                      ? const Icon(
-                    Icons.check,
-                    color: Colors.white,
-                    size: 13,
-                  )
+                      ? const Icon(Icons.check, color: Colors.white, size: 13)
                       : null,
                 ),
                 const SizedBox(width: 8),
                 const Text(
                   'I agree to ',
-                  style: TextStyle(
-                    fontSize: _Type.label,
-                    color: ink,
-                  ),
+                  style: TextStyle(fontSize: _Type.label, color: ink),
                 ),
                 const Text(
                   'Terms and Conditions',
@@ -1618,23 +1553,15 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
               ],
             ),
           ),
-
           const SizedBox(height: 12),
-
           _gradientButton(
             text: 'SET UP MY PROCESS 🚀',
-            onTap: termsAccepted && isCapitalValid
-                ? _completeSetup
-                : null,
+            onTap: canSubmit ? _completeSetup : null,
           ),
         ],
       ),
     );
   }
-
-  // ============================================================
-  // FIXED CONFETTI
-  // ============================================================
 
   List<Widget> _confetti() {
     const positions = [
@@ -1659,52 +1586,36 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
       Color(0xFFD7B1FF),
     ];
 
-    return List.generate(
-      positions.length,
-          (index) {
-        return Align(
-          alignment: Alignment.center,
-          child: Transform.translate(
-            offset: Offset(
-              positions[index].dx,
-              positions[index].dy,
-            ),
-            child: Container(
-              width: 5,
-              height: 5,
-              decoration: BoxDecoration(
-                color: colors[index % colors.length],
-                shape: BoxShape.circle,
-              ),
+    return List.generate(positions.length, (index) {
+      return Align(
+        alignment: Alignment.center,
+        child: Transform.translate(
+          offset: Offset(positions[index].dx, positions[index].dy),
+          child: Container(
+            width: 5,
+            height: 5,
+            decoration: BoxDecoration(
+              color: colors[index % colors.length],
+              shape: BoxShape.circle,
             ),
           ),
-        );
-      },
-    );
+        ),
+      );
+    });
   }
 
-  Widget _successItem(
-      String text,
-      IconData icon,
-      ) {
+  Widget _successItem(String text, IconData icon) {
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 5),
-      padding: const EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: 8,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: const Color(0xFFF9F7FE),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         children: [
-          Icon(
-            icon,
-            color: purple,
-            size: 15,
-          ),
+          Icon(icon, color: purple, size: 15),
           const SizedBox(width: 8),
           Text(
             text,
@@ -1724,54 +1635,33 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
   // ============================================================
 
   Future<void> _completeSetup() async {
-    if (!isCapitalValid) return;
+    if (!isCapitalValid ||
+        tradingSegment == null ||
+        instrument == null ||
+        brokerage == null ||
+        tradesPerDay == null ||
+        marketEntryTimeOfDay == null ||
+        (Platform.isAndroid && !_allPermissionsGranted)) {
+      return;
+    }
 
-    // Capture anything context-dependent before the first await.
-    final formattedEntryTime = marketEntryTimeOfDay.format(context);
+    final formattedEntryTime = marketEntryTimeOfDay!.format(context);
     final storage = GetStorage();
 
-    await storage.write(
-      'mct_setup_completed_${widget.userId}',
-      true,
-    );
+    if (Platform.isAndroid) {
+      await applyAndroidTradingAppBlock();
+    }
 
-    await storage.write(
-      'mct_trading_segment_${widget.userId}',
-      tradingSegment,
-    );
-
-    await storage.write(
-      'mct_instrument_${widget.userId}',
-      instrument,
-    );
-
-    await storage.write(
-      'mct_brokerage_${widget.userId}',
-      brokerage,
-    );
-
-    await storage.write(
-      'mct_trades_per_day_${widget.userId}',
-      tradesPerDay,
-    );
-
-    await storage.write(
-      'mct_trading_capital_${widget.userId}',
-      tradingCapital,
-    );
-
-    await storage.write(
-      'mct_max_risk_per_trade_${widget.userId}',
-      maxRiskPerTrade,
-    );
-
-    await storage.write(
-      'mct_market_entry_time_${widget.userId}',
-      formattedEntryTime,
-    );
+    await storage.write('mct_setup_completed_${widget.userId}', true);
+    await storage.write('mct_trading_segment_${widget.userId}', tradingSegment);
+    await storage.write('mct_instrument_${widget.userId}', instrument);
+    await storage.write('mct_brokerage_${widget.userId}', brokerage);
+    await storage.write('mct_trades_per_day_${widget.userId}', tradesPerDay);
+    await storage.write('mct_trading_capital_${widget.userId}', tradingCapital);
+    await storage.write('mct_max_risk_per_trade_${widget.userId}', maxRiskPerTrade);
+    await storage.write('mct_market_entry_time_${widget.userId}', formattedEntryTime);
 
     if (!mounted) return;
-
     Navigator.pop(context, true);
   }
 
@@ -1791,9 +1681,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _header(step),
-
           const SizedBox(height: 21),
-
           Text(
             title,
             style: const TextStyle(
@@ -1803,9 +1691,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
               letterSpacing: -0.2,
             ),
           ),
-
           const SizedBox(height: 5),
-
           Text(
             subtitle,
             style: const TextStyle(
@@ -1814,27 +1700,15 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
               color: ink,
             ),
           ),
-
           const SizedBox(height: 20),
-
           ...content,
-
           const Spacer(),
-
-          _gradientButton(
-            text: 'Next',
-            onTap: nextEnabled ? nextPage : null,
-          ),
-
+          _gradientButton(text: 'Next', onTap: nextEnabled ? nextPage : null),
           const SizedBox(height: 2),
         ],
       ),
     );
   }
-
-  // ============================================================
-  // HEADER
-  // ============================================================
 
   Widget _header(int step) {
     return Column(
@@ -1856,7 +1730,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
             ),
             Expanded(
               child: Text(
-                'Step $step of 6',
+                'Step $step of 4',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: _Type.sectionTitle,
@@ -1868,27 +1742,19 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
             const SizedBox(width: 30),
           ],
         ),
-
         const SizedBox(height: 6),
-
         ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: LinearProgressIndicator(
-            value: step / 6,
+            value: step / 4,
             minHeight: 5,
             backgroundColor: const Color(0xFFE4E2EB),
-            valueColor: const AlwaysStoppedAnimation<Color>(
-              purple,
-            ),
+            valueColor: const AlwaysStoppedAnimation<Color>(purple),
           ),
         ),
       ],
     );
   }
-
-  // ============================================================
-  // OPTION CARD
-  // ============================================================
 
   Widget _largeOptionCard({
     required String title,
@@ -1903,14 +1769,9 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
         width: double.infinity,
         height: 76,
         margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.symmetric(
-          horizontal: 11,
-          vertical: 10,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
         decoration: BoxDecoration(
-          color: selected
-              ? const Color(0xFFFBF8FF)
-              : Colors.white,
+          color: selected ? const Color(0xFFFBF8FF) : Colors.white,
           borderRadius: BorderRadius.circular(11),
           border: Border.all(
             color: selected ? purple : border,
@@ -1924,9 +1785,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
               height: 43,
               decoration: BoxDecoration(
                 gradient: selected ? primaryGradient : null,
-                color: selected
-                    ? null
-                    : const Color(0xFFF0ECFF),
+                color: selected ? null : const Color(0xFFF0ECFF),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(
@@ -1952,10 +1811,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
                   const SizedBox(height: 3),
                   Text(
                     subtitle,
-                    style: const TextStyle(
-                      fontSize: _Type.caption,
-                      color: grey,
-                    ),
+                    style: const TextStyle(fontSize: _Type.caption, color: grey),
                   ),
                 ],
               ),
@@ -1964,9 +1820,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
               selected
                   ? Icons.radio_button_checked
                   : Icons.radio_button_unchecked,
-              color: selected
-                  ? purple
-                  : const Color(0xFF888692),
+              color: selected ? purple : const Color(0xFF888692),
               size: 19,
             ),
           ],
@@ -1974,10 +1828,6 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
       ),
     );
   }
-
-  // ============================================================
-  // INSTRUMENT CARD
-  // ============================================================
 
   Widget _instrumentCard({
     required String title,
@@ -1991,13 +1841,9 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
         width: double.infinity,
         height: 50,
         margin: const EdgeInsets.only(bottom: 9),
-        padding: const EdgeInsets.symmetric(
-          horizontal: 11,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 11),
         decoration: BoxDecoration(
-          color: selected
-              ? const Color(0xFFFBF8FF)
-              : Colors.white,
+          color: selected ? const Color(0xFFFBF8FF) : Colors.white,
           borderRadius: BorderRadius.circular(9),
           border: Border.all(
             color: selected ? purple : border,
@@ -2022,9 +1868,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
               selected
                   ? Icons.radio_button_checked
                   : Icons.radio_button_unchecked,
-              color: selected
-                  ? purple
-                  : const Color(0xFF85838F),
+              color: selected ? purple : const Color(0xFF85838F),
               size: 18,
             ),
           ],
@@ -2074,10 +1918,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
   Widget _masterInstrumentCard() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 12,
-        vertical: 13,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
       decoration: BoxDecoration(
         color: const Color(0xFFF8F5FF),
         borderRadius: BorderRadius.circular(11),
@@ -2112,10 +1953,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
               SizedBox(height: 3),
               Text(
                 'Focus deeply. Execute better.',
-                style: TextStyle(
-                  fontSize: _Type.caption,
-                  color: ink,
-                ),
+                style: TextStyle(fontSize: _Type.caption, color: ink),
               ),
             ],
           ),
@@ -2123,15 +1961,6 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
       ),
     );
   }
-
-  // ============================================================
-  // BUTTON
-  //
-  // Centralized so every CTA across the flow (Define My Process, Next,
-  // Enable Permission, Set Up My Process) shares one gradient/disabled
-  // color pair and one label size — previously each button re-declared its
-  // own colors and font size inline.
-  // ============================================================
 
   Widget _gradientButton({
     required String text,
@@ -2145,9 +1974,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
       decoration: BoxDecoration(
         gradient: enabled
             ? primaryGradient
-            : const LinearGradient(
-          colors: [disabled, disabled],
-        ),
+            : const LinearGradient(colors: [disabled, disabled]),
         borderRadius: BorderRadius.circular(10),
       ),
       child: ElevatedButton(
@@ -2158,9 +1985,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
           disabledForegroundColor: Colors.white.withOpacity(0.85),
           shadowColor: Colors.transparent,
           elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
         child: Text(
           text,
@@ -2172,10 +1997,6 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
       ),
     );
   }
-
-  // ============================================================
-  // NUMBER FORMATTING HELPERS (Indian numbering system)
-  // ============================================================
 
   static String _formatIndianNumber(int number) {
     final negative = number < 0;
@@ -2252,13 +2073,6 @@ class _TradingProcessScreenState extends State<TradingProcessScreen> {
 
 // ================================================================
 // INDIAN CURRENCY INPUT FORMATTER
-//
-// Re-groups digits with Indian comma placement (e.g. 1234567 -> 12,34,567)
-// on every keystroke, paste, or autofill event, and clamps to [0, max].
-// Cursor is always placed at the end of the field — the standard, safest
-// behaviour for grouped numeric/currency inputs (mid-string editing of a
-// regrouped number can't preserve a "natural" cursor position anyway,
-// since the group boundaries themselves shift).
 // ================================================================
 
 class _IndianCurrencyInputFormatter extends TextInputFormatter {
@@ -2272,8 +2086,6 @@ class _IndianCurrencyInputFormatter extends TextInputFormatter {
       TextEditingValue newValue,
       ) {
     var digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
-
-    // Strip leading zeros (but keep a single "0" for an empty/zeroed field).
     digits = digits.replaceFirst(RegExp(r'^0+(?=\d)'), '');
 
     var value = digits.isEmpty ? 0 : int.tryParse(digits) ?? 0;
