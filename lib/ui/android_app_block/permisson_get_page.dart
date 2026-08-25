@@ -1,4 +1,4 @@
-import 'package:block_app/block_app.dart';
+import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:flutter/material.dart';
 import 'app_block_page.dart';
 
@@ -10,7 +10,7 @@ class PermissionGatePage extends StatefulWidget {
 }
 
 class _PermissionGatePageState extends State<PermissionGatePage> {
-  final BlockApp _blockApp = BlockApp();
+  final NativeAppBlockService _blockService = NativeAppBlockService();
 
   bool overlayGranted = false;
   bool usageGranted = false;
@@ -22,7 +22,7 @@ class _PermissionGatePageState extends State<PermissionGatePage> {
   }
 
   Future<void> _check() async {
-    final permissions = await _blockApp.checkPermissions();
+    final permissions = await _blockService.checkPermissions();
     setState(() {
       overlayGranted = permissions['hasOverlayPermission'] ?? false;
       usageGranted = permissions['hasUsageStatsPermission'] ?? false;
@@ -30,12 +30,12 @@ class _PermissionGatePageState extends State<PermissionGatePage> {
   }
 
   Future<void> _requestOverlay() async {
-    await _blockApp.requestOverlayPermission();
+    await _blockService.requestOverlayPermission();
     _check();
   }
 
   Future<void> _requestUsage() async {
-    await _blockApp.requestUsageStatsPermission();
+    await _blockService.requestUsageStatsPermission();
     _check();
   }
 

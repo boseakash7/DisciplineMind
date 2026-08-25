@@ -23,7 +23,6 @@ class _AppBlockIOSPageState extends State<AppBlockIOSPage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-
             ElevatedButton(
               onPressed: () async {
                 granted = await IosScreenTime.requestPermission();

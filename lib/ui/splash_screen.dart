@@ -3,6 +3,8 @@ import 'package:get/get.dart';
 
 import '../../common/app_colors.dart';
 import '../../controller/auth_controller.dart';
+import '../../services/notification/notification_handler.dart';
+import '../../services/trading_apps_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -17,10 +19,24 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-
-    Future.delayed(const Duration(seconds: 2), () {
+    if (!Get.isRegistered<TradingAppsService>()) {
+      Get.put(TradingAppsService(), permanent: true);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _requestNotificationPermission();
+      // Start auth immediately; avoids extra splash delay.
       authController.autoLogin();
+      Get.find<TradingAppsService>().refresh();
     });
+  }
+
+  Future<void> _requestNotificationPermission() async {
+    try {
+      await NotificationHandler.requestPermissions();
+    } catch (e, s) {
+      debugPrint('Permission request failed: $e');
+      debugPrintStack(stackTrace: s);
+    }
   }
 
   @override
@@ -33,7 +49,7 @@ class _SplashScreenState extends State<SplashScreen> {
           children: [
             const CircleAvatar(
               radius: 55,
-              backgroundColor: AppColors.primaryGreen,
+              backgroundColor: AppColors.primary,
               child: Icon(Icons.psychology, size: 65, color: AppColors.white),
             ),
             const SizedBox(height: 20),
@@ -56,7 +72,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
             const SizedBox(height: 40),
 
-            const CircularProgressIndicator(color: AppColors.primaryGreen),
+            const CircularProgressIndicator(color: AppColors.primary),
           ],
         ),
       ),

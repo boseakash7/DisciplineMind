@@ -28,7 +28,7 @@ class SetNewPasswordScreen extends StatelessWidget {
             // Brand Icon
             const CircleAvatar(
               radius: 45,
-              backgroundColor: AppColors.primaryGreen,
+              backgroundColor: AppColors.primary,
               child: Icon(Icons.psychology, size: 55, color: AppColors.white),
             ),
             const SizedBox(height: 16),

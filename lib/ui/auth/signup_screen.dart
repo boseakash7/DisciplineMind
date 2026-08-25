@@ -8,21 +8,21 @@ import '../widgets/common_widgets.dart';
 class SignUpScreen extends StatelessWidget {
   final authController = Get.find<AuthController>();
 
-  SignUpScreen({super.key});
+  /// When set (after OTP for a new number), phone is shown read-only.
+  final String? lockedPhone;
 
-  // Text controllers
+  SignUpScreen({super.key, this.lockedPhone});
+
   final TextEditingController nameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController phoneController = TextEditingController();
-  final TextEditingController passwordController = TextEditingController();
-  final TextEditingController confirmPasswordController =
-      TextEditingController();
 
-  // Form key
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
   @override
   Widget build(BuildContext context) {
+    final phoneLocked = lockedPhone != null && lockedPhone!.isNotEmpty;
+
     return Scaffold(
       backgroundColor: AppColors.white,
       appBar: AppBar(
@@ -42,15 +42,12 @@ class SignUpScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               const SizedBox(height: 20),
-
-              /// Brand Icon
               const CircleAvatar(
                 radius: 45,
-                backgroundColor: AppColors.primaryGreen,
+                backgroundColor: AppColors.primary,
                 child: Icon(Icons.psychology, size: 55, color: AppColors.white),
               ),
               const SizedBox(height: 16),
-
               const Text(
                 "Create Account",
                 style: TextStyle(
@@ -65,8 +62,6 @@ class SignUpScreen extends StatelessWidget {
                 style: TextStyle(color: AppColors.textGrey),
               ),
               const SizedBox(height: 32),
-
-              /// Full Name
               CustomTextField(
                 controller: nameController,
                 hint: "Full Name",
@@ -76,103 +71,63 @@ class SignUpScreen extends StatelessWidget {
                     : null,
               ),
               const SizedBox(height: 16),
-
-              /// Email
               CustomTextField(
                 controller: emailController,
                 hint: "Email Address",
                 icon: Icons.email_outlined,
                 keyboardType: TextInputType.emailAddress,
                 validator: (val) {
-                  if (val == null || val.isEmpty)
+                  if (val == null || val.isEmpty) {
                     return "Please enter your email";
+                  }
                   if (!GetUtils.isEmail(val)) return "Enter a valid email";
                   return null;
                 },
               ),
               const SizedBox(height: 16),
-
-              /// Phone
-              /// Phone
-              CustomTextField(
-                controller: phoneController,
-                hint: "Phone Number",
-                icon: Icons.phone_outlined,
-                keyboardType: TextInputType.phone,
-
-                maxLength: 10, // ✅ limit input to 10 digits
-
-                validator: (val) {
-                  if (val == null || val.isEmpty) {
-                    return "Please enter your phone number";
-                  }
-
-                  if (val.length != 10) {
-                    return "Phone number must be exactly 10 digits";
-                  }
-
-                  if (!GetUtils.isNumericOnly(val)) {
-                    return "Only digits are allowed";
-                  }
-
-                  return null;
-                },
-              ),
-
-              // CustomTextField(
-              //   controller: phoneController,
-              //   hint: "Phone Number",
-              //   icon: Icons.phone_outlined,
-              //   keyboardType: TextInputType.phone,
-              //   validator: (val) => val == null || val.isEmpty
-              //       ? "Please enter your phone number"
-              //       : null,
-              // ),
-              const SizedBox(height: 16),
-
-              /// Password
-              CustomTextField(
-                controller: passwordController,
-                hint: "Password",
-                icon: Icons.lock_outline,
-                isPassword: true,
-                validator: (val) => val == null || val.isEmpty
-                    ? "Please enter your password"
-                    : null,
-              ),
-              const SizedBox(height: 16),
-
-              /// Confirm Password
-              CustomTextField(
-                controller: confirmPasswordController,
-                hint: "Confirm Password",
-                icon: Icons.lock_clock_outlined,
-                isPassword: true,
-                validator: (val) {
-                  if (val == null || val.isEmpty)
-                    return "Please confirm your password";
-                  if (val != passwordController.text)
-                    return "Passwords do not match";
-                  return null;
-                },
-              ),
+              if (phoneLocked) ...[
+                _LockedPhoneField(phone: lockedPhone!),
+              ] else ...[
+                CustomTextField(
+                  controller: phoneController,
+                  hint: "Phone Number",
+                  icon: Icons.phone_outlined,
+                  keyboardType: TextInputType.phone,
+                  maxLength: 15,
+                  validator: (val) {
+                    if (val == null || val.isEmpty) {
+                      return "Please enter your phone number";
+                    }
+                    final digits = val.replaceAll(RegExp(r'\D'), '');
+                    if (digits.length < 10) {
+                      return "Enter a valid phone number";
+                    }
+                    return null;
+                  },
+                ),
+              ],
               const SizedBox(height: 32),
-
-              /// Sign Up Button
               Obx(
                 () => PrimaryButton(
                   text: authController.isLoading.value
                       ? "Signing Up..."
                       : "SIGN UP",
+                  color: AppColors.primary,
                   onPressed: authController.isLoading.value
                       ? null
                       : () {
                           if (_formKey.currentState!.validate()) {
+                            final phone = phoneLocked
+                                ? lockedPhone!
+                                    .trim()
+                                    .replaceAll(RegExp(r'\s+'), '')
+                                : phoneController.text
+                                    .trim()
+                                    .replaceAll(RegExp(r'\s+'), '');
                             authController.signUp(
                               fullname: nameController.text.trim(),
                               email: emailController.text.trim(),
-                              password: passwordController.text.trim(),
-                              phone: phoneController.text.trim(),
+                              phone: phone,
                             );
                           }
                         },
@@ -182,6 +137,55 @@ class SignUpScreen extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _LockedPhoneField extends StatelessWidget {
+  final String phone;
+
+  const _LockedPhoneField({required this.phone});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          "Phone number",
+          style: TextStyle(
+            fontSize: 12,
+            color: AppColors.textGrey,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          decoration: BoxDecoration(
+            color: AppColors.backgroundGray,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.phone_outlined, color: AppColors.primaryGreen),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  phone,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: AppColors.textBlack,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              const Icon(Icons.lock_outline, size: 20, color: AppColors.textGrey),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

@@ -1,9 +1,12 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
 
 import '../model/login_reponse_model.dart';
+import '../services/api/api_services.dart';
 import '../services/local_db.dart';
-import '../ui/auth/login_screen.dart';
+import '../services/notification/notification_handler.dart';
+import '../ui/auth/phone_login_screen.dart';
 
 class Common {
   static LocalStorageService storage = LocalStorageService();
@@ -26,8 +29,12 @@ class Common {
     }
   }
 
-  static void logout() {
+  static void logout() async {
+    await NotificationHandler.unsubscribeFromTradeAlerts();
     storage.clearLogin();
-    Get.offAll(() => LoginScreen());
+    userData.value = null;
+    GetStorage().remove('user_id');
+    ApiService.clearPersistedSessionCookie();
+    Get.offAll(() => PhoneLoginScreen());
   }
 }

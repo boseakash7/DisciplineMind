@@ -1,67 +1,181 @@
-import 'package:discipline_mind/ui/main_home/alert_main.dart';
+import 'dart:async';
+
+import 'package:discipline_mind/common/app_colors.dart';
+import 'package:discipline_mind/common/common.dart';
+import 'package:discipline_mind/services/app_data_refresh_service.dart';
+import 'package:discipline_mind/ui/main_home/analysis_screen.dart';
+import 'package:discipline_mind/ui/main_home/chat_screen.dart';
+import 'package:discipline_mind/ui/main_home/more_screen.dart';
+import 'package:discipline_mind/ui/main_home/trade_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
-import '../../controller/main_home_controller.dart';
+import 'bm_screen.dart';
 
-class MainHomeScreen extends StatelessWidget {
-  final MainNavigationController navLayoutController = Get.put(
-    MainNavigationController(),
-  );
-  final List<Widget> screens = [
-    AlertsMainScreen(),
-    Center(child: Text("Home Screen")),
-    Center(child: Text("Chat Screen")),
-    Center(child: Text("Analysis Screen")),
-    Center(child: Text("Profile Screen")),
-  ];
+class MainHomeScreen extends StatefulWidget {
+  final int initialIndex;
 
-  MainHomeScreen({super.key});
+  const MainHomeScreen({super.key, this.initialIndex = 0});
+
+  @override
+  State<MainHomeScreen> createState() => _MainHomeScreenState();
+}
+
+class _MainHomeScreenState extends State<MainHomeScreen> {
+  late int currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    currentIndex = widget.initialIndex;
+  }
+
+  void _openMoreTab() => setState(() => currentIndex = 4);
+
+  void _onTabSelected(int index) {
+    setState(() => currentIndex = index);
+    final userId = Common.userData.value?.payload?.id?.toString();
+    if (userId == null || userId.isEmpty) return;
+
+    final refresh = Get.isRegistered<AppDataRefreshService>()
+        ? Get.find<AppDataRefreshService>()
+        : Get.put(AppDataRefreshService(), permanent: true);
+    unawaited(refresh.refreshIfNeeded(force: true));
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Obx(
-        () => IndexedStack(
-          index: navLayoutController.selectedIndex.value,
-          children: screens,
-        ),
+    const navBarHeight = 70.0;
+    const fabSize = 56.0;
+    final bottomInset = MediaQuery.of(context).padding.bottom;
+
+    final screens = [
+      BmScreen(
+        onMonkkTap: _openMoreTab,
+        isActive: currentIndex == 0,
       ),
-      bottomNavigationBar: Obx(
-        () => BottomNavigationBar(
-          type: BottomNavigationBarType.fixed,
-          selectedItemColor: Colors.blue,
-          unselectedItemColor: Colors.grey,
-          currentIndex: navLayoutController.selectedIndex.value,
-          onTap: (index) => navLayoutController.changeIndex(index),
-          items: [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.assignment_outlined),
-              activeIcon: Icon(Icons.assignment, color: Colors.blue),
-              label: "Home",
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.touch_app_outlined),
-              activeIcon: Icon(Icons.touch_app, color: Colors.blue),
-              label: "Action",
-            ),
-            BottomNavigationBarItem(
-              icon: CircleAvatar(
-                backgroundColor: Colors.green,
-                radius: 25,
-                child: Icon(Icons.psychology, color: Colors.white, size: 30),
+      TradesScreen(
+        onMonkkTap: _openMoreTab,
+        isActive: currentIndex == 1,
+      ),
+      ChatScreen(
+        onMonkkTap: _openMoreTab,
+        isActive: currentIndex == 2,
+      ),
+      AnalysisScreen(
+        onMonkkTap: _openMoreTab,
+        isActive: currentIndex == 3,
+      ),
+      const MoreScreen(),
+    ];
+
+    return Scaffold(
+      body: GestureDetector(
+        onHorizontalDragEnd: (details) {
+          if (details.primaryVelocity == null) return;
+          if (details.primaryVelocity! < -300 && currentIndex < 4) {
+            _onTabSelected(currentIndex + 1);
+          } else if (details.primaryVelocity! > 300 && currentIndex > 0) {
+            _onTabSelected(currentIndex - 1);
+          }
+        },
+        child: IndexedStack(index: currentIndex, children: screens),
+      ),
+
+      bottomNavigationBar: SizedBox(
+        height: navBarHeight + fabSize / 2 + bottomInset,
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.bottomCenter,
+          children: [
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                height: navBarHeight + bottomInset,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [BoxShadow(blurRadius: 10, color: Colors.black12)],
+                ),
+                child: BottomNavigationBar(
+                  backgroundColor: Colors.transparent,
+                  type: BottomNavigationBarType.fixed,
+                  currentIndex: currentIndex,
+                  selectedItemColor: AppColors.primary,
+                  unselectedItemColor: Colors.grey,
+                  showSelectedLabels: true,
+                  showUnselectedLabels: true,
+                  selectedLabelStyle: const TextStyle(
+                    fontSize: 11,
+                    height: 1.1,
+                  ),
+                  unselectedLabelStyle: const TextStyle(
+                    fontSize: 11,
+                    height: 1.1,
+                  ),
+                  iconSize: 22,
+                  elevation: 0,
+                  onTap: _onTabSelected,
+                  items: [
+                    const BottomNavigationBarItem(
+                      icon: Icon(Icons.grid_view_outlined),
+                      activeIcon: Icon(Icons.grid_view),
+                      label: "BM",
+                    ),
+                    const BottomNavigationBarItem(
+                      icon: Icon(Icons.swap_vert),
+                      activeIcon: Icon(Icons.swap_vert),
+                      label: "Trades",
+                    ),
+                    const BottomNavigationBarItem(
+                      icon: SizedBox(height: 24, width: 24),
+                      label: "",
+                    ),
+                    const BottomNavigationBarItem(
+                      icon: Icon(Icons.bar_chart_outlined),
+                      activeIcon: Icon(Icons.bar_chart),
+                      label: "Analysis",
+                    ),
+                    const BottomNavigationBarItem(
+                      icon: Icon(Icons.menu),
+                      label: "More",
+                    ),
+                  ],
+                ),
               ),
-              label: "",
             ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.analytics_outlined),
-              activeIcon: Icon(Icons.analytics, color: Colors.blue),
-              label: "Analysis",
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.person_outline),
-              activeIcon: Icon(Icons.person, color: Colors.blue),
-              label: "Profile",
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: Center(
+                child: GestureDetector(
+                  onTap: () => _onTabSelected(2),
+                  child: Container(
+                    height: fabSize,
+                    width: fabSize,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: currentIndex == 2
+                          ? AppColors.primary
+                          : AppColors.primary.withOpacity(0.9),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primary.withOpacity(0.4),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.auto_awesome,
+                      color: Colors.white,
+                      size: 26,
+                    ),
+                  ),
+                ),
+              ),
             ),
           ],
         ),

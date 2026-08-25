@@ -1,36 +1,42 @@
+import 'dart:convert';
+
 import 'package:get_storage/get_storage.dart';
+
+import '../model/login_reponse_model.dart';
 
 class LocalStorageService {
   final GetStorage _box = GetStorage();
 
-  /// KEYS
   static const String emailKey = "email";
   static const String passwordKey = "password";
+  static const String userSessionKey = "user_session_json";
 
-  /// SAVE LOGIN DATA
-  void saveLogin(String email, String password) {
-    _box.write(emailKey, email);
-    _box.write(passwordKey, password);
+  /// Persisted after OTP verify (or legacy email login).
+  void saveUserSession(LoginResponseModel model) {
+    _box.write(userSessionKey, jsonEncode(model.toJson()));
   }
 
-  /// GET SAVED EMAIL
-  String? getEmail() {
-    return _box.read(emailKey);
+  LoginResponseModel? getUserSession() {
+    final raw = _box.read(userSessionKey);
+    if (raw is! String || raw.isEmpty) return null;
+    try {
+      return LoginResponseModel.fromJson(
+        jsonDecode(raw) as Map<String, dynamic>,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
-  /// GET SAVED PASSWORD
-  String? getPassword() {
-    return _box.read(passwordKey);
-  }
-
-  /// CHECK IF LOGIN EXISTS
   bool hasLoginData() {
-    return getEmail() != null && getPassword() != null;
+    final s = getUserSession();
+    return s?.payload?.id != null;
   }
 
   /// CLEAR STORAGE (LOGOUT)
   void clearLogin() {
     _box.remove(emailKey);
     _box.remove(passwordKey);
+    _box.remove(userSessionKey);
   }
 }
