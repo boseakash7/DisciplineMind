@@ -23,6 +23,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'ui/splash_screen.dart';
+import 'ui/version_selector_screen.dart';
 
 void _onAppResumed() {
   if (!Platform.isAndroid) return;
@@ -271,7 +272,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         }
         return child!;
       },
-      home: SplashScreen(),
+      home: const AppVersionSelectorScreen(),
       // Route for native overlay when user opens a blocked app
       getPages: [
         GetPage(

@@ -11,6 +11,8 @@ import 'package:discipline_mind/services/app_block_preferences_service.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_apps_service.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
+import 'package:discipline_mind/v2/common/v2_common.dart';
+import 'package:discipline_mind/v2/config/v2_api_config.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -51,6 +53,52 @@ class ChatController extends GetxController {
 
   DateTime? _lastSuccessfulSyncAt;
   Future<void>? _syncInFlight;
+
+  bool get _isV2 =>
+      V2Common.userData.value != null ||
+      GetStorage().read<String>('v2_user_session') != null;
+
+  String _messagesUrl() {
+    if (_isV2) {
+      return "${V2ApiConfig.baseUrl}${V2ApiConfig.getMessagesByUser}";
+    }
+    return ApiUrl.getMessagesByUser;
+  }
+
+  String _llmAskUrl() {
+    if (_isV2) {
+      return "${V2ApiConfig.baseUrl}${V2ApiConfig.llmAsk}";
+    }
+    return ApiUrl.llmAsk;
+  }
+
+  String _deleteTradeUrl() {
+    if (_isV2) {
+      return "${V2ApiConfig.baseUrl}${V2ApiConfig.deleteTrade}";
+    }
+    return ApiUrl.deleteTrade;
+  }
+
+  String _editTradeUrl(bool isGttEdit) {
+    if (_isV2) {
+      return "${V2ApiConfig.baseUrl}${isGttEdit ? V2ApiConfig.editGtt : V2ApiConfig.editTrade}";
+    }
+    return isGttEdit ? ApiUrl.editGtt : ApiUrl.editTrade;
+  }
+
+  String _gttMissedUrl() {
+    if (_isV2) {
+      return "${V2ApiConfig.baseUrl}${V2ApiConfig.gttMissed}";
+    }
+    return ApiUrl.gttMissed;
+  }
+
+  String _tradeExecutedUrl() {
+    if (_isV2) {
+      return "${V2ApiConfig.baseUrl}${V2ApiConfig.tradeExecuted}";
+    }
+    return ApiUrl.tradeExecuted;
+  }
 
   List<String> _selectedBlockedPackages() {
     final userId = Common.userData.value?.payload?.id?.toString();
@@ -399,7 +447,7 @@ class ChatController extends GetxController {
       final api = Get.isRegistered<ApiService>()
           ? Get.find<ApiService>()
           : Get.put(ApiService(), permanent: true);
-      final response = await api.postMessagesForm(ApiUrl.getMessagesByUser, {
+      final response = await api.postMessagesForm(_messagesUrl(), {
         'user_id': userId,
       });
 
@@ -455,7 +503,7 @@ class ChatController extends GetxController {
           ? Get.find<ApiService>()
           : Get.put(ApiService(), permanent: true);
       final response = await api.postMessagesForm(
-        ApiUrl.getMessagesByUser,
+        _messagesUrl(),
         fields,
       );
       if (response.isSuccess && response.data != null) {
@@ -509,7 +557,7 @@ class ChatController extends GetxController {
           ? Get.find<ApiService>()
           : Get.put(ApiService(), permanent: true);
       final response = await api.postMessagesForm(
-        ApiUrl.getMessagesByUser,
+        _messagesUrl(),
         fields,
       );
       if (response.isSuccess && response.data != null) {
@@ -587,7 +635,7 @@ class ChatController extends GetxController {
           '123';
 
       final response = await ApiService().postJson(
-        ApiUrl.llmAsk,
+        _llmAskUrl(),
         {
           'user_id': userId,
           'user_query': query,
@@ -880,7 +928,7 @@ class ChatController extends GetxController {
       final api = Get.isRegistered<ApiService>()
           ? Get.find<ApiService>()
           : Get.put(ApiService(), permanent: true);
-      final response = await api.postFormData(ApiUrl.deleteTrade, {
+      final response = await api.postFormData(_deleteTradeUrl(), {
         'trade_id': msg.tradeId,
         'user_id': userId,
       });
@@ -936,7 +984,7 @@ class ChatController extends GetxController {
       if (trimmedTarget.isNotEmpty) {
         fields['new_tp'] = trimmedTarget;
       }
-      final endpoint = msg.isGttEdit ? ApiUrl.editGtt : ApiUrl.editTrade;
+      final endpoint = _editTradeUrl(msg.isGttEdit);
       final response = await api.postFormData(endpoint, fields);
       if (response.isSuccess) {
         await _applyTradingAppBlock(userId);
@@ -973,7 +1021,7 @@ class ChatController extends GetxController {
       final api = Get.isRegistered<ApiService>()
           ? Get.find<ApiService>()
           : Get.put(ApiService(), permanent: true);
-      final response = await api.postFormData(ApiUrl.gttMissed, {
+      final response = await api.postFormData(_gttMissedUrl(), {
         'user_id': userId,
         'trade_id': tradeId,
       });
@@ -1019,7 +1067,7 @@ class ChatController extends GetxController {
       final api = Get.isRegistered<ApiService>()
           ? Get.find<ApiService>()
           : Get.put(ApiService(), permanent: true);
-      final response = await api.postFormData(ApiUrl.tradeExecuted, {
+      final response = await api.postFormData(_tradeExecutedUrl(), {
         'trade_id': msg.tradeId,
         'user_id': userId,
         'user_hit_price': trimmedPrice,

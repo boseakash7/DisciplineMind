@@ -18,12 +18,20 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, this.onMonkkTap, this.isActive = true});
+  const ChatScreen({
+    super.key,
+    this.onMonkkTap,
+    this.isActive = true,
+    this.showLeadingIcon = true,
+  });
 
   final VoidCallback? onMonkkTap;
 
   /// True when this tab is selected in `MainHomeScreen` bottom nav.
   final bool isActive;
+
+  /// Controls whether assistant/bot avatar icon is shown on the left side of messages.
+  final bool showLeadingIcon;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -1049,6 +1057,7 @@ class _ChatScreenState extends State<ChatScreen> {
       key: ValueKey('ai_waiting_${msg.messageId}_${msg.text}'),
       text: msg.text,
       subtitle: msg.subtitle,
+      showAvatar: widget.showLeadingIcon,
     );
   }
 
@@ -1059,7 +1068,6 @@ class _ChatScreenState extends State<ChatScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _monkkSparkleIcon(),
-          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1152,7 +1160,6 @@ class _ChatScreenState extends State<ChatScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _monkkSparkleIcon(),
-          const SizedBox(width: 8),
           Expanded(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -1175,13 +1182,70 @@ class _ChatScreenState extends State<ChatScreen> {
     BuildContext context,
     AgentWithButtonMessage msg,
   ) {
+    final hasText = msg.text.trim().isNotEmpty;
+    final primaryColor = widget.showLeadingIcon
+        ? AppColors.primary
+        : const Color(0xFF4020CB);
+
+    final buttonWidget = InkWell(
+      onTap: () {
+        final label = msg.buttonLabel.trim().toUpperCase();
+        if (label.contains('PROCESS') || label.contains('CREATE A PROCESS')) {
+          // Trigger tab switch or action
+          widget.onMonkkTap?.call();
+        }
+      },
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(
+          horizontal: 20,
+          vertical: 14,
+        ),
+        decoration: BoxDecoration(
+          color: primaryColor,
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: [
+            BoxShadow(
+              color: primaryColor.withValues(alpha: 0.25),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Text(
+            msg.buttonLabel.isNotEmpty ? msg.buttonLabel : 'CREATE A PROCESS',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (!hasText) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _monkkSparkleIcon(),
+            Expanded(child: buttonWidget),
+          ],
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _monkkSparkleIcon(),
-          const SizedBox(width: 8),
           Expanded(
             child: Container(
               padding: const EdgeInsets.all(14),
@@ -1198,26 +1262,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                   if (msg.actionTaken == null) ...[
                     const SizedBox(height: 12),
-                    Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          msg.buttonLabel,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                    ),
+                    buttonWidget,
                   ],
                 ],
               ),
@@ -1303,7 +1348,6 @@ class _ChatScreenState extends State<ChatScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _monkkSparkleIcon(),
-          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1340,11 +1384,21 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _monkkSparkleIcon() {
-    return Image.asset(
-      'assets/ai_chat.png',
-      width: 28,
-      height: 28,
-      fit: BoxFit.contain,
+    if (!widget.showLeadingIcon) {
+      return const SizedBox.shrink();
+    }
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Image.asset(
+          'assets/ai_chat.png',
+          width: 28,
+          height: 28,
+          fit: BoxFit.contain,
+        ),
+        const SizedBox(width: 8),
+      ],
     );
   }
 
@@ -1373,7 +1427,6 @@ class _ChatScreenState extends State<ChatScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _monkkSparkleIcon(),
-              const SizedBox(width: 8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1398,7 +1451,6 @@ class _ChatScreenState extends State<ChatScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _monkkSparkleIcon(),
-              const SizedBox(width: 8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1461,7 +1513,6 @@ class _ChatScreenState extends State<ChatScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _monkkSparkleIcon(),
-              const SizedBox(width: 8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1483,7 +1534,6 @@ class _ChatScreenState extends State<ChatScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _monkkSparkleIcon(),
-              const SizedBox(width: 8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1664,7 +1714,6 @@ class _ChatScreenState extends State<ChatScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _monkkSparkleIcon(),
-          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -2585,7 +2634,6 @@ class _ChatScreenState extends State<ChatScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _monkkSparkleIcon(),
-          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -2673,7 +2721,6 @@ class _ChatScreenState extends State<ChatScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _monkkSparkleIcon(),
-          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -2725,7 +2772,6 @@ class _ChatScreenState extends State<ChatScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _monkkSparkleIcon(),
-          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

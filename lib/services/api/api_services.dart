@@ -50,7 +50,9 @@ class ApiService extends GetxService {
     Map<String, String>? headers,
   }) async {
     try {
-      final uri = Uri.parse("${ApiConfig.baseUrl}$endpoint");
+      final uri = endpoint.startsWith('http')
+          ? Uri.parse(endpoint)
+          : Uri.parse("${ApiConfig.baseUrl}$endpoint");
       final request = http.MultipartRequest('POST', uri);
       if (headers != null) request.headers.addAll(headers);
       for (final e in fields.entries) {
@@ -141,7 +143,9 @@ class ApiService extends GetxService {
       };
 
       final response = await http.post(
-        Uri.parse("${ApiConfig.baseUrl}$endpoint"),
+        endpoint.startsWith('http')
+            ? Uri.parse(endpoint)
+            : Uri.parse("${ApiConfig.baseUrl}$endpoint"),
         headers: finalHeaders,
         body: fields, // Send form fields
       );
@@ -164,7 +168,9 @@ class ApiService extends GetxService {
   }) async {
     try {
       final response = await http.patch(
-        Uri.parse("${ApiConfig.baseUrl}$endpoint"),
+        endpoint.startsWith('http')
+            ? Uri.parse(endpoint)
+            : Uri.parse("${ApiConfig.baseUrl}$endpoint"),
         headers: {...ApiConfig.defaultHeaders, ...?headers},
         body: jsonEncode(body),
       );
@@ -183,7 +189,9 @@ class ApiService extends GetxService {
   }) async {
     try {
       final response = await http.post(
-        Uri.parse("${ApiConfig.baseUrl}$endpoint"),
+        endpoint.startsWith('http')
+            ? Uri.parse(endpoint)
+            : Uri.parse("${ApiConfig.baseUrl}$endpoint"),
         headers: {...ApiConfig.defaultHeaders, ...?headers},
         body: jsonEncode(body),
       );

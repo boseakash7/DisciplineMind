@@ -475,6 +475,21 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
     ];
   }
 
+  /// For `message_type: create_process` or standalone `button`
+  if (messageType.toLowerCase() == 'create_process' ||
+      (messageType.toLowerCase() == 'button' && !isAlertButton && !isTrade)) {
+    return [
+      AgentWithButtonMessage(
+        text: '',
+        buttonLabel: message.isNotEmpty ? message : 'CREATE A PROCESS',
+        messageId: messageId,
+        isUnread: isUnread,
+        actionTaken: actionTaken,
+        timestamp: outerTimestamp,
+      ),
+    ];
+  }
+
   /// Backend AI waiting/status messages — never treat as trade cards.
   /// `message_type: ai_msgs` always wins; do not inspect `entity_type`.
   if (messageType.toLowerCase() == 'ai_msgs' ||
