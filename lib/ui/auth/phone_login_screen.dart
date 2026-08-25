@@ -59,7 +59,12 @@ class PhoneLoginScreen extends StatelessWidget {
                   ),
                   icon: null,
                   controller: nameController,
-                  keyboardType: TextInputType.name,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(
+                      RegExp(r'[a-zA-Z\s]'),
+                    ),
+                  ],
+                  keyboardType: TextInputType.text,
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
                       return "Name is required";
@@ -81,6 +86,7 @@ class PhoneLoginScreen extends StatelessWidget {
                   inputFormatters: [
                     LengthLimitingTextInputFormatter(10),
                     FilteringTextInputFormatter.digitsOnly,
+
                   ],
                   icon: null,
                   controller: phoneController,

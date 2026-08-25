@@ -585,20 +585,25 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
           type: InstrumentType.nifty,
           onTap: () => setState(() => instrument = 'Nifty 50'),
         ),
+
         _instrumentCard(
           title: 'BankNifty',
           selected: instrument == 'BankNifty',
           type: InstrumentType.bank,
           onTap: () => setState(() => instrument = 'BankNifty'),
         ),
+
         _instrumentCard(
           title: 'Sensex',
           selected: instrument == 'Sensex',
           type: InstrumentType.sensex,
           onTap: () => setState(() => instrument = 'Sensex'),
         ),
-        const Spacer(),
+
+        const SizedBox(height: 20),
+
         _masterInstrumentCard(),
+
         const SizedBox(height: 12),
       ],
     );
@@ -606,7 +611,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
 
   // ============================================================
   // STEP 3 — TRADING CAPITAL & RULES
-  // ============================================================
+
 
   Widget _step3Screen() {
     return _normalStep(
@@ -1056,17 +1061,20 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       content: [
         _brokerCard(
           title: 'Zerodha Kite',
-          logo: 'K',
+          logo: 'assets/ZerodhaKite.png',
+          subTitle: "com.zerodha.kite3",
           logoColor: const Color(0xFFF15B35),
         ),
         _brokerCard(
           title: 'Upstox',
-          logo: 'U',
+          logo: 'assets/upsocks.png',
+          subTitle: "in.upstox.app",
           logoColor: const Color(0xFF5B35A5),
         ),
         _brokerCard(
           title: 'Groww',
-          logo: 'G',
+          logo: 'assets/groww.png',
+          subTitle: "com.nextbillion.groww",
           logoColor: const Color(0xFF28B9A7),
         ),
         const SizedBox(height: 3),
@@ -1077,6 +1085,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
 
   Widget _brokerCard({
     required String title,
+    required String subTitle,
     required String logo,
     required Color logoColor,
   }) {
@@ -1086,28 +1095,48 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       onTap: () => setState(() => brokerage = title),
       child: Container(
         width: double.infinity,
-        height: 44,
-        margin: const EdgeInsets.only(bottom: 7),
-        padding: const EdgeInsets.symmetric(horizontal: 10),
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: selected ? const Color(0xFFFBF8FF) : Colors.white,
           borderRadius: BorderRadius.circular(9),
           border: Border.all(
-            color: selected ? purple : border,
+            color: selected ? logoColor : border,
             width: selected ? 1.2 : 1,
           ),
         ),
         child: Row(
           children: [
-            _brokerLogo(logo, logoColor),
-            const SizedBox(width: 11),
+            _brokerLogo(logo, logoColor, title),
+            const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                title,
-                style: const TextStyle(
-                  fontSize: _Type.label,
-                  fontWeight: FontWeight.w700,
-                  color: ink,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center
+                  ,crossAxisAlignment: CrossAxisAlignment.start
+                  ,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: _Type.label,
+                        fontWeight: FontWeight.w700,
+                        color: ink,
+                      ),
+                    ),
+                    SizedBox(
+                      height: 2,
+                    ),
+                    Text(
+                      subTitle,
+                      style: const TextStyle(
+                        fontSize: _Type.label,
+                        fontWeight: FontWeight.w400,
+                        color: grey,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -1115,7 +1144,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
               selected
                   ? Icons.radio_button_checked
                   : Icons.radio_button_unchecked,
-              color: selected ? purple : const Color(0xFF85838F),
+              color: selected ? logoColor : const Color(0xFF85838F),
               size: 18,
             ),
           ],
@@ -1124,7 +1153,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     );
   }
 
-  Widget _brokerLogo(String text, Color color) {
+  Widget _brokerLogo(String logoPath, Color color, String name) {
     return Container(
       width: 27,
       height: 27,
@@ -1133,14 +1162,30 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         borderRadius: BorderRadius.circular(8),
       ),
       alignment: Alignment.center,
-      child: Text(
-        text,
-        style: TextStyle(
-          color: color,
-          fontSize: _Type.body,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
+      child : Image.asset(
+        logoPath,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return Center(
+            child: Text(
+              name.isNotEmpty ? name[0] : '?',
+              style: TextStyle(
+                color: color,
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          );
+        },
+      )
+      // child: Text(
+      //   logoPath,
+      //   style: TextStyle(
+      //     color: color,
+      //     fontSize: _Type.body,
+      //     fontWeight: FontWeight.w900,
+      //   ),
+      // ),
     );
   }
 
@@ -1681,7 +1726,9 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _header(step),
+
           const SizedBox(height: 21),
+
           Text(
             title,
             style: const TextStyle(
@@ -1691,7 +1738,9 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
               letterSpacing: -0.2,
             ),
           ),
+
           const SizedBox(height: 5),
+
           Text(
             subtitle,
             style: const TextStyle(
@@ -1700,10 +1749,32 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
               color: ink,
             ),
           ),
+
           const SizedBox(height: 20),
-          ...content,
-          const Spacer(),
-          _gradientButton(text: 'Next', onTap: nextEnabled ? nextPage : null),
+
+          Expanded(
+            child: SingleChildScrollView(
+              keyboardDismissBehavior:
+              ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.viewInsetsOf(context).bottom + 20,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ...content,
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          _gradientButton(
+            text: 'Next',
+            onTap: nextEnabled ? nextPage : null,
+          ),
+
           const SizedBox(height: 2),
         ],
       ),
