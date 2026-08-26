@@ -1,5 +1,5 @@
 class ApiConfig {
-  static const String baseUrl = "http://api.disciplinedminds.in/api/";
+  static const String baseUrl = "https://api.disciplinedminds.in/api/v2test/";
 
   /// Base URL for messages/chat API (different domain)
   // static const String messagesBaseUrl = "http://disciplinedminds.in/";

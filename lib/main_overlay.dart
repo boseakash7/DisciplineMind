@@ -24,8 +24,9 @@ class OverlayApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF7C3AED)),
         useMaterial3: true,
+        scaffoldBackgroundColor: Colors.white,
       ),
       home: const BlockedAppOverlayPage(),
     );

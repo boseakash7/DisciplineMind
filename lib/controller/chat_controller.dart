@@ -11,6 +11,7 @@ import 'package:discipline_mind/services/app_block_preferences_service.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_apps_service.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
+import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -115,6 +116,15 @@ class ChatController extends GetxController {
           isUnread: x.isUnread,
           actionTaken: actionTaken,
         );
+      case ChatMessageType.aiWaiting:
+        final x = m as AiWaitingMessage;
+        return AiWaitingMessage(
+          text: x.text,
+          tradeId: x.tradeId,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          actionTaken: actionTaken,
+        );
       case ChatMessageType.agentWithButton:
         final x = m as AgentWithButtonMessage;
         return AgentWithButtonMessage(
@@ -173,6 +183,9 @@ class ChatController extends GetxController {
           buttonType: x.buttonType,
           tradeId: x.tradeId,
           isGttHit: x.isGttHit,
+          isSlHit: x.isSlHit,
+          isTargetHit: x.isTargetHit,
+          status: x.status,
           targetHitPrice: x.targetHitPrice,
           tradeData: x.tradeData,
           messageId: x.messageId,
@@ -190,6 +203,31 @@ class ChatController extends GetxController {
           consistencyScore: x.consistencyScore,
           dmtTotalScore: x.dmtTotalScore,
           dmtMaxScore: x.dmtMaxScore,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          actionTaken: actionTaken,
+        );
+      case ChatMessageType.tradeSignal:
+        final x = m as TradeSignalMessage;
+        return TradeSignalMessage(
+          headline: x.headline,
+          signalId: x.signalId,
+          userId: x.userId,
+          processId: x.processId,
+          instrument: x.instrument,
+          exchange: x.exchange,
+          tradingsymbol: x.tradingsymbol,
+          openPrice: x.openPrice,
+          currentPrice: x.currentPrice,
+          dayLow: x.dayLow,
+          dayHigh: x.dayHigh,
+          previousClose: x.previousClose,
+          gapPercent: x.gapPercent,
+          changePercent: x.changePercent,
+          sequenceNo: x.sequenceNo,
+          status: x.status,
+          createdAt: x.createdAt,
+          timestamp: x.timestamp,
           messageId: x.messageId,
           isUnread: x.isUnread,
           actionTaken: actionTaken,
@@ -237,9 +275,10 @@ class ChatController extends GetxController {
           AppToast.showToast(response.errorMessage!);
         }
       }
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('[ChatController] loadMessages error: $e\n$stack');
       if (!refresh && !silent) _loadSampleMessages();
-      if (!silent) AppToast.showToast('Failed to load chat: $e');
+      if (!silent) AppToast.showToast('Unable to load chat. Please try again.');
     } finally {
       if (!silent) {
         isLoading.value = false;
@@ -296,9 +335,10 @@ class ChatController extends GetxController {
       } else if (!silent && response.errorMessage != null) {
         AppToast.showToast(response.errorMessage!);
       }
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('[ChatController] loadNewMessages error: $e\n$stack');
       if (!silent) {
-        AppToast.showToast('Failed to load new messages: $e');
+        AppToast.showToast('Failed to load new messages. Please try again.');
       }
     } finally {
       if (!silent) {
@@ -341,8 +381,9 @@ class ChatController extends GetxController {
       } else if (response.errorMessage != null) {
         AppToast.showToast(response.errorMessage!);
       }
-    } catch (e) {
-      AppToast.showToast('Failed to load older messages: $e');
+    } catch (e, stack) {
+      debugPrint('[ChatController] loadOlderMessages error: $e\n$stack');
+      AppToast.showToast('Failed to load older messages. Please try again.');
     } finally {
       isRefreshing.value = false;
     }
@@ -430,8 +471,9 @@ class ChatController extends GetxController {
           AppToast.showToast('iOS permission required to block apps');
         }
       }
-    } catch (e) {
-      AppToast.showToast('Error: $e');
+    } catch (e, stack) {
+      debugPrint('[ChatController] blockTradingAppsNow error: $e\n$stack');
+      AppToast.showToast('Something went wrong. Please try again.');
     }
   }
 
@@ -522,10 +564,162 @@ class ChatController extends GetxController {
         );
         return false;
       }
-    } catch (e) {
-      AppToast.showToast('Error: $e');
+    } catch (e, stack) {
+      debugPrint('[ChatController] createGttAlert error: $e\n$stack');
+      AppToast.showToast('Failed to create GTT alert. Please try again.');
       return false;
     }
+  }
+
+  /// Submit GTT value for a TradeSignalMessage.
+  Future<bool> submitTradeSignalGtt({
+    required TradeSignalMessage msg,
+    required String gttPrice,
+  }) async {
+    if (gttPrice.trim().isEmpty) {
+      AppToast.showToast('Please enter GTT price');
+      return false;
+    }
+    try {
+      final hasPermissions = await _checkBlockAppPermissions();
+      if (!hasPermissions) {
+        return false;
+      }
+
+      final userId = Common.userData.value?.payload?.id?.toString() ?? '2';
+      final alertController = Get.isRegistered<AlertController>()
+          ? Get.find<AlertController>()
+          : Get.put(AlertController(), permanent: true);
+      await alertController.fetchUserAlerts(userId);
+      final hasPending = alertController.savedAlerts.any(
+        (a) => (a.status ?? '').toLowerCase() == 'pending',
+      );
+      if (hasPending) {
+        AppToast.showToast(
+          'You already have a pending alert. Complete or delete it before creating another.',
+        );
+        return false;
+      }
+
+      final tradeId = msg.signalId.isNotEmpty
+          ? msg.signalId
+          : (msg.messageId.isNotEmpty ? msg.messageId : '7');
+      final currentPriceClean = msg.currentPrice.replaceAll(',', '').trim();
+      final symbol = msg.tradingsymbol.isNotEmpty ? msg.tradingsymbol : msg.instrument;
+      final instrument = msg.exchange.isNotEmpty
+          ? '${msg.exchange}:$symbol'
+          : symbol;
+      final api = Get.isRegistered<ApiService>()
+          ? Get.find<ApiService>()
+          : Get.put(ApiService(), permanent: true);
+      final fields = <String, String>{
+        'user_id': userId,
+        'trade_id': tradeId,
+        'gtt_price': gttPrice.trim(),
+        'current_price': currentPriceClean.isNotEmpty ? currentPriceClean : '0.00',
+        if (instrument.isNotEmpty) 'instrument': instrument,
+        if (msg.processId.isNotEmpty) 'v2test_trading_process_id': msg.processId,
+      };
+      final response = await api.postFormData(ApiUrl.gttAlertCreate, fields);
+      if (response.isSuccess) {
+        _markSignalActionTaken(msg);
+        await _applyTradingAppBlock(userId);
+        AppToast.showToast('GTT alert created successfully');
+        loadMessages(refresh: true);
+        return true;
+      } else {
+        AppToast.showToast(
+          response.errorMessage ?? 'Failed to create GTT alert',
+        );
+        return false;
+      }
+    } catch (e, stack) {
+      debugPrint('[ChatController] submitTradeSignalGtt error: $e\n$stack');
+      AppToast.showToast('Failed to create GTT alert. Please try again.');
+      return false;
+    }
+  }
+
+  /// Submit Upper & Lower levels for a TradeSignalMessage.
+  Future<bool> submitTradeSignalLevels({
+    required TradeSignalMessage msg,
+    required String upperPrice,
+    required String lowerPrice,
+  }) async {
+    if (upperPrice.trim().isEmpty || lowerPrice.trim().isEmpty) {
+      AppToast.showToast('Please enter both Upper and Lower values');
+      return false;
+    }
+    try {
+      final hasPermissions = await _checkBlockAppPermissions();
+      if (!hasPermissions) {
+        return false;
+      }
+
+      final userId = Common.userData.value?.payload?.id?.toString() ?? '2';
+      final alertController = Get.isRegistered<AlertController>()
+          ? Get.find<AlertController>()
+          : Get.put(AlertController(), permanent: true);
+      await alertController.fetchUserAlerts(userId);
+      final hasPending = alertController.savedAlerts.any(
+        (a) => (a.status ?? '').toLowerCase() == 'pending',
+      );
+      if (hasPending) {
+        AppToast.showToast(
+          'You already have a pending alert. Complete or delete it before creating another.',
+        );
+        return false;
+      }
+
+      final tradeId = msg.signalId.isNotEmpty
+          ? msg.signalId
+          : (msg.messageId.isNotEmpty ? msg.messageId : '7');
+      final currentPriceClean = msg.currentPrice.replaceAll(',', '').trim();
+      final symbol = msg.tradingsymbol.isNotEmpty ? msg.tradingsymbol : msg.instrument;
+      final instrument = msg.exchange.isNotEmpty
+          ? '${msg.exchange}:$symbol'
+          : symbol;
+      final api = Get.isRegistered<ApiService>()
+          ? Get.find<ApiService>()
+          : Get.put(ApiService(), permanent: true);
+      final fields = <String, String>{
+        'user_id': userId,
+        'trade_id': tradeId,
+        'current_price': currentPriceClean.isNotEmpty ? currentPriceClean : '0.00',
+        'upper_price': upperPrice.trim(),
+        'lower_price': lowerPrice.trim(),
+        if (instrument.isNotEmpty) 'instrument': instrument,
+      };
+      final response = await api.postFormData(ApiUrl.createAlertUrl, fields);
+      if (response.isSuccess) {
+        _markSignalActionTaken(msg);
+        await _applyTradingAppBlock(userId);
+        AppToast.showToast('Alert created successfully');
+        loadMessages(refresh: true);
+        return true;
+      } else {
+        AppToast.showToast(
+          response.errorMessage ?? 'Failed to create alert',
+        );
+        return false;
+      }
+    } catch (e, stack) {
+      debugPrint('[ChatController] submitTradeSignalLevels error: $e\n$stack');
+      AppToast.showToast('Failed to create alert. Please try again.');
+      return false;
+    }
+  }
+
+  void _markSignalActionTaken(TradeSignalMessage msg) {
+    for (int i = 0; i < messages.length; i++) {
+      final m = messages[i];
+      if (m is TradeSignalMessage &&
+          ((msg.signalId.isNotEmpty && m.signalId == msg.signalId) ||
+              (msg.messageId.isNotEmpty && m.messageId == msg.messageId))) {
+        messages[i] = _withActionTaken(m, 1);
+      }
+    }
+    messages.refresh();
   }
 
   Future<bool> _checkBlockAppPermissions() async {
@@ -646,9 +840,9 @@ class ChatController extends GetxController {
           response.errorMessage ?? 'Could not record trade deletion',
         );
       }
-    } catch (e) {
-      AppToast.showToast('Error: $e');
-      print('[ChatController] acknowledgeTradeDeleted failed: $e');
+    } catch (e, stack) {
+      debugPrint('[ChatController] acknowledgeTradeDeleted error: $e\n$stack');
+      AppToast.showToast('Something went wrong. Please try again.');
     }
   }
 
@@ -688,9 +882,9 @@ class ChatController extends GetxController {
           response.errorMessage ?? 'Could not record SL trail confirmation',
         );
       }
-    } catch (e) {
-      AppToast.showToast('Error: $e');
-      print('[ChatController] acknowledgeSlTrailed failed: $e');
+    } catch (e, stack) {
+      debugPrint('[ChatController] acknowledgeSlTrailed error: $e\n$stack');
+      AppToast.showToast('Something went wrong. Please try again.');
     }
   }
 
@@ -727,6 +921,14 @@ class ChatController extends GetxController {
         'user_hit_price': trimmedPrice,
       });
       if (response.isSuccess) {
+        for (int i = 0; i < messages.length; i++) {
+          final m = messages[i];
+          if (m is AlertHitWithButtonMessage &&
+              (m.messageId == msg.messageId || m.tradeId == msg.tradeId)) {
+            messages[i] = _withActionTaken(m, 1);
+          }
+        }
+        messages.refresh();
         AppToast.showToast('Trade execution confirmed');
         await loadMessages(refresh: true);
       } else {
@@ -734,9 +936,9 @@ class ChatController extends GetxController {
           response.errorMessage ?? 'Could not confirm trade execution',
         );
       }
-    } catch (e) {
-      AppToast.showToast('Error: $e');
-      print('[ChatController] acknowledgeTradeExecuted failed: $e');
+    } catch (e, stack) {
+      debugPrint('[ChatController] acknowledgeTradeExecuted error: $e\n$stack');
+      AppToast.showToast('Something went wrong. Please try again.');
     }
   }
 

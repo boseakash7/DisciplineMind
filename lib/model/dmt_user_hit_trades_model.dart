@@ -28,6 +28,8 @@ class DmtUserHitTradesPayload {
   final int totalWins;
   final double? tradeAccuracy;
   final String tradeAccuracyText;
+  final dynamic totalAverageReturnPercentage;
+  final dynamic totalMctAverageReturnPercentage;
   final List<DmtHitTrade> trades;
 
   const DmtUserHitTradesPayload({
@@ -36,6 +38,8 @@ class DmtUserHitTradesPayload {
     this.totalWins = 0,
     this.tradeAccuracy,
     this.tradeAccuracyText = '',
+    this.totalAverageReturnPercentage = 0,
+    this.totalMctAverageReturnPercentage = 0,
     this.trades = const [],
   });
 
@@ -59,6 +63,8 @@ class DmtUserHitTradesPayload {
       totalWins: _parseInt(json['total_wins']),
       tradeAccuracy: _parseDouble(json['trade_accuracy']),
       tradeAccuracyText: json['trade_accuracy_text']?.toString().trim() ?? '',
+      totalAverageReturnPercentage: json['total_average_return_percentage'] ?? 0,
+      totalMctAverageReturnPercentage: json['total_mct_average_return_percentage'] ?? 0,
       trades: list,
     );
   }

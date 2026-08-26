@@ -7,6 +7,7 @@ import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
+import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../common/device_utils.dart';
@@ -39,7 +40,10 @@ class AlertController extends GetxController {
   void onInit() {
     super.onInit();
     fetchInstruments("");
-    fetchUserAlerts(Common.userData.value!.payload!.id!);
+    final userId = Common.userData.value?.payload?.id;
+    if (userId != null && userId.isNotEmpty) {
+      fetchUserAlerts(userId);
+    }
     syncFcmToken();
   }
 
@@ -60,7 +64,8 @@ class AlertController extends GetxController {
       }
 
       isLoading.value = false;
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('[AlertController] fetchInstruments error: $e\n$stack');
       instruments.clear();
       isLoading.value = false;
     }
@@ -86,8 +91,8 @@ class AlertController extends GetxController {
       } else {
         // AppToast.showToast(response.errorMessage ?? "Sync Failed ❌");
       }
-    } catch (e) {
-      // AppToast.showToast("Error: $e");
+    } catch (e, stack) {
+      debugPrint('[AlertController] syncFcmToken error: $e\n$stack');
     }
   }
 
@@ -160,8 +165,9 @@ class AlertController extends GetxController {
         AppToast.showToast(response.errorMessage ?? "Failed to create alert");
         return false;
       }
-    } catch (e) {
-      AppToast.showToast("Error: ${e.toString()}");
+    } catch (e, stack) {
+      debugPrint('[AlertController] createTradeAlert error: $e\n$stack');
+      AppToast.showToast("Failed to create alert. Please try again.");
       return false;
     } finally {
       isSavingAlert.value = false;
@@ -286,8 +292,9 @@ class AlertController extends GetxController {
         );
       }
       return alertsCreated;
-    } catch (e) {
-      AppToast.showToast("Error: ${e.toString()}");
+    } catch (e, stack) {
+      debugPrint('[AlertController] createAlertPair error: $e\n$stack');
+      AppToast.showToast("Failed to create alerts. Please try again.");
       return false;
     } finally {
       isSavingAlert.value = false;
@@ -440,14 +447,18 @@ class AlertController extends GetxController {
           final AppLimiter limiter = AppLimiter();
           await limiter.blockAndUnblockIOSApp();
         }
-        fetchUserAlerts(Common.userData.value!.payload!.id!);
+        final uid = Common.userData.value?.payload?.id;
+        if (uid != null && uid.isNotEmpty) {
+          fetchUserAlerts(uid);
+        }
       } else {
         AppToast.showToast("Failed to delete alert");
       }
       isUserAlertLoading.value = false;
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('[AlertController] deleteAlerts error: $e\n$stack');
       isUserAlertLoading.value = false;
-      AppToast.showToast("Failed to delete alert");
+      AppToast.showToast("Failed to delete alert. Please try again.");
     }
   }
 
@@ -455,10 +466,16 @@ class AlertController extends GetxController {
     try {
       isUserAlertLoading.value = true;
 
-      ApiResponse response = await apiService.postFormData(
+      var response = await apiService.postFormData(
         ApiUrl.getAlertsByUser,
         {"user_id": userId},
       );
+      if (!response.isSuccess) {
+        response = await apiService.postFormData(
+          'https://api.disciplinedminds.in/api/alert/get-by-user-id',
+          {"user_id": userId},
+        );
+      }
 
       if (response.isSuccess) {
         final model = UserAlertModel.fromJson(response.data);
@@ -468,7 +485,8 @@ class AlertController extends GetxController {
       }
 
       isUserAlertLoading.value = false;
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('[AlertController] fetchUserAlerts error: $e\n$stack');
       savedAlerts.clear();
       isUserAlertLoading.value = false;
     }
@@ -500,9 +518,10 @@ class AlertController extends GetxController {
       } else {
         AppToast.showToast(response.errorMessage ?? "Quote fetch failed");
       }
-    } catch (e) {
+    } catch (e, stack) {
       isQuoteLoading.value = false;
-      AppToast.showToast(e.toString());
+      debugPrint('[AlertController] getQuote error: $e\n$stack');
+      AppToast.showToast("Failed to fetch quote. Please try again.");
     }
   }
 

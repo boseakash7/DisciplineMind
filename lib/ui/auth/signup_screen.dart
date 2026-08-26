@@ -5,23 +5,48 @@ import '../../common/app_colors.dart';
 import '../../controller/auth_controller.dart';
 import '../widgets/common_widgets.dart';
 
-class SignUpScreen extends StatelessWidget {
-  final authController = Get.find<AuthController>();
-
+class SignUpScreen extends StatefulWidget {
   /// When set (after OTP for a new number), phone is shown read-only.
   final String? lockedPhone;
+  final String? initialName;
 
-  SignUpScreen({super.key, this.lockedPhone});
+  const SignUpScreen({
+    super.key,
+    this.lockedPhone,
+    this.initialName,
+  });
 
-  final TextEditingController nameController = TextEditingController();
+  @override
+  State<SignUpScreen> createState() => _SignUpScreenState();
+}
+
+class _SignUpScreenState extends State<SignUpScreen> {
+  final authController = Get.find<AuthController>();
+
+  late final TextEditingController nameController;
   final TextEditingController emailController = TextEditingController();
   final TextEditingController phoneController = TextEditingController();
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
   @override
+  void initState() {
+    super.initState();
+    nameController = TextEditingController(text: widget.initialName ?? '');
+  }
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    emailController.dispose();
+    phoneController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final phoneLocked = lockedPhone != null && lockedPhone!.isNotEmpty;
+    final phoneLocked =
+        widget.lockedPhone != null && widget.lockedPhone!.isNotEmpty;
 
     return Scaffold(
       backgroundColor: AppColors.white,
@@ -86,7 +111,7 @@ class SignUpScreen extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               if (phoneLocked) ...[
-                _LockedPhoneField(phone: lockedPhone!),
+                _LockedPhoneField(phone: widget.lockedPhone!),
               ] else ...[
                 CustomTextField(
                   controller: phoneController,
@@ -118,7 +143,7 @@ class SignUpScreen extends StatelessWidget {
                       : () {
                           if (_formKey.currentState!.validate()) {
                             final phone = phoneLocked
-                                ? lockedPhone!
+                                ? widget.lockedPhone!
                                     .trim()
                                     .replaceAll(RegExp(r'\s+'), '')
                                 : phoneController.text

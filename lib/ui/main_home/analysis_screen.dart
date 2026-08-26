@@ -222,19 +222,16 @@ class _AnalysisScreenState extends State<AnalysisScreen>
           const SizedBox(height: 4),
           Expanded(
             child: Obx(() {
-              if (_service.isLoading.value && _service.historyPayload.value == null) {
+              if (_service.isLoading.value && _service.historyPayload.value == null && _service.returnsPayload.value == null) {
                 return _entranceSection(1, _buildShimmer());
               }
 
-              final err = _service.error.value;
-              if (err != null && _service.historyPayload.value == null) {
-                return _entranceSection(1, _buildError(err));
-              }
-
-              final payload = _service.historyPayload.value;
-              if (payload == null) {
-                return _entranceSection(1, _buildError('No score data available'));
-              }
+              final payload = _service.historyPayload.value ??
+                  DmtScoreHistoryPayload(
+                    currentLevel: _service.selectedLevel.value ?? _levelsService.levels.firstOrNull,
+                    requestedLevel: _service.selectedLevel.value ?? _levelsService.levels.firstOrNull,
+                    history: const [],
+                  );
 
               final selectedLevel = _service.selectedLevel.value ?? payload.displayLevel;
               final isLocked = !_isSelectedLevelReachable(payload);
@@ -268,13 +265,7 @@ class _AnalysisScreenState extends State<AnalysisScreen>
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
                   children: [
-                    _entranceSection(1, _buildAnimatedScoreChartCard(payload)),
-                    if (payload.isViewingCurrentLevel && payload.nextLevel != null) ...[
-                      const SizedBox(height: 8),
-                      _entranceSection(2, _buildNextLevelBanner(payload)),
-                    ],
-                    const SizedBox(height: 10),
-                    _entranceSection(3, _buildAnimatedProfitChartCard(returns)),
+                    _entranceSection(1, _buildAnimatedProfitChartCard(returns)),
                   ],
                 ),
               );

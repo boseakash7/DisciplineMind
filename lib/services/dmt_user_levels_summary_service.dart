@@ -29,10 +29,16 @@ class DmtUserLevelsSummaryService extends GetxService {
     error.value = null;
 
     try {
-      final response = await _api().postFormData(
+      var response = await _api().postFormData(
         ApiUrl.dmtLevelUserLevelsSummary,
         {'user_id': userId},
       );
+      if (!response.isSuccess) {
+        response = await _api().postFormData(
+          'https://api.disciplinedminds.in/api/dmt-level/user-levels-summary',
+          {'user_id': userId},
+        );
+      }
 
       if (!response.isSuccess || response.data is! Map) {
         error.value =

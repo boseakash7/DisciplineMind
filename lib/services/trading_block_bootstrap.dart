@@ -7,6 +7,8 @@ import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_apps_service.dart';
 import 'package:get/get.dart';
 
+import 'package:get_storage/get_storage.dart';
+
 /// Whether overlay + usage access are granted (required to use blocking on Android).
 Future<bool> hasAndroidTradingBlockPermissions() async {
   if (!Platform.isAndroid) return true;
@@ -17,11 +19,13 @@ Future<bool> hasAndroidTradingBlockPermissions() async {
 
 /// Applies selected-app blocking + foreground service (Android).
 /// Same building blocks as GTT / alert flows.
-Future<void> applyAndroidTradingAppBlock() async {
+Future<void> applyAndroidTradingAppBlock({String? explicitUserId}) async {
   if (!Platform.isAndroid) return;
   final blockService = NativeAppBlockService();
   final prefs = AppBlockPreferencesService();
-  final userId = Common.userData.value?.payload?.id?.toString();
+  final userId = explicitUserId ??
+      Common.userData.value?.payload?.id?.toString() ??
+      GetStorage().read<String>('user_id');
   if (userId != null && userId.isNotEmpty) {
     await blockService.saveUserIdForOverlay(userId);
   }

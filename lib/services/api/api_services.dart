@@ -1,5 +1,5 @@
 import 'dart:convert';
-
+import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:http/http.dart' as http;
@@ -11,6 +11,18 @@ import 'api_reponse.dart';
 const String _kSessionCookieStorageKey = 'dm_session_cookie';
 
 class ApiService extends GetxService {
+  String _friendlyError(dynamic e, String endpoint) {
+    debugPrint('[ApiService Error] $endpoint -> $e');
+    final s = e.toString().toLowerCase();
+    if (s.contains('socket') || s.contains('network') || s.contains('connection') || s.contains('failed host lookup')) {
+      return 'Unable to connect to server. Please check your internet connection.';
+    }
+    if (s.contains('timeout')) {
+      return 'Request timed out. Please try again.';
+    }
+    return 'Something went wrong. Please try again.';
+  }
+
   // GET request
   Future<ApiResponse<dynamic>> get(
     String endpoint, {
@@ -19,7 +31,7 @@ class ApiService extends GetxService {
   }) async {
     try {
       final uri = Uri.parse(
-        "${ApiConfig.baseUrl}$endpoint",
+        endpoint.startsWith('http') ? endpoint : "${ApiConfig.baseUrl}$endpoint",
       ).replace(queryParameters: queryParameters);
 
       final response = await http.get(
@@ -29,7 +41,7 @@ class ApiService extends GetxService {
 
       return _processResponse(response);
     } catch (e) {
-      return ApiResponse.error(e.toString());
+      return ApiResponse.error(_friendlyError(e, endpoint));
     }
   }
 
@@ -40,7 +52,9 @@ class ApiService extends GetxService {
     Map<String, String>? headers,
   }) async {
     try {
-      final uri = Uri.parse("${ApiConfig.baseUrl}$endpoint");
+      final uri = Uri.parse(
+        endpoint.startsWith('http') ? endpoint : "${ApiConfig.baseUrl}$endpoint",
+      );
       final request = http.MultipartRequest('POST', uri);
       if (headers != null) request.headers.addAll(headers);
       for (final e in fields.entries) {
@@ -50,7 +64,7 @@ class ApiService extends GetxService {
       final response = await http.Response.fromStream(streamedResponse);
       return _processResponse(response);
     } catch (e) {
-      return ApiResponse.error(e.toString());
+      return ApiResponse.error(_friendlyError(e, endpoint));
     }
   }
 
@@ -63,7 +77,9 @@ class ApiService extends GetxService {
     bool usePersistedSessionCookie = true,
   }) async {
     try {
-      final uri = Uri.parse("${ApiConfig.baseUrl}$endpoint");
+      final uri = Uri.parse(
+        endpoint.startsWith('http') ? endpoint : "${ApiConfig.baseUrl}$endpoint",
+      );
       final request = http.MultipartRequest('POST', uri);
       if (headers != null) request.headers.addAll(headers);
       final merged = {
@@ -80,10 +96,10 @@ class ApiService extends GetxService {
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
       persistSessionFromResponse(response);
-      print("API Response: ${response.body}");
+      debugPrint("API Response: ${response.body}");
       return _processResponse(response);
     } catch (e) {
-      return ApiResponse.error(e.toString());
+      return ApiResponse.error(_friendlyError(e, endpoint));
     }
   }
 
@@ -130,19 +146,21 @@ class ApiService extends GetxService {
         if (headers != null) ...headers,
       };
 
+      final uri = Uri.parse(
+        endpoint.startsWith('http') ? endpoint : "${ApiConfig.baseUrl}$endpoint",
+      );
       final response = await http.post(
-        Uri.parse("${ApiConfig.baseUrl}$endpoint"),
+        uri,
         headers: finalHeaders,
         body: fields, // Send form fields
       );
 
       persistSessionFromResponse(response);
-
-      print("API Response: ${response.body}");
+      debugPrint("API Response: ${response.body}");
 
       return _processResponse(response);
     } catch (e) {
-      return ApiResponse.error(e.toString());
+      return ApiResponse.error(_friendlyError(e, endpoint));
     }
   }
 
@@ -153,15 +171,18 @@ class ApiService extends GetxService {
     Map<String, String>? headers,
   }) async {
     try {
+      final uri = Uri.parse(
+        endpoint.startsWith('http') ? endpoint : "${ApiConfig.baseUrl}$endpoint",
+      );
       final response = await http.patch(
-        Uri.parse("${ApiConfig.baseUrl}$endpoint"),
+        uri,
         headers: {...ApiConfig.defaultHeaders, ...?headers},
         body: jsonEncode(body),
       );
 
       return _processResponse(response);
     } catch (e) {
-      return ApiResponse.error(e.toString());
+      return ApiResponse.error(_friendlyError(e, endpoint));
     }
   }
 
@@ -177,13 +198,28 @@ class ApiService extends GetxService {
       }
       final jsonResponse = jsonDecode(body);
 
-      if (jsonResponse['status'] == 'ok') {
+      if (jsonResponse is Map && jsonResponse['status'] == 'ok') {
         return ApiResponse.success(jsonResponse);
+      } else if (jsonResponse is Map && jsonResponse.containsKey('payload')) {
+        final payload = jsonResponse['payload'];
+        final msg = payload?.toString().trim() ?? '';
+        // If payload is clean string without html tags or stack traces, show it
+        if (msg.isNotEmpty && !msg.startsWith('<') && !msg.contains('Exception:')) {
+          return ApiResponse.error(msg);
+        }
+        return ApiResponse.error('Something went wrong. Please try again.');
       } else {
-        return ApiResponse.error(jsonResponse['payload'].toString());
+        return ApiResponse.error('Something went wrong. Please try again.');
       }
-    } catch (e) {
-      return ApiResponse.error("Invalid response format: ${e.toString()}");
+    } catch (e, stack) {
+      debugPrint('[ApiService] Response parse error: $e\nStatus: ${response.statusCode}\nBody: ${response.body}\n$stack');
+      if (response.statusCode >= 500) {
+        return ApiResponse.error('Server error. Please try again later.');
+      }
+      if (response.statusCode == 404) {
+        return ApiResponse.error('Service unavailable. Please try again later.');
+      }
+      return ApiResponse.error('Something went wrong. Please try again.');
     }
   }
 }

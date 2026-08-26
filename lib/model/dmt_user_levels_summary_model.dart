@@ -95,6 +95,8 @@ class DmtUserLevelSummaryItem {
   final int totalWins;
   final double tradeAccuracy;
   final String tradeAccuracyText;
+  final dynamic totalAverageReturnPercentage;
+  final dynamic totalMctAverageReturnPercentage;
   final int levelTotalScore;
   final DmtScoreNextLevel? nextLevel;
   final List<DmtLevelScoreHistoryEntry> scoreHistory;
@@ -111,6 +113,8 @@ class DmtUserLevelSummaryItem {
     this.totalWins = 0,
     this.tradeAccuracy = 0,
     this.tradeAccuracyText = '',
+    this.totalAverageReturnPercentage = 0,
+    this.totalMctAverageReturnPercentage = 0,
     this.levelTotalScore = 0,
     this.nextLevel,
     this.scoreHistory = const [],
@@ -151,6 +155,8 @@ class DmtUserLevelSummaryItem {
       tradeAccuracy:
           double.tryParse(json['trade_accuracy']?.toString() ?? '') ?? 0,
       tradeAccuracyText: json['trade_accuracy_text']?.toString().trim() ?? '',
+      totalAverageReturnPercentage: json['total_average_return_percentage'] ?? 0,
+      totalMctAverageReturnPercentage: json['total_mct_average_return_percentage'] ?? 0,
       levelTotalScore:
           int.tryParse(json['level_total_score']?.toString() ?? '') ?? 0,
       nextLevel: nextRaw is Map

@@ -1,12 +1,15 @@
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:discipline_mind/services/api/api_services.dart';
+import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 
 // ============================================================================
@@ -97,10 +100,11 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
 
   int tradingCapital = 0;
   int? tradesPerDay;
-  TimeOfDay? marketEntryTimeOfDay;
+  TimeOfDay? marketEntryTimeOfDay = const TimeOfDay(hour: 9, minute: 15);
 
   bool termsAccepted = false;
   bool _isCapitalEditable = false;
+  bool _isSubmitting = false;
 
   int get maxRiskPerTrade => (tradingCapital * 0.02).round();
 
@@ -1035,7 +1039,8 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   Future<void> _pickMarketTime() async {
     final picked = await showTimePicker(
       context: context,
-      initialTime: marketEntryTimeOfDay ?? TimeOfDay.now(),
+      initialTime:
+          marketEntryTimeOfDay ?? const TimeOfDay(hour: 9, minute: 15),
     );
 
     if (picked == null) return;
@@ -1083,7 +1088,18 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     final selected = brokerage == title;
 
     return GestureDetector(
-      onTap: () => setState(() => brokerage = title),
+      onTap: () async {
+        setState(() => brokerage = title);
+        final pkg = _getBrokerPackageName(title);
+        await _prefs.saveSelectedPackage(
+          userId: widget.userId,
+          packageName: pkg,
+        );
+        if (Platform.isAndroid) {
+          await _blockService.saveUserIdForOverlay(widget.userId);
+          await _blockService.blockApp(pkg);
+        }
+      },
       child: Container(
         width: double.infinity,
         height: 44,
@@ -1555,8 +1571,8 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
           ),
           const SizedBox(height: 12),
           _gradientButton(
-            text: 'SET UP MY PROCESS 🚀',
-            onTap: canSubmit ? _completeSetup : null,
+            text: _isSubmitting ? 'SETTING UP...' : 'SET UP MY PROCESS 🚀',
+            onTap: (canSubmit && !_isSubmitting) ? _completeSetup : null,
           ),
         ],
       ),
@@ -1634,7 +1650,28 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   // SAVE SETUP
   // ============================================================
 
+  String _getBrokingAppKey(String? name) {
+    if (name == null) return 'zerodha_kite';
+    final lower = name.toLowerCase().trim();
+    if (lower.contains('zerodha') || lower.contains('kite')) return 'zerodha_kite';
+    if (lower.contains('upstox')) return 'upstox';
+    if (lower.contains('groww')) return 'groww';
+    if (lower.contains('angel')) return 'angel_one';
+    return lower.replaceAll(RegExp(r'\s+'), '_');
+  }
+
+  String _getBrokerPackageName(String? name) {
+    if (name == null) return 'com.zerodha.kite3';
+    final lower = name.toLowerCase().trim();
+    if (lower.contains('zerodha') || lower.contains('kite')) return 'com.zerodha.kite3';
+    if (lower.contains('upstox')) return 'in.upstox.app';
+    if (lower.contains('groww')) return 'com.nextbillion.groww';
+    if (lower.contains('angel')) return 'com.msf.angelmobile';
+    return 'com.zerodha.kite3';
+  }
+
   Future<void> _completeSetup() async {
+    if (_isSubmitting) return;
     if (!isCapitalValid ||
         tradingSegment == null ||
         instrument == null ||
@@ -1645,11 +1682,17 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       return;
     }
 
+    setState(() => _isSubmitting = true);
+
     final formattedEntryTime = marketEntryTimeOfDay!.format(context);
     final storage = GetStorage();
+    final brokerPkg = _getBrokerPackageName(brokerage);
 
     if (Platform.isAndroid) {
-      await applyAndroidTradingAppBlock();
+      await _prefs.saveSelectedPackage(userId: widget.userId, packageName: brokerPkg);
+      await _blockService.saveUserIdForOverlay(widget.userId);
+      await _blockService.blockApp(brokerPkg);
+      await applyAndroidTradingAppBlock(explicitUserId: widget.userId);
     }
 
     await storage.write('mct_setup_completed_${widget.userId}', true);
@@ -1661,8 +1704,43 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     await storage.write('mct_max_risk_per_trade_${widget.userId}', maxRiskPerTrade);
     await storage.write('mct_market_entry_time_${widget.userId}', formattedEntryTime);
 
-    if (!mounted) return;
-    Navigator.pop(context, true);
+    final apiService = Get.isRegistered<ApiService>()
+        ? Get.find<ApiService>()
+        : Get.put(ApiService());
+
+    final fields = <String, String>{
+      'user_id': widget.userId,
+      'trading_segment': (tradingSegment ?? 'options').toLowerCase(),
+      'instrument': instrument ?? 'NIFTY 50',
+      'trading_capital': tradingCapital.toString(),
+      'trades_per_day': (tradesPerDay ?? 1).toString(),
+      'max_risk_percent': '2',
+      'market_entry_time': formattedEntryTime,
+      'broking_app': _getBrokingAppKey(brokerage),
+      'permission_overlay_enabled': _hasOverlay ? '1' : '0',
+      'permission_usage_stats_enabled': _hasUsage ? '1' : '0',
+      'terms_accepted': termsAccepted ? '1' : '0',
+    };
+
+    try {
+      final response = await apiService.postFormData(
+        ApiUrl.processSetup,
+        fields,
+      );
+
+      if (response.isSuccess) {
+        AppToast.showToast('Process setup completed successfully!');
+      } else {
+        AppToast.showToast(response.errorMessage ?? 'Process saved');
+      }
+    } catch (e) {
+      AppToast.showToast('Process setup saved');
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+        Navigator.pop(context, true);
+      }
+    }
   }
 
   // ============================================================

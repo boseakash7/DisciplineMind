@@ -46,4 +46,7 @@ class ApiUrl {
 
   /// Confirms target hit (form: trade_id, user_id, hit_price).
   static const String tradeExecuted = "trade/executed";
+
+  /// Set up trading process (form: user_id, trading_segment, instrument, trading_capital, trades_per_day, max_risk_percent, market_entry_time, broking_app, permission_overlay_enabled, permission_usage_stats_enabled, terms_accepted).
+  static const String processSetup = "process/setup";
 }

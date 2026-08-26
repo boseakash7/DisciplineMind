@@ -1,4 +1,5 @@
 import 'package:discipline_mind/common/app_colors.dart';
+import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/ui/main_home/analysis_screen.dart';
 import 'package:discipline_mind/ui/main_home/bm_screen.dart';
 import 'package:discipline_mind/ui/main_home/chat_screen.dart';
@@ -6,6 +7,7 @@ import 'package:discipline_mind/ui/main_home/more_screen.dart';
 import 'package:discipline_mind/ui/main_home/trade_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:get/get.dart';
 
 class MainHomeScreen extends StatefulWidget {
   final int initialIndex;
@@ -75,35 +77,62 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                     child: Row(
                       children: [
-                        Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(color: AppColors.primary, width: 2),
-                          ),
-                          child: Center(
-                            child: Text(
-                              "S",
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w700,
-                                color: textColor,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text("Vikas", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: textColor)),
-                              const SizedBox(height: 2),
-                              Text("Have a good Day !", style: TextStyle(fontSize: 13, color: subTextColor)),
-                            ],
-                          ),
+                          child: Obx(() {
+                            final user = Common.userData.value?.payload;
+                            final rawName = (user?.fullName ?? user?.phone ?? '').trim();
+                            final userName = rawName.isNotEmpty ? rawName : 'User';
+                            final avatarLetter = rawName.isNotEmpty
+                                ? rawName[0].toUpperCase()
+                                : 'U';
+
+                            return Row(
+                              children: [
+                                Container(
+                                  width: 42,
+                                  height: 42,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: AppColors.primary, width: 2),
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      avatarLetter,
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w700,
+                                        color: textColor,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        userName,
+                                        style: TextStyle(
+                                          fontSize: 20,
+                                          fontWeight: FontWeight.w700,
+                                          color: textColor,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        "Have a good Day !",
+                                        style: TextStyle(fontSize: 13, color: subTextColor),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            );
+                          }),
                         ),
                         Container(
                           height: 36,

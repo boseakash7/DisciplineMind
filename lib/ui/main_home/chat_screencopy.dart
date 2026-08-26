@@ -536,6 +536,10 @@ class _chat_screencopyState extends State<chat_screencopy> {
         );
       case ChatMessageType.dmtScore:
         return _buildDmtScore(context, msg as DmtScoreMessage);
+      case ChatMessageType.tradeSignal:
+        return const SizedBox.shrink();
+      case ChatMessageType.aiWaiting:
+        return const SizedBox.shrink();
     }
   }
 

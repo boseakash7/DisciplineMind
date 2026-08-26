@@ -1,5 +1,3 @@
-import 'package:discipline_mind/common/app_colors.dart';
-import 'package:discipline_mind/model/dmt_user_levels_summary_model.dart';
 import 'package:discipline_mind/services/dmt_user_levels_summary_service.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -33,12 +31,6 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
     Color(0xFF4CAF50), // Green
   ];
 
-  static const List<_BmCardFallback> _fallbackCards = [
-    _BmCardFallback(title: 'Believe Mode', code: 'BM', trades: '5', wins: '4', accuracy: '90%', returns: 'XX', cmReturns: 'XX'),
-    _BmCardFallback(title: 'Achieve Mode', code: 'AM', trades: 'XX', wins: 'XX', accuracy: 'XXX', returns: 'XX', cmReturns: 'XX'),
-    _BmCardFallback(title: 'Leap Mode', code: 'LM', trades: 'XX', wins: 'XX', accuracy: 'XXX', returns: 'XX', cmReturns: 'XX'),
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -62,6 +54,14 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
   }
 
   @override
+  void didUpdateWidget(BmScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      _summaryService.refreshTabData();
+    }
+  }
+
+  @override
   void dispose() {
     _summaryLoadWorker?.dispose();
     _entranceController.dispose();
@@ -79,11 +79,11 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Row(
                 children: [
-                  Text('🏆', style: TextStyle(fontSize: 22)),
-                  SizedBox(width: 8),
+                  const Text('🏆', style: TextStyle(fontSize: 22)),
+                  const SizedBox(width: 8),
                   Text(
                     'Achievement Levels',
                     style: TextStyle(
@@ -97,39 +97,61 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
             ),
             Expanded(
               child: Obx(() {
+                if (_summaryService.isLoading.value && _summaryService.summaryPayload.value == null) {
+                  return const Center(child: CircularProgressIndicator());
+                }
                 final payload = _summaryService.summaryPayload.value;
-                return ListView.builder(
-                  controller: _timelineScrollController,
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                  itemCount: _levelCodes.length,
-                  itemBuilder: (context, index) {
-                    final fallback = _fallbackCards[index];
-                    final apiLevel = payload?.levelByCode(_levelCodes[index]);
-                    final color = _levelColors[index];
+                return RefreshIndicator(
+                  onRefresh: () => _summaryService.refreshTabData(),
+                  child: ListView.builder(
+                    controller: _timelineScrollController,
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                    itemCount: _levelCodes.length,
+                    itemBuilder: (context, index) {
+                      final apiLevel = payload?.levelByCode(_levelCodes[index]);
+                      final color = _levelColors[index];
 
-                    final isCurrent = apiLevel?.isCurrent ?? false;
-                    final isSelected = _selectedIndex == index; // 👈 selection check
+                      final isUnlocked = apiLevel != null
+                          ? apiLevel.isUnlocked
+                          : index == 0;
+                      final isCurrent = apiLevel != null
+                          ? apiLevel.isCurrent
+                          : index == 0;
+                      final canInteract = isUnlocked || isCurrent;
+                      final isSelected = canInteract && _selectedIndex == index;
 
-                    return _TimelineItem(
-                      index: index,
-                      isLast: index == _levelCodes.length - 1,
-                      title: apiLevel?.displayLabel ?? _levelNames[index],
-                      code: _levelCodes[index],
-                      color: color,
-                      isAchieved: isSelected, // 👈 color ab selection pe depend karta hai
-                      isCurrent: isCurrent,
-                      trades: apiLevel?.totalTrades.toString() ?? fallback.trades,
-                      wins: apiLevel?.totalWins.toString() ?? fallback.wins,
-                      accuracy: fallback.accuracy,
-                      returns: fallback.returns,
-                      cmReturns: fallback.cmReturns,
-                      isDark: isDark,
-                      onTap: () {
-                        setState(() => _selectedIndex = index); // 👈 tap pe select
-                        // widget.onMonkkTap?.call();
-                      },
-                    );
-                  },
+                      final tradesCount = apiLevel?.totalTrades ?? 0;
+                      final winsCount = apiLevel?.totalWins ?? 0;
+                      final accuracyText = (apiLevel != null && apiLevel.tradeAccuracyText.isNotEmpty)
+                          ? apiLevel.tradeAccuracyText
+                          : '0%';
+                      final avgReturn = apiLevel?.totalAverageReturnPercentage != null
+                          ? '${apiLevel!.totalAverageReturnPercentage}%'
+                          : '0%';
+
+                      return _TimelineItem(
+                        index: index,
+                        isLast: index == _levelCodes.length - 1,
+                        title: apiLevel?.displayLabel ?? _levelNames[index],
+                        code: _levelCodes[index],
+                        color: color,
+                        isAchieved: isSelected || (isUnlocked && !canInteract),
+                        isUnlocked: isUnlocked,
+                        isCurrent: isCurrent,
+                        canInteract: canInteract,
+                        trades: '$tradesCount',
+                        wins: '$winsCount',
+                        accuracy: accuracyText,
+                        returns: avgReturn,
+                        isDark: isDark,
+                        onTap: canInteract
+                            ? () {
+                                setState(() => _selectedIndex = index);
+                              }
+                            : null,
+                      );
+                    },
+                  ),
                 );
               }),
             ),
@@ -146,8 +168,8 @@ class _TimelineItem extends StatelessWidget {
   final bool isLast;
   final String title, code;
   final Color color;
-  final bool isAchieved, isCurrent;
-  final String trades, wins, accuracy, returns, cmReturns;
+  final bool isAchieved, isUnlocked, isCurrent, canInteract;
+  final String trades, wins, accuracy, returns;
   final bool isDark;
   final VoidCallback? onTap;
 
@@ -158,12 +180,13 @@ class _TimelineItem extends StatelessWidget {
     required this.code,
     required this.color,
     required this.isAchieved,
+    required this.isUnlocked,
     required this.isCurrent,
+    required this.canInteract,
     required this.trades,
     required this.wins,
     required this.accuracy,
     required this.returns,
-    required this.cmReturns,
     required this.isDark,
     this.onTap,
   });
@@ -173,9 +196,13 @@ class _TimelineItem extends StatelessWidget {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
 
+    final effectiveColor = canInteract ? color : (dark ? Colors.grey.shade600 : Colors.grey.shade400);
+
     final cardColor = isAchieved
         ? color
-        : (dark ? const Color(0xFF242424) : color.withOpacity(.12));
+        : (canInteract
+            ? (dark ? const Color(0xFF242424) : color.withValues(alpha: .12))
+            : (dark ? const Color(0xFF1E1E1E) : Colors.grey.shade100));
 
     return IntrinsicHeight(
       child: Row(
@@ -189,18 +216,28 @@ class _TimelineItem extends StatelessWidget {
                 height: 48,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: isAchieved ? color : color.withOpacity(.15),
-                  border: Border.all(color: color),
+                  color: isAchieved
+                      ? color
+                      : (canInteract
+                          ? color.withValues(alpha: .15)
+                          : (dark ? Colors.grey.shade800 : Colors.grey.shade200)),
+                  border: Border.all(color: effectiveColor),
                 ),
                 alignment: Alignment.center,
-                child: Text(
-                  code,
-                  style: TextStyle(
-                    color: isAchieved ? Colors.white : color,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                  ),
-                ),
+                child: canInteract
+                    ? Text(
+                        code,
+                        style: TextStyle(
+                          color: isAchieved ? Colors.white : effectiveColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      )
+                    : Icon(
+                        Icons.lock_rounded,
+                        color: effectiveColor,
+                        size: 20,
+                      ),
               ),
               if (!isLast)
                 Expanded(
@@ -208,7 +245,11 @@ class _TimelineItem extends StatelessWidget {
                     width: 2.5,
                     margin: const EdgeInsets.symmetric(vertical: 6),
                     child: CustomPaint(
-                      painter: _DottedLinePainter(color: color.withOpacity(.60)),
+                      painter: _DottedLinePainter(
+                        color: canInteract
+                            ? color.withValues(alpha: .60)
+                            : (dark ? Colors.grey.shade700 : Colors.grey.shade300),
+                      ),
                     ),
                   ),
                 ),
@@ -229,18 +270,21 @@ class _TimelineItem extends StatelessWidget {
                     border: isAchieved
                         ? null
                         : Border(
-                            left: BorderSide(color: color.withOpacity(.70), width: 2.5),
+                            left: BorderSide(
+                              color: effectiveColor.withValues(alpha: .70),
+                              width: 2.5,
+                            ),
                           ),
                   ),
                   child: _CardContent(
                     title: title,
-                    color: color,
+                    color: effectiveColor,
                     isAchieved: isAchieved,
+                    canInteract: canInteract,
                     trades: trades,
                     wins: wins,
                     accuracy: accuracy,
                     returns: returns,
-                    cmReturns: cmReturns,
                   ),
                 ),
               ),
@@ -256,21 +300,21 @@ class _CardContent extends StatelessWidget {
   final String title;
   final Color color;
   final bool isAchieved;
+  final bool canInteract;
   final String trades;
   final String wins;
   final String accuracy;
   final String returns;
-  final String cmReturns;
 
   const _CardContent({
     required this.title,
     required this.color,
     required this.isAchieved,
+    required this.canInteract,
     required this.trades,
     required this.wins,
     required this.accuracy,
     required this.returns,
-    required this.cmReturns,
   });
 
   @override
@@ -280,11 +324,11 @@ class _CardContent extends StatelessWidget {
 
     final textColor = isAchieved
         ? Colors.white
-        : (isDark ? Colors.white : Color(0XFF938F8F));
+        : (isDark ? (canInteract ? Colors.white : Colors.grey.shade400) : (canInteract ? const Color(0XFF938F8F) : Colors.grey.shade500));
 
     final subTextColor = isAchieved
         ? Colors.white70
-        : (isDark ? Color(0XFFBCBABA) : Color(0XFF938F8F));
+        : (isDark ? (canInteract ? const Color(0XFFBCBABA) : Colors.grey.shade500) : (canInteract ? const Color(0XFF938F8F) : Colors.grey.shade400));
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -308,14 +352,16 @@ class _CardContent extends StatelessWidget {
                 height: 36,
                 decoration: BoxDecoration(
                   color: isDark
-                      ? Colors.white
-                      : Color(0XFF938F8F),
+                      ? (canInteract ? Colors.white : Colors.grey.shade800)
+                      : (canInteract ? const Color(0XFF938F8F) : Colors.grey.shade300),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
-                  Icons.play_arrow_rounded,
-                  color: !isDark ? Colors.white : Colors.grey.shade700,
-                  size: 22,
+                  canInteract ? Icons.play_arrow_rounded : Icons.lock_rounded,
+                  color: canInteract
+                      ? (!isDark ? Colors.white : Colors.grey.shade700)
+                      : (isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+                  size: 20,
                 ),
               ),
             ],
@@ -327,7 +373,8 @@ class _CardContent extends StatelessWidget {
               _Stat('Wins', wins, textColor, subTextColor),
               _Stat('Accuracy', accuracy, textColor, subTextColor),
               const Spacer(),
-              Icon(Icons.chevron_right, color: subTextColor, size: 26),
+              if (canInteract)
+                Icon(Icons.chevron_right, color: subTextColor, size: 26),
             ],
           ),
           Divider(
@@ -336,17 +383,9 @@ class _CardContent extends StatelessWidget {
           ),
           Row(
             children: [
-              Expanded(
-                child: Text(
-                  'My Returns - $returns',
-                  style: TextStyle(color: subTextColor),
-                ),
-              ),
-              Expanded(
-                child: Text(
-                  'MCT Returns - $cmReturns',
-                  style: TextStyle(color: subTextColor),
-                ),
+              Text(
+                'Returns - $returns',
+                style: TextStyle(color: subTextColor),
               ),
             ],
           ),
@@ -398,17 +437,4 @@ class _DottedLinePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _DottedLinePainter oldDelegate) => oldDelegate.color != color;
-}
-
-class _BmCardFallback {
-  final String title, code, trades, wins, accuracy, returns, cmReturns;
-  const _BmCardFallback({
-    required this.title,
-    required this.code,
-    required this.trades,
-    required this.wins,
-    required this.accuracy,
-    required this.returns,
-    required this.cmReturns,
-  });
 }

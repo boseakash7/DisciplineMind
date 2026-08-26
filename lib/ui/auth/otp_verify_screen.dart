@@ -13,10 +13,12 @@ import 'package:get/get.dart';
 
 class OtpVerifyScreen extends StatefulWidget {
   final String phone;
+  final String? name;
 
   const OtpVerifyScreen({
     super.key,
     required this.phone,
+    this.name,
   });
 
   @override
@@ -151,7 +153,10 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
     }
 
     authController.isLoading.value = false;
-    Get.off(() => SignUpScreen(lockedPhone: widget.phone));
+    Get.off(() => SignUpScreen(
+          lockedPhone: widget.phone,
+          initialName: widget.name,
+        ));
   }
 
   Future<void> _resend() async {

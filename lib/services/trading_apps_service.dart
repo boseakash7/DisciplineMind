@@ -40,12 +40,17 @@ class TradingAppsService extends GetxService {
       final api = Get.isRegistered<ApiService>()
           ? Get.find<ApiService>()
           : Get.put(ApiService(), permanent: true);
-      final response = await api.get(ApiUrl.tradingApps);
+      var response = await api.get(ApiUrl.tradingApps);
+      if (!response.isSuccess) {
+        // Fallback to absolute base URL if relative path 404s on v2test
+        response = await api.get('https://api.disciplinedminds.in/api/trading-apps');
+      }
+
+      final list = <TradingApp>[];
       if (response.isSuccess && response.data is Map) {
         final map = Map<String, dynamic>.from(response.data as Map);
         final payload = map['payload'];
         if (payload is List) {
-          final list = <TradingApp>[];
           for (final item in payload) {
             if (item is Map) {
               list.add(
@@ -53,20 +58,77 @@ class TradingAppsService extends GetxService {
               );
             }
           }
-          apps.assignAll(
-            list.where((a) => a.packageName.isNotEmpty).toList(),
-          );
-          await _blockService.setMonitoredTradingApps(
-            apps.map((e) => e.packageName).toList(),
-          );
-          return apps.isNotEmpty;
         }
       }
-      lastError.value = response.errorMessage ?? 'Could not load trading apps';
-      return false;
+
+      // If network fails or empty, populate with default supported apps
+      if (list.isEmpty) {
+        list.addAll([
+          TradingApp(
+            id: '1',
+            name: 'Zerodha Kite',
+            packageName: 'com.zerodha.kite3',
+            isTarget: false,
+            isStoploss: false,
+            isGtt: true,
+          ),
+          TradingApp(
+            id: '2',
+            name: 'Upstox',
+            packageName: 'in.upstox.app',
+            isTarget: false,
+            isStoploss: false,
+            isGtt: true,
+          ),
+          TradingApp(
+            id: '3',
+            name: 'Groww',
+            packageName: 'com.nextbillion.groww',
+            isTarget: true,
+            isStoploss: true,
+            isGtt: true,
+          ),
+        ]);
+      }
+
+      apps.assignAll(
+        list.where((a) => a.packageName.isNotEmpty).toList(),
+      );
+      await _blockService.setMonitoredTradingApps(
+        apps.map((e) => e.packageName).toList(),
+      );
+      return apps.isNotEmpty;
     } catch (e) {
       lastError.value = e.toString();
-      return false;
+      if (apps.isEmpty) {
+        apps.assignAll([
+          TradingApp(
+            id: '1',
+            name: 'Zerodha Kite',
+            packageName: 'com.zerodha.kite3',
+            isTarget: false,
+            isStoploss: false,
+            isGtt: true,
+          ),
+          TradingApp(
+            id: '2',
+            name: 'Upstox',
+            packageName: 'in.upstox.app',
+            isTarget: false,
+            isStoploss: false,
+            isGtt: true,
+          ),
+          TradingApp(
+            id: '3',
+            name: 'Groww',
+            packageName: 'com.nextbillion.groww',
+            isTarget: true,
+            isStoploss: true,
+            isGtt: true,
+          ),
+        ]);
+      }
+      return apps.isNotEmpty;
     } finally {
       isLoading.value = false;
       _refreshInFlight = false;

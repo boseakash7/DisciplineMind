@@ -57,35 +57,46 @@ class DmtScoreHistoryService extends GetxService {
         fields['level_id'] = effectiveLevelId.toString();
       }
 
-      final response = await _api().postFormData(
+      var response = await _api().postFormData(
         ApiUrl.dmtScoreHistory,
         fields,
       );
-
-      if (!response.isSuccess || response.data is! Map) {
-        error.value =
-            response.errorMessage ?? 'Could not load score history';
-        historyPayload.value = null;
-        return false;
+      if (!response.isSuccess) {
+        response = await _api().postFormData(
+          'https://api.disciplinedminds.in/api/dmt-score/history',
+          fields,
+        );
       }
 
-      final parsed = DmtScoreHistoryResponse.fromJson(
-        Map<String, dynamic>.from(response.data as Map),
+      if (response.isSuccess && response.data is Map) {
+        final parsed = DmtScoreHistoryResponse.fromJson(
+          Map<String, dynamic>.from(response.data as Map),
+        );
+        if (parsed.isOk && parsed.payload != null) {
+          historyPayload.value = parsed.payload;
+          _syncSelectedLevel(parsed.payload!);
+          return true;
+        }
+      }
+
+      // If backend has no score history endpoint yet, provide a fallback payload for selected level
+      final currentLvl = selectedLevel.value ?? _levelsService.levels.firstOrNull;
+      historyPayload.value = DmtScoreHistoryPayload(
+        userId: int.tryParse(userId) ?? 0,
+        currentLevel: currentLvl,
+        requestedLevel: currentLvl,
+        history: const [],
       );
-
-      if (!parsed.isOk || parsed.payload == null) {
-        error.value = 'No score history available';
-        historyPayload.value = null;
-        return false;
-      }
-
-      historyPayload.value = parsed.payload;
-      _syncSelectedLevel(parsed.payload!);
       return true;
     } catch (e) {
-      error.value = e.toString();
-      historyPayload.value = null;
-      return false;
+      final currentLvl = selectedLevel.value ?? _levelsService.levels.firstOrNull;
+      historyPayload.value = DmtScoreHistoryPayload(
+        userId: int.tryParse(userId) ?? 0,
+        currentLevel: currentLvl,
+        requestedLevel: currentLvl,
+        history: const [],
+      );
+      return true;
     } finally {
       isLoading.value = false;
       _fetchInFlight = false;
@@ -124,13 +135,22 @@ class DmtScoreHistoryService extends GetxService {
     returnsError.value = null;
 
     try {
-      final response = await _api().postFormData(
+      var response = await _api().postFormData(
         ApiUrl.dmtLevelUserReturnPercentages,
         {
           'user_id': userId,
           'level_id': levelId.toString(),
         },
       );
+      if (!response.isSuccess) {
+        response = await _api().postFormData(
+          'https://api.disciplinedminds.in/api/dmt-level/user-return-percentages',
+          {
+            'user_id': userId,
+            'level_id': levelId.toString(),
+          },
+        );
+      }
 
       if (!response.isSuccess || response.data is! Map) {
         returnsError.value =
@@ -166,8 +186,10 @@ class DmtScoreHistoryService extends GetxService {
     final level = _levelsService.levelById(levelId);
     if (level == null) return;
     selectedLevel.value = level;
-    await fetchHistory(levelId: levelId, force: true);
-    await fetchReturnPercentages(levelId, force: true);
+    await Future.wait([
+      fetchHistory(levelId: levelId, force: true),
+      fetchReturnPercentages(levelId, force: true),
+    ]);
   }
 
   Future<void> _bootstrapCurrentLevel() async {
@@ -176,15 +198,15 @@ class DmtScoreHistoryService extends GetxService {
 
     await _levelsService.refreshLevels();
 
-    final ok = await fetchHistory(force: true);
-    if (!ok) return;
+    if (selectedLevel.value == null && _levelsService.levels.isNotEmpty) {
+      selectedLevel.value = _levelsService.levels.first;
+    }
 
-    final current = historyPayload.value?.currentLevel;
-    if (current == null || !current.isValid) return;
-
-    selectedLevel.value = _levelsService.levelById(current.id) ?? current;
-    await fetchHistory(levelId: current.id, force: true);
-    await fetchReturnPercentages(current.id, force: true);
+    final levelId = selectedLevel.value?.id ?? 1;
+    await Future.wait([
+      fetchHistory(levelId: levelId, force: true),
+      fetchReturnPercentages(levelId, force: true),
+    ]);
   }
 
   Future<void> ensureLoaded() async {
@@ -194,24 +216,22 @@ class DmtScoreHistoryService extends GetxService {
     }
 
     final levelId = selectedLevel.value!.id;
-    if (historyPayload.value == null) {
-      await fetchHistory(levelId: levelId);
-    }
-    if (returnsPayload.value == null) {
-      await fetchReturnPercentages(levelId);
-    }
+    await Future.wait([
+      if (historyPayload.value == null) fetchHistory(levelId: levelId),
+      if (returnsPayload.value == null) fetchReturnPercentages(levelId),
+    ]);
   }
 
   Future<void> refreshTabData() async {
     await _levelsService.refreshLevels();
-    final levelId =
-        selectedLevel.value?.id ?? historyPayload.value?.currentLevel?.id;
-    if (levelId != null && levelId > 0) {
-      await fetchHistory(levelId: levelId, force: true);
-      await fetchReturnPercentages(levelId, force: true);
-    } else {
-      await _bootstrapCurrentLevel();
+    if (selectedLevel.value == null && _levelsService.levels.isNotEmpty) {
+      selectedLevel.value = _levelsService.levels.first;
     }
+    final levelId = selectedLevel.value?.id ?? 1;
+    await Future.wait([
+      fetchHistory(levelId: levelId, force: true),
+      fetchReturnPercentages(levelId, force: true),
+    ]);
   }
 
   ApiService _api() {

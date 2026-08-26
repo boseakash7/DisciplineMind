@@ -130,8 +130,21 @@ class _AlertsMainScreenState extends State<AlertsMainScreen> {
         : fixed;
   }
 
+  String _cleanStatus(String status) {
+    var s = status.trim().toLowerCase();
+    if (s.startsWith('v2test_')) {
+      s = s.substring(7);
+    } else if (s.startsWith('v2_')) {
+      s = s.substring(3);
+    } else if (s.startsWith('v1_')) {
+      s = s.substring(3);
+    }
+    return s;
+  }
+
   Color _statusColor(String status, ColorScheme colorScheme) {
-    switch (status.toLowerCase()) {
+    final cleaned = _cleanStatus(status);
+    switch (cleaned) {
       case 'pending':
         return Colors.orange.shade700;
       case 'completed':
@@ -139,16 +152,22 @@ class _AlertsMainScreenState extends State<AlertsMainScreen> {
       case 'delete':
       case 'deleted':
         return Colors.red.shade700;
+      case 'hit_upper':
+      case 'hit_lower':
+      case 'hit_gtt':
+        return Colors.blue.shade700;
       default:
         return colorScheme.onSurfaceVariant;
     }
   }
 
   Color _statusBg(String status, ColorScheme colorScheme) =>
-      _statusColor(status, colorScheme).withOpacity(0.12);
+      _statusColor(status, colorScheme).withValues(alpha: 0.12);
 
   String _statusLabel(String status) {
-    return status.trim().isEmpty ? 'UNKNOWN' : status.toUpperCase();
+    final cleaned = _cleanStatus(status);
+    if (cleaned.isEmpty) return 'UNKNOWN';
+    return cleaned.replaceAll('_', ' ').toUpperCase();
   }
 
   String _formatTimestamp(String? ts) {
@@ -170,7 +189,7 @@ class _AlertsMainScreenState extends State<AlertsMainScreen> {
       decoration: BoxDecoration(
         color: _statusBg(status, colorScheme),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.35)),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
       ),
       child: Text(
         _statusLabel(status),

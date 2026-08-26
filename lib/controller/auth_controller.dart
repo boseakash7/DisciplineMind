@@ -1,14 +1,10 @@
-import 'dart:io';
-
 import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
-import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:discipline_mind/ui/auth/phone_login_screen.dart';
 import 'package:discipline_mind/ui/main_home/main_home.dart';
-import 'package:discipline_mind/ui/onboarding/post_login_trading_block_screen.dart';
-import 'package:discipline_mind/ui/settings/app_block_settings_screen.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
+import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 
@@ -30,21 +26,7 @@ class AuthController extends GetxController {
   String _normalizePhone(String phone) => phone.replaceAll(RegExp(r'\s+'), '');
 
   Future<void> _navigateAfterLogin() async {
-    final userId = Common.userData.value?.payload?.id?.toString();
-    if (userId == null) {
-      Get.offAll(() => MainHomeScreen(initialIndex: 2));
-      return;
-    }
-
-    if (Platform.isAndroid && !await hasAndroidTradingBlockPermissions()) {
-      Get.offAll(() => const PostLoginTradingBlockScreen());
-      return;
-    }
-    if (appBlockPrefs.isSetupComplete(userId: userId)) {
-      Get.offAll(() => const MainHomeScreen(initialIndex: 2));
-    } else {
-      Get.offAll(() => const AppBlockSettingsScreen(isFirstSetup: true));
-    }
+    Get.offAll(() => const MainHomeScreen(initialIndex: 2));
   }
 
 Future<void> goToHomeAfterAuth() async {
@@ -72,13 +54,14 @@ Future<void> goToHomeAfterAuth() async {
       AppToast.showToast("Something went wrong");
       return;
     }
+    print("User ID (Login): $id");
     Common.userData.value = model;
     storage.saveUserSession(model);
     GetStorage().write('user_id', id);
     try {
       await _syncFcmAndSubscribe(id);
-    } catch (e) {
-      AppToast.showToast(e.toString());
+    } catch (e, stack) {
+      debugPrint('[AuthController] FCM sync error: $e\n$stack');
     }
     if (navigateAfterLogin) {
       await _navigateAfterLogin();
@@ -103,9 +86,10 @@ Future<void> goToHomeAfterAuth() async {
       }
       AppToast.showToast(response.errorMessage ?? "Failed to send OTP");
       return false;
-    } catch (e) {
+    } catch (e, stack) {
       isLoading.value = false;
-      AppToast.showToast(e.toString());
+      debugPrint('[AuthController] sendOtp error: $e\n$stack');
+      AppToast.showToast("Failed to send OTP. Please try again.");
       return false;
     }
   }
@@ -135,9 +119,10 @@ Future<void> goToHomeAfterAuth() async {
 
       AppToast.showToast("OTP verified successfully");
       return payload;
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('[AuthController] verifyOtp error: $e\n$stack');
       AppToast.showToast("Something went wrong. Please try again.");
-      isLoading.value = false; // exception -> spinner turant band
+      isLoading.value = false;
       return null;
     }
   }
@@ -145,10 +130,12 @@ Future<void> goToHomeAfterAuth() async {
   Future<void> autoLogin() async {
     final session = storage.getUserSession();
     if (session != null && session.payload?.id != null) {
+      final id = session.payload!.id.toString();
+      print("User ID (Auto Login): $id");
       Common.userData.value = session;
-      GetStorage().write('user_id', session.payload!.id.toString());
+      GetStorage().write('user_id', id);
       try {
-        await _syncFcmAndSubscribe(session.payload!.id.toString());
+        await _syncFcmAndSubscribe(id);
       } catch (_) {}
       await _navigateAfterLogin();
     } else {
@@ -209,9 +196,10 @@ Future<void> goToHomeAfterAuth() async {
       } else {
         AppToast.showToast(response.errorMessage ?? "Failed to create account");
       }
-    } catch (e) {
+    } catch (e, stack) {
       isLoading.value = false;
-      AppToast.showToast(e.toString());
+      debugPrint('[AuthController] signUp error: $e\n$stack');
+      AppToast.showToast("Failed to create account. Please try again.");
     }
   }
 

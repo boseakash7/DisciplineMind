@@ -205,6 +205,46 @@ class NativeAppBlockService {
     }
   }
 
+  /// Close overlay and send the user to the home screen (I WILL CONTROL).
+  Future<bool> goHome() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      return (await _overlayChannel.invokeMethod<bool>('goHome')) ?? false;
+    } catch (e) {
+      print('[NativeAppBlock] goHome failed: $e');
+      return false;
+    }
+  }
+
+  /// Lock-screen status from native /app/state (trade_id present = active trade).
+  Future<bool> hasActiveTrade() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final result = await _overlayChannel.invokeMethod<Map<dynamic, dynamic>>(
+        'getLockStatus',
+      );
+      return result?['hasActiveTrade'] == true;
+    } catch (e) {
+      print('[NativeAppBlock] hasActiveTrade failed: $e');
+      return false;
+    }
+  }
+
+  /// Temporary one-session bypass (Force Unblock). Does not remove app from block list.
+  Future<bool> forceUnblockTemporary({String? packageName}) async {
+    if (!Platform.isAndroid) return false;
+    try {
+      return (await _overlayChannel.invokeMethod<bool>('forceUnblock', {
+            if (packageName != null && packageName.isNotEmpty)
+              'package': packageName,
+          })) ??
+          false;
+    } catch (e) {
+      print('[NativeAppBlock] forceUnblockTemporary failed: $e');
+      return false;
+    }
+  }
+
   /// Unblock packages and close overlay (force unblock from overlay).
   Future<bool> unblockAndClose(List<String> packages) async {
     if (!Platform.isAndroid) return false;

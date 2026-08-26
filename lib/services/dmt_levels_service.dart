@@ -7,12 +7,6 @@ import 'package:get/get.dart';
 
 /// Loads DMT levels and user hit-trades for the Trades tab.
 class DmtLevelsService extends GetxService {
-  static const int _fallbackTotalTrades = 120;
-  static const int _fallbackTotalWins = 97;
-  static const String _fallbackAccuracy = '80.33 %';
-  static const String _fallbackFrr = 'FRR - 25%';
-  static const String _fallbackRtt = 'RTT - 97 %';
-
   final RxList<DmtLevel> levels = <DmtLevel>[].obs;
   final Rxn<DmtLevel> selectedLevel = Rxn<DmtLevel>();
   final Rxn<DmtUserHitTradesPayload> hitTrades = Rxn<DmtUserHitTradesPayload>();
@@ -23,25 +17,21 @@ class DmtLevelsService extends GetxService {
   final RxnString tradesError = RxnString();
 
   bool _levelsRefreshInFlight = false;
-  bool _tradesFetchInFlight = false;
-  int? _lastFetchedLevelId;
 
-  /// Overview stats — API values with UI fallbacks when response not loaded.
+  /// Overview stats — API values with 0/empty fallbacks when response not loaded.
   int get displayTotalTrades {
     final payload = hitTrades.value;
     if (payload != null) return payload.totalTrades;
-    if (isLoadingTrades.value) return 0;
-    return _fallbackTotalTrades;
+    return 0;
   }
 
   int get displayTotalWins {
     final payload = hitTrades.value;
     if (payload != null) return payload.totalWins;
-    if (isLoadingTrades.value) return 0;
-    return _fallbackTotalWins;
+    return 0;
   }
 
-  /// From API `trade_accuracy_text` / `trade_accuracy`, else computed, else fallback.
+  /// From API `trade_accuracy_text` / `trade_accuracy`, else computed, else 0%.
   String get displayTradeAccuracy {
     final payload = hitTrades.value;
     if (payload != null) {
@@ -49,8 +39,7 @@ class DmtLevelsService extends GetxService {
       if (accuracy.isNotEmpty) return accuracy;
       return '0%';
     }
-    if (isLoadingTrades.value) return '0%';
-    return _fallbackAccuracy;
+    return '0%';
   }
 
   /// 0–100 for the accuracy ring animation.
@@ -59,22 +48,46 @@ class DmtLevelsService extends GetxService {
     if (payload != null) {
       return payload.tradeAccuracyPercentValue ?? 0;
     }
-    if (isLoadingTrades.value) return 0;
-    return 80.33;
+    return 0;
   }
 
-  String get displayFrr => _fallbackFrr;
-  String get displayRtt => _fallbackRtt;
+  String get displayMyAverageReturn {
+    final payload = hitTrades.value;
+    if (payload != null && payload.totalAverageReturnPercentage != null) {
+      final val = double.tryParse(payload.totalAverageReturnPercentage.toString());
+      if (val != null) return '${val.toStringAsFixed(2)}%';
+      return '${payload.totalAverageReturnPercentage}%';
+    }
+    return '0.00%';
+  }
+
+  String get displayMctAverageReturn {
+    final payload = hitTrades.value;
+    if (payload != null && payload.totalMctAverageReturnPercentage != null) {
+      final val = double.tryParse(payload.totalMctAverageReturnPercentage.toString());
+      if (val != null) return '${val.toStringAsFixed(2)}%';
+      return '${payload.totalMctAverageReturnPercentage}%';
+    }
+    return '0.00%';
+  }
+
+  String get displayFrr => displayMyAverageReturn;
+  String get displayRtt => displayMctAverageReturn;
 
   List<DmtHitTrade> get displayTrades {
     final trades = hitTrades.value?.trades ?? const <DmtHitTrade>[];
     return trades
-        .where((t) => t.status.toLowerCase() == 'completed')
+        .where((t) {
+          final s = t.status.toLowerCase().trim();
+          return s == 'completed' || s.endsWith('completed') || s.contains('completed') || s.isEmpty;
+        })
         .toList();
   }
 
   /// True after a successful `user-hit-trades` response (including empty `trades`).
   bool get hasLoadedHitTrades => hitTrades.value != null;
+
+  int _fetchSequence = 0;
 
   @override
   void onInit() {
@@ -95,10 +108,15 @@ class DmtLevelsService extends GetxService {
 
   void selectById(int? id) {
     if (id == null) return;
-    selectedLevel.value = levelById(id);
+    if (selectedLevel.value?.id == id) return;
+    final level = levelById(id);
+    if (level != null) {
+      selectedLevel.value = level;
+    }
   }
 
   void selectLevel(DmtLevel level) {
+    if (selectedLevel.value?.id == level.id) return;
     selectedLevel.value = level;
   }
 
@@ -111,6 +129,7 @@ class DmtLevelsService extends GetxService {
     try {
       final api = _api();
       final response = await api.get(ApiUrl.dmtLevels);
+
       if (!response.isSuccess || response.data is! Map) {
         levelsError.value =
             response.errorMessage ?? 'Could not load DMT levels';
@@ -146,21 +165,20 @@ class DmtLevelsService extends GetxService {
       return false;
     }
 
-    if (!force && _tradesFetchInFlight && _lastFetchedLevelId == levelId) {
-      return hitTrades.value != null;
-    }
-
-    _tradesFetchInFlight = true;
-    _lastFetchedLevelId = levelId;
+    final currentToken = ++_fetchSequence;
     isLoadingTrades.value = true;
     tradesError.value = null;
-    hitTrades.value = null;
 
     try {
       final response = await _api().postFormData(ApiUrl.dmtLevelUserHitTrades, {
         'user_id': userId,
         'level_id': levelId.toString(),
       });
+
+      // If a newer request was dispatched while this was in-flight, discard this result.
+      if (currentToken != _fetchSequence || selectedLevel.value?.id != levelId) {
+        return false;
+      }
 
       if (!response.isSuccess || response.data is! Map) {
         tradesError.value =
@@ -180,18 +198,17 @@ class DmtLevelsService extends GetxService {
       }
 
       hitTrades.value = parsed.payload;
-      final apiLevel = parsed.payload!.level;
-      if (apiLevel != null && apiLevel.isValid) {
-        selectedLevel.value = levelById(apiLevel.id) ?? apiLevel;
-      }
       return true;
     } catch (e) {
-      tradesError.value = e.toString();
-      hitTrades.value = null;
+      if (currentToken == _fetchSequence) {
+        tradesError.value = e.toString();
+        hitTrades.value = null;
+      }
       return false;
     } finally {
-      isLoadingTrades.value = false;
-      _tradesFetchInFlight = false;
+      if (currentToken == _fetchSequence) {
+        isLoadingTrades.value = false;
+      }
     }
   }
 
