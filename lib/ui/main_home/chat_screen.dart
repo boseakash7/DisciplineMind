@@ -5,7 +5,6 @@ import 'package:discipline_mind/model/chat_message_model.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
 import 'package:discipline_mind/ui/main_home/trade_process.dart';
 import 'package:discipline_mind/ui/main_home/widgets/dmt_score_popup.dart';
-import 'package:discipline_mind/ui/widgets/ai_waiting_status_bubble.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -483,24 +482,28 @@ class _ChatScreenState extends State<ChatScreen> {
         children: [
           GestureDetector(
             onTap: widget.onMonkkTap,
-            child: const Text(
-              'Discipline Mind',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: AppColors.primary,
-              ),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.asset(
+                    "assets/logo.jpg",
+                    height: 26,
+                    width: 26,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'Zeno AI',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ],
             ),
-          ),
-          Row(
-            children: [
-              const Text(
-                'Credits : 250',
-                style: TextStyle(color: AppColors.primary),
-              ),
-              const SizedBox(width: 10),
-              CircleAvatar(radius: 12, backgroundColor: Colors.grey.shade400),
-            ],
           ),
         ],
       ),
@@ -516,7 +519,7 @@ class _ChatScreenState extends State<ChatScreen> {
       case ChatMessageType.simpleText:
         return _buildSimpleText(context, msg as SimpleTextMessage);
       case ChatMessageType.aiWaiting:
-        return _buildAiWaiting(msg as AiWaitingMessage);
+        return _buildAiWaiting(context, msg as AiWaitingMessage);
       case ChatMessageType.agentWithButton:
         return _buildAgentWithButton(context, msg as AgentWithButtonMessage);
       case ChatMessageType.newTradeOpportunity:
@@ -550,77 +553,63 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Widget _buildAiWaiting(AiWaitingMessage msg) {
-    return AiWaitingStatusBubble(
-      key: ValueKey('ai_waiting_${msg.messageId}_${msg.text}'),
-      text: msg.text,
-      subtitle: msg.subtitle,
-      showAvatar: false,
+  Widget _buildAiWaiting(BuildContext context, AiWaitingMessage msg) {
+    final isDark = _isDark(context);
+    final text = msg.text.trim();
+    final subtitle = msg.subtitle.trim();
+    final fullText = subtitle.isNotEmpty &&
+            subtitle != 'Monkk is waiting' &&
+            subtitle != 'AI is waiting'
+        ? '$text\n$subtitle'
+        : text;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: _buildRichMessageContent(fullText, isDark),
     );
   }
 
   Widget _buildDmtScore(BuildContext context, DmtScoreMessage msg) {
     final isDark = _isDark(context);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
+          _buildRichMessageContent(
             msg.headline.isNotEmpty
                 ? msg.headline
                 : 'Your daily discipline analysis is ready.',
-            style: TextStyle(
-              color: _headlineText(isDark),
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-            ),
+            isDark,
           ),
           const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      final id = msg.messageId.trim();
-                      final shouldAnimate =
-                          msg.isUnread &&
-                          id.isNotEmpty &&
-                          !_dmtScorePopupAnimatedIds.contains(id);
-                      showDmtScorePopup(
-                        context,
-                        scoreDate: msg.scoreDate,
-                        instructionsScore: msg.instructionsScore,
-                        commitmentScore: msg.commitmentScore,
-                        patienceScore: msg.patienceScore,
-                        consistencyScore: msg.consistencyScore,
-                        dmtTotalScore: msg.dmtTotalScore,
-                        dmtMaxScore: msg.dmtMaxScore,
-                        animateReveal: shouldAnimate,
-                      ).then((_) {
-                        if (!mounted || !shouldAnimate || id.isEmpty) return;
-                        setState(() => _dmtScorePopupAnimatedIds.add(id));
-                      });
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: const Text(
-                      'View Discipline Analysis',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          );
+          _tradePromptPrimaryButton(
+            label: 'View Discipline Analysis',
+            icon: Icons.analytics_outlined,
+            onTap: () {
+              final id = msg.messageId.trim();
+              final shouldAnimate =
+                  msg.isUnread &&
+                  id.isNotEmpty &&
+                  !_dmtScorePopupAnimatedIds.contains(id);
+              showDmtScorePopup(
+                context,
+                scoreDate: msg.scoreDate,
+                instructionsScore: msg.instructionsScore,
+                commitmentScore: msg.commitmentScore,
+                patienceScore: msg.patienceScore,
+                consistencyScore: msg.consistencyScore,
+                dmtTotalScore: msg.dmtTotalScore,
+                dmtMaxScore: msg.dmtMaxScore,
+                animateReveal: shouldAnimate,
+              ).then((_) {
+                if (!mounted || !shouldAnimate || id.isEmpty) return;
+                setState(() => _dmtScorePopupAnimatedIds.add(id));
+              });
+            },
+          ),
+        ],
+      ),
+    );
   }
 
   static String _formatIndianCurrency(String raw) {
@@ -693,6 +682,16 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Text(
+            'Your Process Overview at 10:00 am',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: _headlineText(isDark),
+            ),
+          ),
+          const SizedBox(height: 12),
+
           // Top Process Overview Card
           Container(
                   width: double.infinity,
@@ -1120,37 +1119,12 @@ class _ChatScreenState extends State<ChatScreen> {
                   const SizedBox(height: 8),
 
                   // Button: OPEN TRADING APP
-                  Container(
-                    width: double.infinity,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: isDark ? const Color(0xFF232833) : Colors.white,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: const Color(0xFF2B4BF2),
-                        width: 1.8,
-                      ),
-                    ),
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(8),
-                        onTap: () async {
-                          await controller.openTradingApp();
-                        },
-                        child: const Center(
-                          child: Text(
-                            'OPEN TRADING APP',
-                            style: TextStyle(
-                              color: Color(0xFF2B4BF2),
-                              fontWeight: FontWeight.w800,
-                              fontSize: 14,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
+                  _tradePromptPrimaryButton(
+                    label: 'OPEN TRADING APP',
+                    enabled: true,
+                    onTap: () async {
+                      await controller.openTradingApp();
+                    },
                   ),
 
                   const SizedBox(height: 18),
@@ -1270,7 +1244,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           InkWell(
                             onTap: () {
                               setState(() {
-                                _selectedSignalActions[msgKey] = 'GTT';
+                                _selectedSignalActions[msgKey] = 'GTT (Good Till Triggered)';
                                 _expandedSignalDropdowns.remove(msgKey);
                               });
                               _showSignalGttDialog(context, msg, controller);
@@ -1290,14 +1264,14 @@ class _ChatScreenState extends State<ChatScreen> {
                                   const SizedBox(width: 10),
                                   const Expanded(
                                     child: Text(
-                                      'GTT',
+                                      'GTT (Good Till Triggered)',
                                       style: TextStyle(
                                         fontSize: 13,
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
                                   ),
-                                  if (selectedAction == 'GTT')
+                                  if (selectedAction == 'GTT' || selectedAction == 'GTT (Good Till Triggered)')
                                     const Icon(
                                       Icons.check_rounded,
                                       color: Color(0xFF7C3AED),
@@ -1327,242 +1301,215 @@ class _ChatScreenState extends State<ChatScreen> {
         ? msg.currentPrice.trim().replaceAll(',', '')
         : '';
     final gttController = TextEditingController(text: initialGtt);
-    final instrumentName = msg.tradingsymbol.isNotEmpty
-        ? msg.tradingsymbol
-        : (msg.instrument.isNotEmpty ? msg.instrument : 'Index');
 
     showChatFadeDialog(
       context: context,
       builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: _dialogBg(isDark),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: Container(
-          constraints: const BoxConstraints(maxWidth: 350),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            color: _dialogBg(isDark),
-          ),
+          constraints: const BoxConstraints(maxWidth: 380),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Header
+              // Top Close button
+              Align(
+                alignment: Alignment.topRight,
+                child: InkWell(
+                  onTap: () => Navigator.pop(ctx),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.close_rounded,
+                      color: isDark ? Colors.white60 : const Color(0xFF4A22F4),
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ),
+
+              // Center Icon
+              Center(
+                child: Container(
+                  width: 58,
+                  height: 58,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFEDE9FE),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.gps_fixed_rounded,
+                    color: Color(0xFF4A22F4),
+                    size: 30,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Title
+              Text(
+                'You have selected Apply GTT',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: _headlineText(isDark),
+                ),
+              ),
+              const SizedBox(height: 6),
+
+              // Subtitle
+              Text(
+                'Please enter the level at which you have already applied the GTT order on your trading app.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: _secondaryText(isDark),
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              // Current Level Box
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                decoration: const BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF6F5FF),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Icon(
-                      Icons.access_time_rounded,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Set GTT ($instrumentName)',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
+                    Text(
+                      'Current Level',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? Colors.white70 : const Color(0xFF10122D),
                       ),
                     ),
-                    InkWell(
-                      onTap: () => Navigator.pop(ctx),
-                      borderRadius: BorderRadius.circular(16),
-                      child: const Padding(
-                        padding: EdgeInsets.all(4),
-                        child: Icon(
-                          Icons.close_rounded,
-                          color: Colors.white70,
-                          size: 20,
-                        ),
+                    Text(
+                      _formatIndianCurrency(msg.currentPrice),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF4A22F4),
                       ),
                     ),
                   ],
                 ),
               ),
+              const SizedBox(height: 18),
 
-              // Body Content
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Instrument & CMP Info Banner
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? const Color(0xFF1E222A)
-                            : const Color(0xFFF4F3F8),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: isDark ? Colors.white12 : const Color(0xFFE2DCF7),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            instrumentName,
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                              color: _headlineText(isDark),
-                            ),
-                          ),
-                          Text(
-                            'CMP: ₹${_formatIndianCurrency(msg.currentPrice)}',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 18),
+              // Field Label
+              Text(
+                'GTT Applied Level',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: _headlineText(isDark),
+                ),
+              ),
+              const SizedBox(height: 8),
 
-                    // Single Field: GTT Value
-                    Text(
-                      'GTT Trigger Value',
+              // TextField
+              TextField(
+                controller: gttController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: _bubbleText(isDark),
+                ),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: isDark ? const Color(0xFF1E222A) : const Color(0xFFF7F6FB),
+                  hintText: 'Enter the GTT applied level',
+                  hintStyle: TextStyle(
+                    color: isDark ? Colors.white38 : const Color(0xFFB0B0B8),
+                    fontSize: 13,
+                    fontWeight: FontWeight.normal,
+                  ),
+                  suffixIcon: const Icon(
+                    Icons.trending_up_rounded,
+                    color: Color(0xFF2B4BF2),
+                    size: 22,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: isDark ? Colors.white12 : const Color(0xFFE2E0E9)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: isDark ? Colors.white12 : const Color(0xFFE2E0E9)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFF2B4BF2), width: 1.5),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Info note
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 16,
+                    color: isDark ? Colors.white60 : const Color(0xFF70717F),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'We will track this level and update you accordingly.',
                       style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: _headlineText(isDark),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: gttController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: _bubbleText(isDark),
-                      ),
-                      decoration: InputDecoration(
-                        filled: true,
-                        fillColor: _fieldFill(isDark),
-                        hintText: 'Enter GTT Trigger Value',
-                        hintStyle: TextStyle(
-                          color: _secondaryText(isDark),
-                          fontSize: 13,
-                          fontWeight: FontWeight.normal,
-                        ),
-                        prefixIcon: const Icon(
-                          Icons.currency_rupee_rounded,
-                          size: 18,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(
-                            color: _fieldBorder(isDark),
-                          ),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(
-                            color: _fieldBorder(isDark),
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(
-                            color: AppColors.primary,
-                            width: 1.5,
-                          ),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Mind Control Guard will monitor this level and alert you once triggered.',
-                      style: TextStyle(
-                        fontSize: 11,
+                        fontSize: 12,
                         color: _secondaryText(isDark),
-                        height: 1.3,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
+              const SizedBox(height: 24),
 
-              // Action Buttons
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          side: BorderSide(
-                            color: isDark ? Colors.white24 : Colors.grey.shade400,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        child: Text(
-                          'CANCEL',
-                          style: TextStyle(
-                            color: _secondaryText(isDark),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
+              // Submit Button
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: FilledButton(
+                  onPressed: () async {
+                    final val = gttController.text.trim();
+                    if (val.isEmpty) {
+                      AppToast.showToast('Please enter GTT trigger value');
+                      return;
+                    }
+                    Navigator.pop(ctx);
+                    await controller.submitTradeSignalGtt(
+                      msg: msg,
+                      gttPrice: val,
+                    );
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF2B4BF2),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: () async {
-                          final val = gttController.text.trim();
-                          if (val.isEmpty) {
-                            AppToast.showToast('Please enter GTT trigger value');
-                            return;
-                          }
-                          Navigator.pop(ctx);
-                          await controller.submitTradeSignalGtt(
-                            msg: msg,
-                            gttPrice: val,
-                          );
-                        },
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        child: const Text(
-                          'SUBMIT',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
+                  ),
+                  child: const Text(
+                    'Submit',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
                     ),
-                  ],
+                  ),
                 ),
               ),
             ],
@@ -1588,306 +1535,242 @@ class _ChatScreenState extends State<ChatScreen> {
     final lowerController = TextEditingController(text: initialLower);
     final instrumentName = msg.tradingsymbol.isNotEmpty
         ? msg.tradingsymbol
-        : (msg.instrument.isNotEmpty ? msg.instrument : 'Index');
+        : (msg.instrument.isNotEmpty ? msg.instrument : 'Nifty 50');
 
     showChatFadeDialog(
       context: context,
       builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: _dialogBg(isDark),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: Container(
-          constraints: const BoxConstraints(maxWidth: 350),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            color: _dialogBg(isDark),
-          ),
+          constraints: const BoxConstraints(maxWidth: 380),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Header
+              // Top Close button
+              Align(
+                alignment: Alignment.topRight,
+                child: InkWell(
+                  onTap: () => Navigator.pop(ctx),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.close_rounded,
+                      color: isDark ? Colors.white60 : const Color(0xFF4A22F4),
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ),
+
+              // Center Bell Icon
+              Center(
+                child: Container(
+                  width: 58,
+                  height: 58,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFEDE9FE),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.notifications_none_rounded,
+                    color: Color(0xFF4A22F4),
+                    size: 32,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Title
+              Text(
+                'Set Alert for $instrumentName',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: _headlineText(isDark),
+                ),
+              ),
+              const SizedBox(height: 6),
+
+              // Subtitle
+              Text(
+                'Get notified when the index reaches your desired levels.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: _secondaryText(isDark),
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              // Current Level Box
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                decoration: const BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF6F5FF),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Icon(
-                      Icons.adjust_rounded,
+                    Text(
+                      'Current Level',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? Colors.white70 : const Color(0xFF10122D),
+                      ),
+                    ),
+                    Text(
+                      _formatIndianCurrency(msg.currentPrice),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF4A22F4),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Field 1: Upper Level Alert
+              Text(
+                'Upper Level Alert',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: _headlineText(isDark),
+                ),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: upperController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: _bubbleText(isDark),
+                ),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: isDark ? const Color(0xFF1E222A) : const Color(0xFFF7F6FB),
+                  hintText: 'Enter upper level',
+                  hintStyle: TextStyle(
+                    color: isDark ? Colors.white38 : const Color(0xFFB0B0B8),
+                    fontSize: 13,
+                    fontWeight: FontWeight.normal,
+                  ),
+                  suffixIcon: const Icon(
+                    Icons.trending_up_rounded,
+                    color: Color(0xFF208052),
+                    size: 22,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: isDark ? Colors.white12 : const Color(0xFFE2E0E9)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: isDark ? Colors.white12 : const Color(0xFFE2E0E9)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFF2B4BF2), width: 1.5),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Field 2: Lower Level Alert
+              Text(
+                'Lower Level Alert',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: _headlineText(isDark),
+                ),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: lowerController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: _bubbleText(isDark),
+                ),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: isDark ? const Color(0xFF1E222A) : const Color(0xFFF7F6FB),
+                  hintText: 'Enter lower level',
+                  hintStyle: TextStyle(
+                    color: isDark ? Colors.white38 : const Color(0xFFB0B0B8),
+                    fontSize: 13,
+                    fontWeight: FontWeight.normal,
+                  ),
+                  suffixIcon: const Icon(
+                    Icons.trending_down_rounded,
+                    color: Color(0xFFCC3B4D),
+                    size: 22,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: isDark ? Colors.white12 : const Color(0xFFE2E0E9)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: isDark ? Colors.white12 : const Color(0xFFE2E0E9)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFF2B4BF2), width: 1.5),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Submit Button
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: FilledButton(
+                  onPressed: () async {
+                    final upperVal = upperController.text.trim();
+                    final lowerVal = lowerController.text.trim();
+                    if (upperVal.isEmpty || lowerVal.isEmpty) {
+                      AppToast.showToast('Please enter both Upper and Lower values');
+                      return;
+                    }
+                    Navigator.pop(ctx);
+                    await controller.submitTradeSignalLevels(
+                      msg: msg,
+                      upperPrice: upperVal,
+                      lowerPrice: lowerVal,
+                    );
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF2B4BF2),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text(
+                    'Submit',
+                    style: TextStyle(
                       color: Colors.white,
-                      size: 20,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Set Levels ($instrumentName)',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    InkWell(
-                      onTap: () => Navigator.pop(ctx),
-                      borderRadius: BorderRadius.circular(16),
-                      child: const Padding(
-                        padding: EdgeInsets.all(4),
-                        child: Icon(
-                          Icons.close_rounded,
-                          color: Colors.white70,
-                          size: 20,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Body Content
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Instrument & Price Info Banner
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? const Color(0xFF1E222A)
-                            : const Color(0xFFF4F3F8),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: isDark ? Colors.white12 : const Color(0xFFE2DCF7),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            instrumentName,
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                              color: _headlineText(isDark),
-                            ),
-                          ),
-                          Text(
-                            'CMP: ₹${_formatIndianCurrency(msg.currentPrice)}',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-
-                    // Field 1: Upper Value
-                    Text(
-                      'Upper Value (Target / Resistance)',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: _headlineText(isDark),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: upperController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: _bubbleText(isDark),
-                      ),
-                      decoration: InputDecoration(
-                        filled: true,
-                        fillColor: _fieldFill(isDark),
-                        hintText: 'e.g. ${msg.dayHigh.isNotEmpty ? msg.dayHigh : '24200.00'}',
-                        hintStyle: TextStyle(
-                          color: _secondaryText(isDark),
-                          fontSize: 13,
-                          fontWeight: FontWeight.normal,
-                        ),
-                        prefixIcon: const Icon(
-                          Icons.trending_up_rounded,
-                          color: Color(0xFF208052),
-                          size: 18,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(
-                            color: _fieldBorder(isDark),
-                          ),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(
-                            color: _fieldBorder(isDark),
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(
-                            color: AppColors.primary,
-                            width: 1.5,
-                          ),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-
-                    // Field 2: Lower Value
-                    Text(
-                      'Lower Value (Stop Loss / Support)',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: _headlineText(isDark),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: lowerController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: _bubbleText(isDark),
-                      ),
-                      decoration: InputDecoration(
-                        filled: true,
-                        fillColor: _fieldFill(isDark),
-                        hintText: 'e.g. ${msg.dayLow.isNotEmpty ? msg.dayLow : '24100.00'}',
-                        hintStyle: TextStyle(
-                          color: _secondaryText(isDark),
-                          fontSize: 13,
-                          fontWeight: FontWeight.normal,
-                        ),
-                        prefixIcon: const Icon(
-                          Icons.trending_down_rounded,
-                          color: Color(0xFFD32F2F),
-                          size: 18,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(
-                            color: _fieldBorder(isDark),
-                          ),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(
-                            color: _fieldBorder(isDark),
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(
-                            color: AppColors.primary,
-                            width: 1.5,
-                          ),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Mind Control Guard will monitor both levels and activate alerts.',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: _secondaryText(isDark),
-                        height: 1.3,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Action Buttons
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          side: BorderSide(
-                            color: isDark ? Colors.white24 : Colors.grey.shade400,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        child: Text(
-                          'CANCEL',
-                          style: TextStyle(
-                            color: _secondaryText(isDark),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: () async {
-                          final upperVal = upperController.text.trim();
-                          final lowerVal = lowerController.text.trim();
-                          if (upperVal.isEmpty || lowerVal.isEmpty) {
-                            AppToast.showToast(
-                              'Please enter both Upper and Lower values',
-                            );
-                            return;
-                          }
-                          Navigator.pop(ctx);
-                          await controller.submitTradeSignalLevels(
-                            msg: msg,
-                            upperPrice: upperVal,
-                            lowerPrice: lowerVal,
-                          );
-                        },
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        child: const Text(
-                          'SUBMIT',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ],
@@ -1897,17 +1780,137 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  List<InlineSpan> _parseFormattedSpans(String text, Color textColor) {
+    final List<InlineSpan> spans = [];
+    final tagRegex = RegExp(
+      r'(?:<b>(.*?)<\/b>|<strong>(.*?)<\/strong>|\*\*(.*?)\*\*)',
+      caseSensitive: false,
+      dotAll: true,
+    );
+
+    int lastMatchEnd = 0;
+    for (final match in tagRegex.allMatches(text)) {
+      if (match.start > lastMatchEnd) {
+        spans.add(
+          TextSpan(
+            text: text.substring(lastMatchEnd, match.start),
+            style: TextStyle(
+              fontSize: 14,
+              color: textColor,
+              fontWeight: FontWeight.normal,
+              height: 1.4,
+            ),
+          ),
+        );
+      }
+
+      final boldText = match.group(1) ?? match.group(2) ?? match.group(3) ?? '';
+      spans.add(
+        TextSpan(
+          text: boldText,
+          style: TextStyle(
+            fontSize: 14,
+            color: textColor,
+            fontWeight: FontWeight.w800,
+            height: 1.4,
+          ),
+        ),
+      );
+
+      lastMatchEnd = match.end;
+    }
+
+    if (lastMatchEnd < text.length) {
+      spans.add(
+        TextSpan(
+          text: text.substring(lastMatchEnd),
+          style: TextStyle(
+            fontSize: 14,
+            color: textColor,
+            fontWeight: FontWeight.normal,
+            height: 1.4,
+          ),
+        ),
+      );
+    }
+
+    return spans;
+  }
+
+  Widget _buildRichMessageContent(String rawText, bool isDark) {
+    final primaryTextColor = isDark ? Colors.white : const Color(0xFF10122D);
+    final normalized = rawText
+        .replaceAll(RegExp(r'<br\s*\/?>', caseSensitive: false), '\n');
+    final lines = normalized.split('\n');
+    final List<Widget> widgets = [];
+
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i].trim();
+      if (line.isEmpty) {
+        widgets.add(const SizedBox(height: 6));
+        continue;
+      }
+
+      final isBullet = line.startsWith('•') || line.startsWith('-');
+
+      if (isBullet) {
+        final bulletText = line.replaceFirst(RegExp(r'^[•\-]\s*'), '');
+        widgets.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '•  ',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: primaryTextColor,
+                  ),
+                ),
+                Expanded(
+                  child: RichText(
+                    text: TextSpan(
+                      children: _parseFormattedSpans(bulletText, primaryTextColor),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      } else {
+        widgets.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: RichText(
+              text: TextSpan(
+                children: _parseFormattedSpans(line, primaryTextColor),
+              ),
+            ),
+          ),
+        );
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: widgets,
+    );
+  }
+
   Widget _buildSimpleText(BuildContext context, SimpleTextMessage msg) {
     final isDark = _isDark(context);
     if (msg.isFromUser) {
       return Align(
         alignment: Alignment.centerRight,
         child: Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
-            color: AppColors.primary.withOpacity(0.9),
-            borderRadius: BorderRadius.circular(12),
+            color: const Color(0xFF2B4BF2),
+            borderRadius: BorderRadius.circular(16),
           ),
           child: Text(
             msg.text,
@@ -1917,18 +1920,8 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: _bubbleBg(isDark),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Text(
-          msg.text,
-          style: TextStyle(color: _bubbleText(isDark), fontSize: 15),
-        ),
-      ),
+      padding: const EdgeInsets.only(bottom: 12),
+      child: _buildRichMessageContent(msg.text, isDark),
     );
   }
 
@@ -1938,10 +1931,14 @@ class _ChatScreenState extends State<ChatScreen> {
   ) {
     final isDark = _isDark(context);
     final hasText = msg.text.trim().isNotEmpty;
+    final label = msg.buttonLabel.trim().isNotEmpty
+        ? msg.buttonLabel.trim()
+        : 'CREATE A PROCESS';
 
     Future<void> handleButtonTap() async {
-      final label = msg.buttonLabel.trim().toUpperCase();
-      if (label.contains('PROCESS') || label.contains('CREATE A PROCESS')) {
+      final upperLabel = label.toUpperCase();
+      if (upperLabel.contains('PROCESS') ||
+          upperLabel.contains('CREATE A PROCESS')) {
         final userId = Common.userData.value?.payload?.id?.toString();
         if (userId != null && userId.isNotEmpty) {
           await Navigator.push(
@@ -1961,68 +1958,25 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     }
 
-    final buttonWidget = InkWell(
-      onTap: handleButtonTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(
-          horizontal: 20,
-          vertical: 14,
-        ),
-        decoration: BoxDecoration(
-          color: AppColors.primary,
-          borderRadius: BorderRadius.circular(10),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.primary.withValues(alpha: 0.25),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        child: Center(
-          child: Text(
-            msg.buttonLabel.isNotEmpty ? msg.buttonLabel : 'CREATE A PROCESS',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 14,
-              letterSpacing: 0.5,
-            ),
-          ),
-        ),
-      ),
+    final buttonWidget = _tradePromptPrimaryButton(
+      label: label,
+      icon: msg.actionTaken != null ? Icons.check_circle_outline_rounded : null,
+      isCompleted: msg.actionTaken != null,
+      enabled: msg.actionTaken == null,
+      onTap: msg.actionTaken == null ? handleButtonTap : null,
     );
 
-    if (!hasText) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 12),
-        child: buttonWidget,
-      );
-    }
-
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: _bubbleBg(isDark),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              msg.text,
-              style: TextStyle(color: _bubbleText(isDark), fontSize: 15),
-            ),
-            if (msg.actionTaken == null) ...[
-              const SizedBox(height: 12),
-              buttonWidget,
-            ],
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (hasText) ...[
+            _buildRichMessageContent(msg.text, isDark),
+            const SizedBox(height: 12),
           ],
-        ),
+          buttonWidget,
+        ],
       ),
     );
   }
@@ -2162,6 +2116,8 @@ class _ChatScreenState extends State<ChatScreen> {
           const SizedBox(height: 8),
           _tradePromptPrimaryButton(
             label: 'Trade Deleted',
+            icon: !_showButtons(msg) ? Icons.check_circle_outline_rounded : null,
+            isCompleted: !_showButtons(msg),
             enabled: _showButtons(msg),
             onTap: () => controller.acknowledgeTradeDeleted(msg),
           ),
@@ -2224,6 +2180,8 @@ class _ChatScreenState extends State<ChatScreen> {
           const SizedBox(height: 8),
           _tradePromptPrimaryButton(
             label: 'SL Trailed',
+            icon: !_showButtons(msg) ? Icons.check_circle_outline_rounded : null,
+            isCompleted: !_showButtons(msg),
             enabled: _showButtons(msg),
             onTap: () => _showTrailSlDialog(context, msg, controller),
           ),
@@ -2562,22 +2520,24 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          Text('1. Go to Trading APP and apply Levels', style: stepStyle),
-          const SizedBox(height: 8),
-          _tradePromptPrimaryButton(
-            label: 'Open Trading APP',
-            enabled: _showButtons(actionSource),
-            onTap: () => controller.openTradingApp(),
-          ),
-          const SizedBox(height: 14),
-          Text('2. Intimate me once you apply the GTT', style: stepStyle),
-          const SizedBox(height: 8),
-          _tradePromptPrimaryButton(
-            label: 'GTT / Levels Applied',
-            enabled: _showButtons(actionSource),
-            onTap: () => _showGttDialog(context, msg, controller),
-          ),
+          if (_showButtons(actionSource)) ...[
+            const SizedBox(height: 14),
+            Text('1. Go to Trading APP and apply Levels', style: stepStyle),
+            const SizedBox(height: 8),
+            _tradePromptPrimaryButton(
+              label: 'Open Trading APP',
+              enabled: true,
+              onTap: () => controller.openTradingApp(),
+            ),
+            const SizedBox(height: 14),
+            Text('2. Intimate me once you apply the GTT', style: stepStyle),
+            const SizedBox(height: 8),
+            _tradePromptPrimaryButton(
+              label: 'GTT / Levels Applied',
+              enabled: true,
+              onTap: () => _showGttDialog(context, msg, controller),
+            ),
+          ],
         ],
       ),
     );
@@ -2585,29 +2545,74 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _tradePromptPrimaryButton({
     required String label,
+    IconData? icon,
     VoidCallback? onTap,
     bool enabled = true,
-
-    /// When false, same look but no tap / ripple (e.g. Open Trading APP display-only).
     bool interactive = true,
+    bool isCompleted = false,
   }) {
-    final child = Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Text(
-        label,
-        textAlign: TextAlign.center,
-        style:  TextStyle(
-          color:_isDark(context)?Colors.black: Colors.white,
-          fontWeight: FontWeight.w600,
-          fontSize: 15,
+    final isDark = _isDark(context);
+    const primaryColor = Color(0xFF2B4BF2);
+    final borderColor = (isCompleted || enabled)
+        ? primaryColor
+        : (isDark ? Colors.white24 : Colors.grey.shade400);
+    final textColor = (isCompleted || enabled)
+        ? primaryColor
+        : (isDark ? Colors.white38 : Colors.grey.shade500);
+    final iconColor = textColor;
+    IconData getFallbackIcon() {
+      final l = label.toUpperCase();
+      if (isCompleted) return Icons.check_circle_outline_rounded;
+      if (l.contains('PROCESS') || l.contains('CREATE')) return Icons.add_circle_outline_rounded;
+      if (l.contains('OPEN') || l.contains('TRADING APP') || l.contains('APP')) return Icons.open_in_new_rounded;
+      if (l.contains('GTT') || l.contains('LEVELS') || l.contains('APPLIED')) return Icons.check_circle_outline_rounded;
+      if (l.contains('DELETE')) return Icons.delete_outline_rounded;
+      if (l.contains('TRAIL') || l.contains('SL')) return Icons.trending_up_rounded;
+      if (l.contains('SCORE') || l.contains('DMT') || l.contains('ANALYSIS') || l.contains('VIEW')) return Icons.analytics_outlined;
+      if (l.contains('HIT') || l.contains('TARGET')) return Icons.flag_outlined;
+      return Icons.check_circle_outline_rounded;
+    }
+
+    final effectiveIcon = icon ?? getFallbackIcon();
+
+    final child = Container(
+      width: double.infinity,
+      height: 44,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E222A) : Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: borderColor,
+          width: 1.8,
         ),
       ),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(effectiveIcon, size: 19, color: iconColor),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: textColor,
+              fontWeight: FontWeight.w800,
+              fontSize: 14,
+              letterSpacing: 0.4,
+            ),
+          ),
+        ],
+      ),
     );
+
     final canTap = interactive && enabled && onTap != null;
     return SizedBox(
       width: double.infinity,
       child: Material(
-        color: enabled ? AppColors.primary : (_isDark(context)?Colors.white: Colors.grey.shade400),
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(8),
         child: canTap
             ? InkWell(
@@ -2636,163 +2641,219 @@ class _ChatScreenState extends State<ChatScreen> {
     showChatFadeDialog(
       context: context,
       builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: _dialogBg(isDark),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: Container(
-          constraints: const BoxConstraints(maxWidth: 340),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            color: _dialogBg(isDark),
-          ),
+          constraints: const BoxConstraints(maxWidth: 380),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(16),
-                  ),
-                ),
-                alignment: Alignment.centerLeft,
-                child: const Text(
-                  'Trade Applied as GTT',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
+              // Top Close button
+              Align(
+                alignment: Alignment.topRight,
+                child: InkWell(
+                  onTap: () => Navigator.pop(ctx),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.close_rounded,
+                      color: isDark ? Colors.white60 : const Color(0xFF4A22F4),
+                      size: 24,
+                    ),
                   ),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+
+              // Center Icon
+              Center(
+                child: Container(
+                  width: 58,
+                  height: 58,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFEDE9FE),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.gps_fixed_rounded,
+                    color: Color(0xFF4A22F4),
+                    size: 30,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Title
+              Text(
+                'You have selected Apply GTT',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: _headlineText(isDark),
+                ),
+              ),
+              const SizedBox(height: 6),
+
+              // Subtitle
+              Text(
+                'Please enter the level at which you have already applied the GTT order on your trading app.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: _secondaryText(isDark),
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              // Current Level Box
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF6F5FF),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        CircleAvatar(
-                          radius: 22,
-                          backgroundColor: AppColors.primary.withOpacity(0.2),
-                          child: Text(
-                            msg.instrument.trim().isNotEmpty
-                                ? msg.instrument.trim()[0].toUpperCase()
-                                : 'T',
-                            style: const TextStyle(
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 20,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                msg.instrument.toUpperCase(),
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: _bubbleText(isDark),
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                msg.contract,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: _secondaryText(isDark),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    if (!useExtendedFields)
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Text(
-                            'GTT is set at',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: _secondaryText(isDark),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextField(
-                              controller: gttPriceController,
-                              keyboardType: TextInputType.number,
-                              style: TextStyle(color: _bubbleText(isDark)),
-                              decoration: InputDecoration(
-                                filled: true,
-                                fillColor: _fieldFill(isDark),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                  borderSide: BorderSide(
-                                    color: _fieldBorder(isDark),
-                                  ),
-                                ),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 12,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      )
-                    else
-                      Column(
-                        children: [
-                          _popupField('GTT is set at', gttPriceController, '', isDark),
-                          const SizedBox(height: 12),
-                          _popupField('Stop Loss', stopLossController, '', isDark),
-                          const SizedBox(height: 12),
-                          _popupField('Target', takeProfitController, '', isDark),
-                        ],
+                    Text(
+                      'Current Level',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? Colors.white70 : const Color(0xFF10122D),
                       ),
+                    ),
+                    Text(
+                      _formatIndianCurrency(
+                        ChatController.getDefaultGttPrice(msg.entryRange),
+                      ),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF4A22F4),
+                      ),
+                    ),
                   ],
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: () async {
-                      Navigator.pop(ctx);
-                      await controller.createGttAlert(
-                        msg,
-                        gttPriceController.text,
-                        stopLoss: useExtendedFields
-                            ? stopLossController.text
-                            : null,
-                        takeProfit: useExtendedFields
-                            ? takeProfitController.text
-                            : null,
-                      );
-                    },
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+              const SizedBox(height: 18),
+
+              // Fields
+              if (!useExtendedFields) ...[
+                Text(
+                  'GTT Applied Level',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: _headlineText(isDark),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: gttPriceController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: _bubbleText(isDark),
+                  ),
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: isDark ? const Color(0xFF1E222A) : const Color(0xFFF7F6FB),
+                    hintText: 'Enter the GTT applied level',
+                    hintStyle: TextStyle(
+                      color: isDark ? Colors.white38 : const Color(0xFFB0B0B8),
+                      fontSize: 13,
+                      fontWeight: FontWeight.normal,
+                    ),
+                    suffixIcon: const Icon(
+                      Icons.trending_up_rounded,
+                      color: Color(0xFF2B4BF2),
+                      size: 22,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(color: isDark ? Colors.white12 : const Color(0xFFE2E0E9)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(color: isDark ? Colors.white12 : const Color(0xFFE2E0E9)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFF2B4BF2), width: 1.5),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                  ),
+                ),
+              ] else ...[
+                _popupField('GTT is set at', gttPriceController, '', isDark),
+                const SizedBox(height: 12),
+                _popupField('Stop Loss', stopLossController, '', isDark),
+                const SizedBox(height: 12),
+                _popupField('Target', takeProfitController, '', isDark),
+              ],
+              const SizedBox(height: 12),
+
+              // Info note
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 16,
+                    color: isDark ? Colors.white60 : const Color(0xFF70717F),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'We will track this level and update you accordingly.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _secondaryText(isDark),
                       ),
                     ),
-                    child: const Text(
-                      'SUBMIT',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.5,
-                      ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+
+              // Submit Button
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: FilledButton(
+                  onPressed: () async {
+                    final val = gttPriceController.text.trim();
+                    if (val.isEmpty) {
+                      AppToast.showToast('Please enter GTT trigger value');
+                      return;
+                    }
+                    Navigator.pop(ctx);
+                    await controller.createGttAlert(
+                      msg,
+                      gttPriceController.text,
+                      stopLoss: useExtendedFields ? stopLossController.text : null,
+                      takeProfit: useExtendedFields ? takeProfitController.text : null,
+                    );
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF2B4BF2),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text(
+                    'Submit',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
                     ),
                   ),
                 ),
@@ -3598,14 +3659,11 @@ class _ChatScreenState extends State<ChatScreen> {
   ) {
     final isDark = _isDark(context);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            msg.text,
-            style: TextStyle(fontSize: 14, color: _headlineText(isDark)),
-          ),
+          _buildRichMessageContent(msg.text, isDark),
           const SizedBox(height: 12),
           if (msg.isGttHit) ...[
             _tradePromptPrimaryButton(
@@ -3615,36 +3673,22 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
             const SizedBox(height: 10),
           ],
-          GestureDetector(
-            onTap: _showButtons(msg)
-                ? () {
-                    _showTargetHitConfirmDialog(
-                      context,
-                      msg,
-                      controller,
-                    );
-                  }
-                : null,
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                color: _showButtons(msg)
-                    ? (msg.isSlHit ? const Color(0xFFE53935) : AppColors.primary)
-                    : Colors.grey.shade400,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Center(
-                child: Text(
-                  msg.buttonLabel,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
-                  ),
-                ),
-              ),
-            ),
+          _tradePromptPrimaryButton(
+            label: msg.buttonLabel,
+            icon: !_showButtons(msg)
+                ? Icons.check_circle_outline_rounded
+                : (msg.isSlHit
+                    ? Icons.error_outline_rounded
+                    : Icons.flag_outlined),
+            isCompleted: !_showButtons(msg),
+            enabled: _showButtons(msg),
+            onTap: () {
+              _showTargetHitConfirmDialog(
+                context,
+                msg,
+                controller,
+              );
+            },
           ),
         ],
       ),
@@ -3671,22 +3715,24 @@ class _ChatScreenState extends State<ChatScreen> {
             msg.text,
             style: TextStyle(fontSize: 14, color: _headlineText(isDark)),
           ),
-          const SizedBox(height: 14),
-          Text('1. Go to Trading APP and apply Levels', style: stepStyle),
-          const SizedBox(height: 8),
-          _tradePromptPrimaryButton(
-            label: 'Open Trading APP',
-            enabled: _showButtons(msg),
-            onTap: () => controller.openTradingApp(),
-          ),
-          const SizedBox(height: 14),
-          Text('2. Intimate me once you apply the GTT', style: stepStyle),
-          const SizedBox(height: 8),
-          _tradePromptPrimaryButton(
-            label: msg.buttonLabel,
-            enabled: _showButtons(msg),
-            onTap: () => AppToast.showToast('Thanks for confirming'),
-          ),
+          if (_showButtons(msg)) ...[
+            const SizedBox(height: 14),
+            Text('1. Go to Trading APP and apply Levels', style: stepStyle),
+            const SizedBox(height: 8),
+            _tradePromptPrimaryButton(
+              label: 'Open Trading APP',
+              enabled: true,
+              onTap: () => controller.openTradingApp(),
+            ),
+            const SizedBox(height: 14),
+            Text('2. Intimate me once you apply the GTT', style: stepStyle),
+            const SizedBox(height: 8),
+            _tradePromptPrimaryButton(
+              label: msg.buttonLabel,
+              enabled: true,
+              onTap: () => AppToast.showToast('Thanks for confirming'),
+            ),
+          ],
         ],
       ),
     );
@@ -3699,53 +3745,63 @@ class _ChatScreenState extends State<ChatScreen> {
   ) {
     final isDark = _isDark(context);
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       color: _bottomBarBg(isDark),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: textController,
-              style: TextStyle(color: _bubbleText(isDark)),
-              decoration: InputDecoration(
-                hintText: 'Send a message',
-                hintStyle: TextStyle(color: _tertiaryText(isDark)),
-                filled: true,
-                fillColor: _fieldFill(isDark),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
-                  borderSide: BorderSide.none,
+      child: Container(
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E222A) : Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: const Color(0xFF2B4BF2),
+            width: 1.5,
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: textController,
+                style: TextStyle(color: _bubbleText(isDark), fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'Send a message',
+                  hintStyle: TextStyle(
+                    color: isDark ? Colors.white38 : const Color(0xFF70717F),
+                    fontSize: 14,
+                  ),
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
                 ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
+                onSubmitted: (text) {
+                  if (text.trim().isEmpty) return;
+                  controller.sendTextMessage(text);
+                  textController.clear();
+                  _scheduleScrollToBottom();
+                },
               ),
-              onSubmitted: (text) {
+            ),
+            InkWell(
+              onTap: () {
+                final text = textController.text;
+                if (text.trim().isEmpty) return;
                 controller.sendTextMessage(text);
                 textController.clear();
                 _scheduleScrollToBottom();
               },
-            ),
-          ),
-          const SizedBox(width: 8),
-          GestureDetector(
-            onTap: () {
-              final text = textController.text;
-              controller.sendTextMessage(text);
-              textController.clear();
-              _scheduleScrollToBottom();
-            },
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.primary,
-                shape: BoxShape.circle,
+              borderRadius: BorderRadius.circular(8),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Icon(
+                  Icons.send_rounded,
+                  color: Color(0xFF2B4BF2),
+                  size: 24,
+                ),
               ),
-              child: const Icon(Icons.send, color: Colors.white, size: 22),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

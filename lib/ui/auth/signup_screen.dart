@@ -67,10 +67,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               const SizedBox(height: 20),
-              const CircleAvatar(
-                radius: 45,
-                backgroundColor: AppColors.primary,
-                child: Icon(Icons.psychology, size: 55, color: AppColors.white),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Image.asset("assets/logo.jpg", height: 90),
               ),
               const SizedBox(height: 16),
               const Text(
@@ -83,7 +82,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
               ),
               const SizedBox(height: 8),
               const Text(
-                "Join the Discipline Mind community",
+                "Join the Zeno AI community",
                 style: TextStyle(color: AppColors.textGrey),
               ),
               const SizedBox(height: 32),

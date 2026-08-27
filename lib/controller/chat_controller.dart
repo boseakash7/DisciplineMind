@@ -414,7 +414,7 @@ class ChatController extends GetxController {
   void _loadSampleMessages() {
     messages.assignAll([
       const SimpleTextMessage(text: 'Hello'),
-      const SimpleTextMessage(text: 'I am Discipline Mind Agent.'),
+      const SimpleTextMessage(text: 'I am Zeno AI Agent.'),
       const SimpleTextMessage(text: 'Hi', isFromUser: true),
       const SimpleTextMessage(text: 'Hi'),
     ]);

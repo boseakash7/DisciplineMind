@@ -187,14 +187,14 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
     if (state == AppLifecycleState.resumed) {
       final wasAwaitingResult = _awaitingPermissionResult;
       _awaitingPermissionResult = false;
 
       _refreshPermissions(showToastIfMissing: wasAwaitingResult).then((_) {
-        // Whatever happened (granted or not), the user has made their
-        // choice and returned — stop showing the button spinner.
-        if (mounted && _permissionBusy) {
+        if (!mounted) return;
+        if (_permissionBusy) {
           setState(() => _permissionBusy = false);
         }
       });
@@ -208,6 +208,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   /// independently.
   Future<void> _refreshPermissions({bool showToastIfMissing = false}) async {
     if (!Platform.isAndroid) return;
+    if (!mounted) return;
     if (_refreshInFlight) return;
     _refreshInFlight = true;
 
@@ -222,6 +223,8 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         _hasOverlay = newOverlay;
         _hasUsage = newUsage;
       });
+
+      if (!mounted) return;
 
       // Only advance / warn based on whichever permission step the user
       // is actually sitting on right now.
@@ -273,6 +276,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   // ============================================================
 
   void nextPage() {
+    if (!mounted) return;
     if (currentPage >= 7) return;
 
     if (currentPage == 3 && !_step3Valid) {
@@ -294,7 +298,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       currentPage = next;
     });
 
-    if (_pageController.hasClients) {
+    if (mounted && _pageController.hasClients) {
       _pageController.animateToPage(
         next,
         duration: const Duration(milliseconds: 280),
@@ -304,6 +308,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   }
 
   void previousPage() {
+    if (!mounted) return;
     final floor = widget.skipWelcome ? 1 : 0;
     if (currentPage <= floor) return;
 
@@ -317,7 +322,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       currentPage = previous;
     });
 
-    if (_pageController.hasClients) {
+    if (mounted && _pageController.hasClients) {
       _pageController.animateToPage(
         previous,
         duration: const Duration(milliseconds: 280),

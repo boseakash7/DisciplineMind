@@ -19,7 +19,7 @@ class NotificationHandler {
   bool _firebaseInited = false;
 
   static const AndroidNotificationChannel _defaultChannel = AndroidNotificationChannel(
-    'discipline_mind_alerts',
+    'zeno_ai_alerts',
     'Price Alerts',
     description: 'Notifications for price alerts',
     importance: Importance.high,
@@ -27,7 +27,7 @@ class NotificationHandler {
   );
   static const AndroidNotificationChannel _tradeOpportunityChannel =
       AndroidNotificationChannel(
-        'discipline_mind_trade_opportunities',
+        'zeno_ai_trade_opportunities',
         'Trade Opportunities',
         description: 'Notifications for new trade opportunities',
         importance: Importance.high,
@@ -165,7 +165,7 @@ class NotificationHandler {
 
     if (Platform.isAndroid) {
       final notification = message.notification;
-      final title = notification?.title ?? 'Discipline Mind';
+      final title = notification?.title ?? 'Zeno AI';
       final body = notification?.body ?? 'You have a new alert update';
       final isTradeOpportunity = _isNewTradeOpportunity(message);
       final channel = isTradeOpportunity
@@ -183,6 +183,7 @@ class NotificationHandler {
             channelDescription: channel.description,
             importance: Importance.high,
             priority: Priority.high,
+            icon: '@mipmap/ic_launcher',
             playSound: true,
             sound: isTradeOpportunity
                 ? const RawResourceAndroidNotificationSound(

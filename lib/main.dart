@@ -32,16 +32,6 @@ void _onAppResumed() {
   } catch (_) {}
 }
 
-Future<void> _enforceAndroidTradingPermissionsIfLoggedIn() async {
-  if (!Platform.isAndroid) return;
-  final uid = Common.userData.value?.payload?.id?.toString();
-  if (uid == null || uid.isEmpty) return;
-  if (await hasAndroidTradingBlockPermissions()) return;
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    Get.offAll(() => const PostLoginTradingBlockScreen());
-  });
-}
-
 void _refreshUserAlertsOnNotification({int attempt = 0}) {
   final userId = Common.userData.value?.payload?.id?.toString();
   if (userId == null || userId.isEmpty) {
@@ -171,7 +161,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _onAppResumed();
-      _enforceAndroidTradingPermissionsIfLoggedIn();
       _refreshChatOnAppResumed();
     }
   }
@@ -188,7 +177,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
     return GetMaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Discipline Mind',
+      title: 'Zeno AI',
       theme: _lightTheme(textTheme),
       darkTheme: _darkTheme(textTheme),
       themeMode: ThemeService().themeMode,   // ← This enables theme switching

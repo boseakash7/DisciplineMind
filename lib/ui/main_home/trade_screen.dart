@@ -62,7 +62,11 @@ class _TradesScreenState extends State<TradesScreen>
   void didUpdateWidget(TradesScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
-      _onTradesTabActivated();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.isActive) {
+          _onTradesTabActivated();
+        }
+      });
     }
   }
 

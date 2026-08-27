@@ -9,6 +9,7 @@ import android.app.usage.UsageStats
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
@@ -39,7 +40,9 @@ import java.util.concurrent.TimeUnit
 class AppBlockingService : Service() {
     companion object {
         private const val API_BASE = "https://api.disciplinedminds.in/api/v2test"
-        private const val CHANNEL_ID = "AppBlockingServiceChannel"
+        private const val OLD_CHANNEL_ID_1 = "AppBlockingServiceChannel"
+        private const val OLD_CHANNEL_ID_2 = "BlockAppService_Channel_ID"
+        private const val CHANNEL_ID = "zeno_ai_protection_service_v1"
         private const val NOTIFICATION_ID = 1001
         private const val CHECK_INTERVAL_MS = 50L  // Fast polling for gesture nav responsiveness
         // Launcher, recents, system UI - hide overlay when user goes home or app switcher
@@ -127,21 +130,29 @@ class AppBlockingService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            try {
+                notificationManager.deleteNotificationChannel(OLD_CHANNEL_ID_1)
+                notificationManager.deleteNotificationChannel(OLD_CHANNEL_ID_2)
+            } catch (_: Exception) {}
+
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "App Blocking Service",
+                "Zeno AI Protection Service",
                 NotificationManager.IMPORTANCE_LOW
-            ).apply { description = "Monitors and blocks restricted apps" }
-            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-                .createNotificationChannel(channel)
+            ).apply {
+                description = "Monitors and protects against undisciplined trading"
+                setShowBadge(false)
+            }
+            notificationManager.createNotificationChannel(channel)
         }
     }
 
     private fun createNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("App Blocking Active")
-            .setContentText("Monitoring for blocked apps")
-            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setContentTitle("Zeno AI Active")
+            .setContentText("Mind Control Guard is protecting your trades")
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }

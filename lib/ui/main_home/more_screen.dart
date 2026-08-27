@@ -4,6 +4,7 @@ import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/ui/android_app_block/app_usage_stats_page.dart';
 import 'package:discipline_mind/ui/main_home/alert_main.dart';
 import 'package:discipline_mind/ui/main_home/mct_lessons_screen.dart';
+import 'package:discipline_mind/ui/main_home/process_detail_screen.dart';
 import 'package:discipline_mind/ui/settings/app_block_settings_screen.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -15,7 +16,7 @@ class MoreScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Obx(() {
-      // Ã¢â€ Â This makes it reactive
+      //   This makes it reactive
       final isDark = ThemeService().isDarkMode;
 
       return Scaffold(
@@ -49,6 +50,19 @@ class MoreScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 24),
+
+                _buildTile(
+                  icon: Icons.alt_route_rounded,
+                  title: 'Trading Process',
+                  subtitle: 'View and update your active trading rules & limits',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const ProcessDetailScreen(),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
 
                 _buildTile(
                   icon: Icons.notifications_outlined,

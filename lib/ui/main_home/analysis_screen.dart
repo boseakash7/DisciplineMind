@@ -536,9 +536,23 @@ class _AnalysisScreenState extends State<AnalysisScreen>
         children: [
           GestureDetector(
             onTap: widget.onMonkkTap,
-            child: Text(
-              'Discipline Mind',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: AppColors.primary),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.asset(
+                    "assets/logo.jpg",
+                    height: 24,
+                    width: 24,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Zeno AI',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: AppColors.primary),
+                ),
+              ],
             ),
           ),
           Row(

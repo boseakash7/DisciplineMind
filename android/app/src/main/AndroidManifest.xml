@@ -16,8 +16,9 @@
 
     <application
         android:name=".DisciplineApplication"
-        android:label="Discipline Mind"
+        android:label="Zeno AI"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:usesCleartextTraffic="true">
 
         <activity

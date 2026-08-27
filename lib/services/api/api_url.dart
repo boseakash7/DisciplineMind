@@ -49,4 +49,10 @@ class ApiUrl {
 
   /// Set up trading process (form: user_id, trading_segment, instrument, trading_capital, trades_per_day, max_risk_percent, market_entry_time, broking_app, permission_overlay_enabled, permission_usage_stats_enabled, terms_accepted).
   static const String processSetup = "process/setup";
+
+  /// Fetch user process details (form: user_id).
+  static const String processFetch = "process/fetch";
+
+  /// Edit/update existing process (form: user_id, process_id, trading_segment, instrument, trading_capital, trades_per_day, max_risk_percent, market_entry_time, broking_app, permission_overlay_enabled, permission_usage_stats_enabled, terms_accepted).
+  static const String processEdit = "process/edit";
 }

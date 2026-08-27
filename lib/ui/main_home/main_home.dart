@@ -134,27 +134,6 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                             );
                           }),
                         ),
-                        Container(
-                          height: 36,
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(24),
-                            color: isDark ? Colors.grey.shade900 : Colors.grey.shade100,
-                            border: Border.all(color: AppColors.primary),
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 18,
-                                height: 18,
-                                decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.amber),
-                                child: const Icon(Icons.monetization_on, color: Colors.orange, size: 14),
-                              ),
-                              const SizedBox(width: 8),
-                              Text("250", style: TextStyle(fontWeight: FontWeight.w700, color: textColor)),
-                            ],
-                          ),
-                        ),
                       ],
                     ),
                   ),
@@ -209,9 +188,9 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                 ),
               ),
 
-              // Glowing Center FAB
+              // Center FAB
               Positioned(
-                bottom: navBarHeight / 2 - fabSize / 2 + bottomInset +10,
+                bottom: navBarHeight / 2 - fabSize / 2 + bottomInset + 10,
                 child: GestureDetector(
                   onTap: () => setState(() => currentIndex = 2),
                   child: Container(
@@ -220,26 +199,29 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       gradient: const LinearGradient(
-                        colors: [Color(0xFF00D4FF), Color(0xFF0099CC)],
+                        colors: [Color(0xFF2B4BF2), Color(0xFF4A22F4)],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
                       boxShadow: [
                         BoxShadow(
-                          blurRadius: 20,
-                          spreadRadius: 2,
-                          color: const Color(0xFF00D4FF).withOpacity(0.6),
+                          blurRadius: 16,
+                          spreadRadius: 1,
+                          color: const Color(0xFF2B4BF2).withOpacity(0.5),
                         ),
                       ],
                     ),
-                    child:Stack(
+                    child: Stack(
                       children: [
-                        Positioned(top: 6,right: 10,
-                          child:Image.asset("assets/star.png",height: 30,)
+                        Positioned(
+                          top: 8,
+                          right: 10,
+                          child: Image.asset("assets/star.png", height: 26),
                         ),
                         Positioned(
-                          top: 30,left:10,
-                          child: Image.asset("assets/star.png",height: 20,)
+                          top: 28,
+                          left: 10,
+                          child: Image.asset("assets/star.png", height: 18),
                         ),
                       ],
                     ),

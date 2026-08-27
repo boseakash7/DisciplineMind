@@ -18,7 +18,7 @@ class RulesHomeScreen extends StatelessWidget {
         backgroundColor: Colors.grey[200],
         elevation: 0,
         title: const Text(
-          "Discipline Mind",
+          "Zeno AI",
           style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
         ),
         bottom: PreferredSize(
