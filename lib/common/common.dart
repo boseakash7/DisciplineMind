@@ -1,8 +1,9 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:get/get.dart';
-
 import 'package:get_storage/get_storage.dart';
 
+import '../controller/alert_controller.dart';
+import '../controller/chat_controller.dart';
 import '../model/login_reponse_model.dart';
 import '../services/api/api_services.dart';
 import '../services/local_db.dart';
@@ -32,6 +33,13 @@ class Common {
 
   static void logout() async {
     await NotificationHandler.unsubscribeFromTradeAlerts();
+    if (Get.isRegistered<ChatController>()) {
+      Get.find<ChatController>().reset();
+    }
+    if (Get.isRegistered<AlertController>()) {
+      Get.find<AlertController>().clear();
+    }
+    Get.deleteAll(force: true);
     storage.clearLogin();
     userData.value = null;
     GetStorage().remove('user_id');

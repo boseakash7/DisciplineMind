@@ -538,6 +538,10 @@ class AlertController extends GetxController {
   //       targetPrice: double.parse(targetPrice),
   //       currentPrice: currentPrice,
   //     ),
-  //   );
-  // }
+  void clear() {
+    savedAlerts.clear();
+    instruments.clear();
+    isLoading.value = false;
+    update();
+  }
 }

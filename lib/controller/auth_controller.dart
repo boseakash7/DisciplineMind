@@ -10,6 +10,7 @@ import 'package:get_storage/get_storage.dart';
 
 import '../common/common.dart';
 import '../common/device_utils.dart';
+import '../controller/chat_controller.dart';
 import '../model/login_reponse_model.dart';
 import '../model/otp_auth_models.dart';
 import '../services/api/api_reponse.dart';
@@ -58,6 +59,11 @@ Future<void> goToHomeAfterAuth() async {
     Common.userData.value = model;
     storage.saveUserSession(model);
     GetStorage().write('user_id', id);
+    if (Get.isRegistered<ChatController>()) {
+      final chatCtrl = Get.find<ChatController>();
+      chatCtrl.reset();
+      chatCtrl.loadMessages(force: true);
+    }
     try {
       await _syncFcmAndSubscribe(id);
     } catch (e, stack) {

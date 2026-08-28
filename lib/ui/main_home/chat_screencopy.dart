@@ -1,4 +1,5 @@
 import 'package:discipline_mind/common/app_colors.dart';
+import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/controller/chat_controller.dart';
 import 'package:discipline_mind/model/chat_message_model.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
@@ -6,6 +7,7 @@ import 'package:discipline_mind/ui/main_home/widgets/dmt_score_popup.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
 
 class chat_screencopy extends StatefulWidget {
   const chat_screencopy({super.key, this.onMonkkTap, this.isActive = true});
@@ -308,7 +310,18 @@ class _chat_screencopyState extends State<chat_screencopy> {
     final isDark = _isDark(context);
     return GetBuilder<ChatController>(
       init: Get.put(ChatController(), permanent: true),
-      builder: (controller) => Scaffold(
+      builder: (controller) {
+        final activeUserId = Common.userData.value?.payload?.id?.toString() ??
+            GetStorage().read<String>('user_id');
+        if (controller.currentUserId != null &&
+            activeUserId != null &&
+            controller.currentUserId != activeUserId) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            controller.reset();
+            controller.loadMessages(force: true);
+          });
+        }
+        return Scaffold(
         backgroundColor: _screenBg(isDark),
         body: SafeArea(
           child: Column(
@@ -464,9 +477,10 @@ class _chat_screencopyState extends State<chat_screencopy> {
             ],
           ),
         ),
-      ),
-    );
-  }
+      );
+    },
+  );
+}
 
   Widget _buildHeader(BuildContext context, ChatController controller) {
     return Padding(

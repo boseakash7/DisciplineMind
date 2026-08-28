@@ -14,6 +14,7 @@ import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:discipline_mind/ui/widgets/audio_wave_visualizer.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
@@ -737,7 +738,18 @@ class _ChatScreenState extends State<ChatScreen> {
     final isDark = _isDark(context);
     return GetBuilder<ChatController>(
       init: Get.put(ChatController(), permanent: true),
-      builder: (controller) => Scaffold(
+      builder: (controller) {
+        final activeUserId = Common.userData.value?.payload?.id?.toString() ??
+            GetStorage().read<String>('user_id');
+        if (controller.currentUserId != null &&
+            activeUserId != null &&
+            controller.currentUserId != activeUserId) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            controller.reset();
+            controller.loadMessages(force: true);
+          });
+        }
+        return Scaffold(
         backgroundColor: _screenBg(isDark),
         body: SafeArea(
           child: Column(
@@ -952,9 +964,10 @@ class _ChatScreenState extends State<ChatScreen> {
             ],
           ),
         ),
-      ),
-    );
-  }
+      );
+    },
+  );
+}
 
   Widget _buildHeader(BuildContext context, ChatController controller) {
     return Padding(

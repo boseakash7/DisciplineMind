@@ -1559,7 +1559,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
               child: const Padding(
                 padding: EdgeInsets.symmetric(vertical: 4, horizontal: 16),
                 child: Text(
-                  "I'll do this later",
+                  'Not Now',
                   style: TextStyle(
                     fontSize: _Type.label,
                     fontWeight: FontWeight.w600,
@@ -1727,15 +1727,15 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                 const Text(
                   'Why we need this',
                   style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
                     color: ink,
                   ),
                 ),
                 const SizedBox(height: 3),
                 RichText(
                   text: const TextSpan(
-                    style: TextStyle(fontSize: 11.5, height: 1.35, color: grey),
+                    style: TextStyle(fontSize: 12, height: 1.4, color: Color(0xFF3A3A4A)),
                     children: [
                       TextSpan(
                         text:
@@ -1746,6 +1746,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
                           color: ink,
+                          decoration: TextDecoration.underline,
                         ),
                       ),
                     ],
@@ -1835,13 +1836,13 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       child: Column(
         children: [
           Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF3EEFF),
-              borderRadius: BorderRadius.circular(7),
+            width: 34,
+            height: 34,
+            decoration: const BoxDecoration(
+              color: Color(0xFFF3EEFF),
+              shape: BoxShape.circle,
             ),
-            child: Icon(icon, color: purple, size: 16),
+            child: Icon(icon, color: purple, size: 17),
           ),
           const SizedBox(height: 6),
           Text(
@@ -1849,7 +1850,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
             textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 10.5,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w800,
               color: ink,
             ),
           ),
@@ -1860,10 +1861,10 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              fontSize: 9,
-              height: 1.2,
+              fontSize: 9.5,
+              height: 1.25,
               fontWeight: FontWeight.w500,
-              color: grey,
+              color: Color(0xFF6B6B7B),
             ),
           ),
         ],
@@ -1955,7 +1956,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                 Text(
                   title,
                   style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 13,
                     fontWeight: FontWeight.w700,
                     color: ink,
                   ),
@@ -1963,9 +1964,9 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                 Text(
                   subtitle,
                   style: const TextStyle(
-                    fontSize: 10.5,
+                    fontSize: 11,
                     fontWeight: FontWeight.w500,
-                    color: grey,
+                    color: Color(0xFF6B6B7B),
                   ),
                 ),
               ],
@@ -2018,7 +2019,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                 const SizedBox(height: 3),
                 RichText(
                   text: const TextSpan(
-                    style: TextStyle(fontSize: 11, height: 1.35, color: grey),
+                    style: TextStyle(fontSize: 11.5, height: 1.35, color: Color(0xFF3A3A4A)),
                     children: [
                       TextSpan(
                         text: 'We use this information ',
@@ -2026,8 +2027,8 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                       TextSpan(
                         text: 'only',
                         style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: purple,
+                          fontWeight: FontWeight.w800,
+                          color: ink,
                         ),
                       ),
                       TextSpan(

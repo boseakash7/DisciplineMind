@@ -26,8 +26,27 @@ class ChatController extends GetxController {
   final isRefreshing = false.obs;
   final hasMoreOlderMessages = true.obs;
 
+  String? currentUserId;
+
+  String? get _resolvedUserId {
+    final fromModel = Common.userData.value?.payload?.id?.toString();
+    if (fromModel != null && fromModel.isNotEmpty) return fromModel;
+    final fromStorage = GetStorage().read('user_id')?.toString();
+    if (fromStorage != null && fromStorage.isNotEmpty) return fromStorage;
+    return null;
+  }
+
+  void reset() {
+    messages.clear();
+    currentUserId = null;
+    isLoading.value = false;
+    isRefreshing.value = false;
+    hasMoreOlderMessages.value = true;
+    update();
+  }
+
   List<String> _selectedBlockedPackages() {
-    final userId = Common.userData.value?.payload?.id?.toString();
+    final userId = _resolvedUserId;
     if (userId == null || userId.isEmpty) {
       return [];
     }
@@ -261,7 +280,24 @@ class ChatController extends GetxController {
   /// Fetch messages from API
   /// [refresh] - use isRefreshing (pull-to-refresh indicator)
   /// [silent] - no loader at all, use when e.g. notification received
-  Future<void> loadMessages({bool refresh = false, bool silent = false}) async {
+  Future<void> loadMessages({
+    bool refresh = false,
+    bool silent = false,
+    bool force = false,
+  }) async {
+    final userId = _resolvedUserId;
+    if (userId == null || userId.isEmpty) {
+      messages.clear();
+      currentUserId = null;
+      return;
+    }
+
+    if (currentUserId != null && currentUserId != userId) {
+      messages.clear();
+      force = true;
+    }
+    currentUserId = userId;
+
     if (!silent) {
       if (refresh) {
         isRefreshing.value = true;
@@ -271,7 +307,6 @@ class ChatController extends GetxController {
     }
 
     try {
-      final userId = Common.userData.value?.payload?.id?.toString() ?? '2';
       final api = Get.isRegistered<ApiService>()
           ? Get.find<ApiService>()
           : Get.put(ApiService(), permanent: true);
@@ -286,7 +321,7 @@ class ChatController extends GetxController {
         hasMoreOlderMessages.value = true;
       } else {
         if (!refresh) {
-          _loadSampleMessages();
+          messages.clear();
         }
         if (response.errorMessage != null) {
           AppToast.showToast(response.errorMessage!);
@@ -294,7 +329,7 @@ class ChatController extends GetxController {
       }
     } catch (e, stack) {
       debugPrint('[ChatController] loadMessages error: $e\n$stack');
-      if (!refresh && !silent) _loadSampleMessages();
+      if (!refresh && !silent) messages.clear();
       if (!silent) AppToast.showToast('Unable to load chat. Please try again.');
     } finally {
       if (!silent) {
@@ -307,6 +342,18 @@ class ChatController extends GetxController {
   /// Fetch only newly arrived messages:
   /// sends latest local `message_id` + `direction=after`.
   Future<void> loadNewMessages({bool silent = true}) async {
+    final userId = _resolvedUserId;
+    if (userId == null || userId.isEmpty) {
+      messages.clear();
+      currentUserId = null;
+      return;
+    }
+
+    if (currentUserId != userId) {
+      await loadMessages(silent: silent, force: true);
+      return;
+    }
+
     if (messages.isEmpty) {
       await loadMessages(silent: silent);
       return;
@@ -315,7 +362,6 @@ class ChatController extends GetxController {
       isRefreshing.value = true;
     }
     try {
-      final userId = Common.userData.value?.payload?.id?.toString() ?? '2';
       final fields = <String, String>{'user_id': userId};
       final lastMessageId = _lastKnownMessageId();
       if (lastMessageId.isNotEmpty) {
