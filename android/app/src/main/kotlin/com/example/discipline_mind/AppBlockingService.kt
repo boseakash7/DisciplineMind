@@ -153,6 +153,7 @@ class AppBlockingService : Service() {
             .setContentTitle("Zeno AI Active")
             .setContentText("Mind Control Guard is protecting your trades")
             .setSmallIcon(R.mipmap.ic_launcher)
+            .setLargeIcon(BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
@@ -168,8 +169,7 @@ class AppBlockingService : Service() {
             val pathToBundle = loader.findAppBundlePath()
             val overlayEntrypoint = DartExecutor.DartEntrypoint(
                 pathToBundle,
-                "package:discipline_mind/main_overlay.dart",
-                "main"
+                "mainOverlay"
             )
             engine.dartExecutor.executeDartEntrypoint(overlayEntrypoint)
             val methodChannel = MethodChannel(
@@ -487,22 +487,53 @@ class AppBlockingService : Service() {
             gravity = Gravity.CENTER
         }
 
-        // Native overlay — Mind Control Guard lock screen
-        val nativeContent = MindControlGuardOverlay.create(
-            context = this,
-            hasActiveTrade = !lastTradeId.isNullOrBlank(),
-            onWillControl = { sendUserHome() },
-            onSkip = { performForceUnblock(packageName) },
-        )
+        val hasConsent = AppManager.hasConsentAccepted(applicationContext)
         overlayView = FrameLayout(this).apply {
             setBackgroundColor(0xFFFFFFFF.toInt())
-            addView(
-                nativeContent,
-                FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                ),
-            )
+            if (!hasConsent) {
+                val consentView = MindControlGuardConsentOverlay.create(
+                    context = this@AppBlockingService,
+                    onAgree = {
+                        AppManager.saveConsentAccepted(applicationContext, true)
+                        removeAllViews()
+                        val lockView = MindControlGuardOverlay.create(
+                            context = this@AppBlockingService,
+                            hasActiveTrade = !lastTradeId.isNullOrBlank(),
+                            onWillControl = { sendUserHome() },
+                            onSkip = { performForceUnblock(packageName) },
+                        )
+                        addView(
+                            lockView,
+                            FrameLayout.LayoutParams(
+                                FrameLayout.LayoutParams.MATCH_PARENT,
+                                FrameLayout.LayoutParams.MATCH_PARENT,
+                            ),
+                        )
+                    },
+                    onCancel = { sendUserHome() },
+                )
+                addView(
+                    consentView,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                    ),
+                )
+            } else {
+                val nativeContent = MindControlGuardOverlay.create(
+                    context = this@AppBlockingService,
+                    hasActiveTrade = !lastTradeId.isNullOrBlank(),
+                    onWillControl = { sendUserHome() },
+                    onSkip = { performForceUnblock(packageName) },
+                )
+                addView(
+                    nativeContent,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                    ),
+                )
+            }
         }
         try {
             windowManager.addView(overlayView, params)
@@ -516,30 +547,6 @@ class AppBlockingService : Service() {
             overlayView = null
             currentForegroundApp = ""
             return
-        }
-
-        // Load Flutter behind native; swap only after first frame - no black flash
-        mainHandler.post {
-            if (!overlayShowing) return@post
-            try {
-                val engine = getOrCreateFlutterEngine()
-                val flutterView = FlutterView(this)
-                val container = overlayView ?: return@post
-                flutterView.addOnFirstFrameRenderedListener(object : FlutterUiDisplayListener {
-                    override fun onFlutterUiDisplayed() {
-                        mainHandler.post {
-                            if (!overlayShowing) return@post
-                            container.removeAllViews()
-                            container.addView(flutterView)
-                        }
-                    }
-                    override fun onFlutterUiNoLongerDisplayed() {}
-                })
-                flutterView.attachToFlutterEngine(engine)
-                container.addView(flutterView, 0) // Add behind native (index 0)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
         }
     }
 
@@ -648,18 +655,27 @@ class AppBlockingService : Service() {
         }
     }
 
-    /** I WILL CONTROL: leave the trading app and keep the lock. */
+    /** I WILL CONTROL: open our app (DisciplineMind / Zeno AI) and dismiss the overlay. */
     private fun sendUserHome() {
         try {
-            val home = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_HOME)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            clearStateDecision()
+            currentForegroundApp = packageName
+            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             }
-            startActivity(home)
+            if (launchIntent != null) {
+                startActivity(launchIntent)
+            } else {
+                val home = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_HOME)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                startActivity(home)
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
-        hideOverlay()
+        mainHandler.post { hideOverlay() }
     }
 
     /** Force Unblock: one-time bypass for this app only. Next open (if alerts exist) will block again. */
@@ -678,7 +694,7 @@ class AppBlockingService : Service() {
                 }
             }
         }
-        hideOverlay()
+        mainHandler.post { hideOverlay() }
     }
 
     private fun hideOverlay() {
@@ -691,16 +707,16 @@ class AppBlockingService : Service() {
             overlayShowTimeMs = 0
             overlayView?.let {
                 try {
-                    windowManager.removeView(it)
+                    windowManager.removeViewImmediate(it)
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    try {
+                        windowManager.removeView(it)
+                    } catch (_: Exception) {}
                 }
                 overlayView = null
             }
             overlayShowing = false
             currentForegroundApp = ""
-            flutterEngine?.destroy()
-            flutterEngine = null
         } catch (e: Exception) {
             e.printStackTrace()
             overlayShowing = false

@@ -24,6 +24,33 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'ui/splash_screen.dart';
 
+/// Top-level entrypoint for native overlay FlutterEngine
+@pragma('vm:entry-point')
+void mainOverlay() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  if (Platform.isAndroid) {
+    await GetStorage.init();
+  }
+  runApp(const OverlayApp());
+}
+
+class OverlayApp extends StatelessWidget {
+  const OverlayApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF7C3AED)),
+        useMaterial3: true,
+        scaffoldBackgroundColor: Colors.white,
+      ),
+      home: const BlockedAppOverlayPage(),
+    );
+  }
+}
+
 void _onAppResumed() {
   if (!Platform.isAndroid) return;
   try {

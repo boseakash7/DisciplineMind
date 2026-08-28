@@ -1,0 +1,334 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/overlay_consent_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/overlay_white"
+    android:orientation="vertical">
+
+    <!-- Top App Bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingTop="12dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="12dp">
+
+        <FrameLayout
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:background="@drawable/bg_overlay_brain_circle"
+            android:padding="6dp">
+
+            <ImageView
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_zeno_brain_nobg" />
+        </FrameLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:letterSpacing="0.02"
+                android:text="MIND CONTROL GUARD"
+                android:textColor="@color/overlay_navy"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Consent &amp; User Acknowledgement"
+                android:textColor="@color/overlay_grey"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_overlay_fomo_card"
+            android:paddingStart="8dp"
+            android:paddingTop="3dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="3dp"
+            android:text="v1.0"
+            android:textColor="@color/overlay_purple"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#F1F0F7" />
+
+    <!-- Scrollable Consent Form -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:overScrollMode="never"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="20dp"
+            android:paddingTop="16dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="20dp">
+
+            <!-- Banner Notice Card -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_overlay_fomo_card"
+                android:orientation="horizontal"
+                android:padding="14dp">
+
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_marginTop="2dp"
+                    android:src="@drawable/ic_overlay_hourglass" />
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:layout_weight="1"
+                    android:lineSpacingMultiplier="1.25"
+                    android:text="Please review and accept this acknowledgement before Mind Control Guard protection is enabled on your device."
+                    android:textColor="@color/overlay_ink"
+                    android:textSize="12.5sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <!-- Section 1 Header -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:text="Mind Control Guard – User Acknowledgement"
+                android:textColor="@color/overlay_navy"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <!-- Bullet List Card -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/bg_overlay_fomo_card"
+                android:orientation="vertical"
+                android:padding="14dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:lineSpacingMultiplier="1.3"
+                    android:text="• I understand that Mind Control Guard is designed to help me maintain discipline and follow my selected Mind Control Trading process."
+                    android:textColor="@color/overlay_ink"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:lineSpacingMultiplier="1.3"
+                    android:text="• I voluntarily authorise Zeno AI, where technically supported, to temporarily restrict, delay, interrupt or require confirmation before I access or interact with a selected trading application, trading screen, position or related trading functionality."
+                    android:textColor="@color/overlay_ink"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:lineSpacingMultiplier="1.3"
+                    android:text="• I understand that Zeno may intervene before I enter a trade, while I have an open position, or after a trade, depending on the process and controls I have configured."
+                    android:textColor="@color/overlay_ink"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:lineSpacingMultiplier="1.3"
+                    android:text="• I understand that Mind Control Guard is intended to reduce impulsive behaviour such as FOMO, revenge trading, overtrading and emotionally driven decisions. It does not guarantee profits or prevent losses."
+                    android:textColor="@color/overlay_ink"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:lineSpacingMultiplier="1.3"
+                    android:text="• I understand that a restriction or delay may affect my ability to access a trading application or react to a rapidly moving market. I accept this risk as part of voluntarily enabling the feature."
+                    android:textColor="@color/overlay_ink"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:lineSpacingMultiplier="1.3"
+                    android:text="• I understand that Zeno cannot guarantee that every route to a trading application will be blocked and that technical, operating-system, broker or device changes may affect the feature."
+                    android:textColor="@color/overlay_ink"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:lineSpacingMultiplier="1.3"
+                    android:text="• I understand that I remain responsible for my trading decisions and for complying with my broker’s terms and applicable law."
+                    android:textColor="@color/overlay_ink"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <!-- Section 2 Header -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:text="Position-Sizing Acknowledgement"
+                android:textColor="@color/overlay_navy"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <!-- Position-Sizing Card -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/bg_overlay_fomo_card"
+                android:padding="14dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:lineSpacingMultiplier="1.3"
+                    android:text="I understand that Zeno may provide indicative position-sizing or risk-management calculations based on my selected process and the inputs I provide. I will verify the resulting quantity, stop-loss, lot size, margin, liquidity, charges and other applicable trading conditions before placing an order."
+                    android:textColor="@color/overlay_ink"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <!-- Section 3 Header -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:text="Acceptance &amp; Consent"
+                android:textColor="@color/overlay_navy"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <!-- Checkbox Card -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/bg_overlay_fomo_card"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <!-- Master Agree All -->
+                <CheckBox
+                    android:id="@+id/overlay_consent_cb_all"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="I agree to all 3 statements below"
+                    android:textColor="@color/overlay_purple"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="6dp"
+                    android:layout_marginBottom="6dp"
+                    android:background="#E9DDFC" />
+
+                <!-- Checkbox 1 -->
+                <CheckBox
+                    android:id="@+id/overlay_consent_cb_1"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="I understand and voluntarily enable Mind Control Guard."
+                    android:textColor="@color/overlay_ink"
+                    android:textSize="12sp" />
+
+                <!-- Checkbox 2 -->
+                <CheckBox
+                    android:id="@+id/overlay_consent_cb_2"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="I understand that Zeno may temporarily delay or restrict access to selected trading functionality."
+                    android:textColor="@color/overlay_ink"
+                    android:textSize="12sp" />
+
+                <!-- Checkbox 3 -->
+                <CheckBox
+                    android:id="@+id/overlay_consent_cb_3"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="I understand that Zeno does not guarantee trading profits or loss prevention."
+                    android:textColor="@color/overlay_ink"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- Bottom Controls -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/overlay_white"
+        android:elevation="8dp"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingStart="20dp"
+        android:paddingTop="12dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="16dp">
+
+        <TextView
+            android:id="@+id/overlay_consent_btn_agree"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="@drawable/bg_overlay_control_btn"
+            android:gravity="center"
+            android:text="I Agree &amp; Enable Protection"
+            android:textColor="@color/overlay_white"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/overlay_consent_btn_cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:padding="6dp"
+            android:text="Cancel &amp; Exit to Home"
+            android:textColor="@color/overlay_grey"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+</LinearLayout>

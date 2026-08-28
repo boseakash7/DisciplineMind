@@ -151,13 +151,13 @@ class AlertController extends GetxController {
           } catch (e) {
             print('[AlertController] Failed to start blocking service: $e');
           }
-          AppToast.showToast("Trading apps have been locked");
+          AppToast.showToast("Mind Control Guard is Activated");
         } else if (Platform.isIOS) {
           final limiter = AppLimiter();
           final granted = await limiter.requestIosPermission();
           if (granted) {
             await limiter.blockAndUnblockIOSApp();
-            AppToast.showToast("Trading apps have been locked");
+            AppToast.showToast("Mind Control Guard is Activated");
           }
         }
         return true;
@@ -274,7 +274,7 @@ class AlertController extends GetxController {
 
       if (success) {
         AppToast.showToast(
-          "Selected trading apps have been blocked",
+          "Mind Control Guard is Activated",
         );
       }
       final alertsCreated = respUpper.isSuccess && respLower.isSuccess;
@@ -442,7 +442,7 @@ class AlertController extends GetxController {
           for (final package in selectedPackages) {
             await _blockService.unblockApp(package);
           }
-          AppToast.showToast("Trading apps unblocked");
+          AppToast.showToast("Mind Control Guard is Deactivated");
         } else {
           final AppLimiter limiter = AppLimiter();
           await limiter.blockAndUnblockIOSApp();

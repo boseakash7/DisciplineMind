@@ -1,15 +1,12 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get_storage/get_storage.dart';
-import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../model/user_alert_model.dart';
-import '../../services/api/api_config.dart';
-import '../../services/api/api_url.dart';
 import '../../services/native_app_block_service.dart';
+import 'mind_control_guard_consent_screen.dart';
 import 'mind_control_guard_lock_screen.dart';
 
 class BlockedAppOverlayPage extends StatefulWidget {
@@ -27,9 +24,9 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
   final _blockService = NativeAppBlockService();
 
   String? _blockedPackageName;
-  bool _isLoading = true;
-  bool _isChecking = false;
   bool _hasActiveTrade = false;
+  bool _hasConsent = false;
+
   void _safeSetState(VoidCallback fn) {
     if (mounted) setState(fn);
   }
@@ -37,132 +34,46 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
   @override
   void initState() {
     super.initState();
+    final consent = _storage.read<bool>('mct_guard_consent_accepted') ?? false;
     _safeSetState(() {
-      _isLoading = false;
-      _isChecking = false;
+      _hasConsent = consent;
       _blockedPackageName = 'blocked_app';
     });
+    _initConsentCheck();
     _refreshLockStatus();
-    _checkAndUnblockIfNeeded();
+  }
+
+  Future<void> _initConsentCheck() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final consent = prefs.getBool('mct_guard_consent_accepted') ??
+          (_storage.read<bool>('mct_guard_consent_accepted') ?? false);
+      if (mounted && _hasConsent != consent) {
+        _safeSetState(() => _hasConsent = consent);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _onConsentAgreed() async {
+    try {
+      await _storage.write('mct_guard_consent_accepted', true);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('mct_guard_consent_accepted', true);
+    } catch (_) {}
+    _safeSetState(() => _hasConsent = true);
   }
 
   Future<void> _refreshLockStatus() async {
-    final active = await _blockService.hasActiveTrade();
-    if (!mounted) return;
-    if (active) {
-      _safeSetState(() => _hasActiveTrade = true);
-    }
-  }
-
-  Future<String?> _getCurrentBlockedAppWithRetry() async {
-    const maxAttempts = 10;
-    const delayMs = 200;
-    for (var i = 0; i < maxAttempts; i++) {
-      if (!mounted) return null;
-      try {
-        final pkg = await _channel.invokeMethod<String>('getCurrentBlockedApp');
-        if (pkg != null && pkg.isNotEmpty) return pkg;
-      } catch (_) {}
-      if (i < maxAttempts - 1) {
-        await Future<void>.delayed(const Duration(milliseconds: delayMs));
-      }
-    }
-    return null;
-  }
-
-  Future<void> _checkAndUnblockIfNeeded() async {
-    if (!Platform.isAndroid) {
-      _safeSetState(() {
-        _isLoading = false;
-        _blockedPackageName = null;
-      });
-      return;
-    }
-
-    final timeout = Future<void>.delayed(const Duration(seconds: 10), () {});
-    final work = _runCheck();
-
-    await Future.any([timeout, work]);
-    if (!mounted) return;
-    if (_isLoading || _isChecking) {
-      _safeSetState(() {
-        _isLoading = false;
-        _isChecking = false;
-        _blockedPackageName ??= 'blocked_app';
-      });
-    }
-  }
-
-  Future<void> _runCheck() async {
     try {
-      final userId = _storage.read<String>('user_id');
-      if (userId == null || userId.isEmpty) {
-        await _unblockAndClose();
-        return;
+      final pkg = await _channel.invokeMethod<String>('getCurrentBlockedApp');
+      if (pkg != null && pkg.isNotEmpty) {
+        _safeSetState(() => _blockedPackageName = pkg);
       }
-
-      final packageFuture = _getCurrentBlockedAppWithRetry();
-      final keepBlocked = await _shouldKeepBlocked(userId);
-      if (!mounted) return;
-
-      final package = await packageFuture;
-      if (!mounted) return;
-      _safeSetState(() => _blockedPackageName = package ?? _blockedPackageName);
-
-      if (!keepBlocked) {
-        await _unblockAndClose();
-      } else {
-        _safeSetState(() {
-          _isLoading = false;
-          _isChecking = false;
-        });
-        await _refreshLockStatus();
+      final active = await _blockService.hasActiveTrade();
+      if (mounted && active) {
+        _safeSetState(() => _hasActiveTrade = true);
       }
-    } catch (e) {
-      if (!mounted) return;
-      print('[BlockedAppOverlay] Error: $e');
-      _safeSetState(() {
-        _isLoading = false;
-        _isChecking = false;
-        _blockedPackageName ??= 'blocked_app';
-      });
-    }
-  }
-
-  Future<bool> _shouldKeepBlocked(String userId) async {
-    try {
-      final alertsRes = await http
-          .post(
-            Uri.parse('${ApiConfig.baseUrl}${ApiUrl.getAlertsByUser}'),
-            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: 'user_id=${Uri.encodeComponent(userId)}',
-          )
-          .timeout(const Duration(seconds: 10));
-      if (alertsRes.statusCode != 200) return true;
-      final alertsJson = json.decode(alertsRes.body);
-      final model = UserAlertModel.fromJson(alertsJson);
-      final alerts = model.payload ?? [];
-
-      final hasPending = alerts.any(
-        (a) => (a.status ?? '').toLowerCase() == 'pending',
-      );
-      final hasTrade = alerts.any((a) {
-        final tid = (a.tradeId ?? '').trim();
-        return tid.isNotEmpty && tid != '0' && tid.toLowerCase() != 'null';
-      });
-      if (mounted) {
-        _safeSetState(() => _hasActiveTrade = hasTrade);
-      }
-      final keepBlocked = hasPending;
-      print(
-        '[BlockedAppOverlay] alertsCount=${alerts.length} pending=$hasPending → keepBlocked=$keepBlocked',
-      );
-
-      return keepBlocked;
-    } catch (e) {
-      print('[BlockedAppOverlay] _shouldKeepBlocked failed: $e');
-      return true;
-    }
+    } catch (_) {}
   }
 
   Future<void> _willControl() async {
@@ -193,29 +104,15 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
     }
   }
 
-  Future<void> _unblockAndClose() async {
-    try {
-      print('[BlockedAppOverlay] Unblocking apps...');
-      var packages = await _blockService.getBlockedApps();
-      if (packages.isEmpty) {
-        final p = _blockedPackageName;
-        if (p != null && p.isNotEmpty && p != 'blocked_app') {
-          packages = [p];
-        }
-      }
-      if (packages.isEmpty) {
-        await _blockService.closeOverlay();
-      } else {
-        await _blockService.unblockAndClose(packages);
-      }
-      print('[BlockedAppOverlay] Apps unblocked successfully');
-    } catch (e) {
-      print('[BlockedAppOverlay] unblockAndClose failed: $e');
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    if (!_hasConsent) {
+      return MindControlGuardConsentScreen(
+        onAgree: _onConsentAgreed,
+        onCancel: _willControl,
+      );
+    }
+
     return Material(
       color: Colors.white,
       child: MindControlGuardLockScreen(

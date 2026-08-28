@@ -55,4 +55,10 @@ class ApiUrl {
 
   /// Edit/update existing process (form: user_id, process_id, trading_segment, instrument, trading_capital, trades_per_day, max_risk_percent, market_entry_time, broking_app, permission_overlay_enabled, permission_usage_stats_enabled, terms_accepted).
   static const String processEdit = "process/edit";
+
+  /// Endpoint to fetch dynamic app config keys (GET, JSON).
+  static const String configKeys = "config/keys";
+
+  /// Endpoint to send user query to LLM AI (POST JSON: user_id, user_query).
+  static const String llmAsk = "llm/ask";
 }

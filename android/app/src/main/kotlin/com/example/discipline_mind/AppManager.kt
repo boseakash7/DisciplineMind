@@ -14,6 +14,8 @@ object AppManager {
     private const val BLOCKED_APPS_KEY = "blockedApps"
     private const val MONITORED_APPS_KEY = "monitoredTradingApps"
     private const val USER_ID_KEY = "userIdForOverlay"
+    private const val CONSENT_ACCEPTED_KEY = "flutter.mct_guard_consent_accepted"
+    private const val CONSENT_ACCEPTED_ALT_KEY = "mct_guard_consent_accepted"
 
     fun saveUserIdForOverlay(context: Context, userId: String) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -105,5 +107,21 @@ object AppManager {
             "in.upstox.app",
             "com.nextbillion.groww"
         )
+    }
+
+    fun hasConsentAccepted(context: Context): Boolean {
+        val flutterPrefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+        if (flutterPrefs.getBoolean(CONSENT_ACCEPTED_KEY, false) || flutterPrefs.getBoolean(CONSENT_ACCEPTED_ALT_KEY, false)) {
+            return true
+        }
+        val appPrefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return appPrefs.getBoolean(CONSENT_ACCEPTED_KEY, false) || appPrefs.getBoolean(CONSENT_ACCEPTED_ALT_KEY, false)
+    }
+
+    fun saveConsentAccepted(context: Context, accepted: Boolean) {
+        val flutterPrefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+        flutterPrefs.edit().putBoolean(CONSENT_ACCEPTED_KEY, accepted).apply()
+        val appPrefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        appPrefs.edit().putBoolean(CONSENT_ACCEPTED_KEY, accepted).apply()
     }
 }

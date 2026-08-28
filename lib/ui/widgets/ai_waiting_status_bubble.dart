@@ -1,4 +1,4 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:flutter/material.dart';
@@ -9,8 +9,8 @@ class AiWaitingStatusBubble extends StatefulWidget {
   const AiWaitingStatusBubble({
     super.key,
     required this.text,
-    this.subtitle = 'Monkk is waiting',
-    this.showAvatar = true,
+    this.subtitle = 'Zeno AI is analyzing',
+    this.showAvatar = false,
   });
 
   final String text;
@@ -58,19 +58,88 @@ class _AiWaitingStatusBubbleState extends State<AiWaitingStatusBubble>
     super.dispose();
   }
 
+  List<InlineSpan> _parseFormattedSpans(String raw, Color textColor) {
+    final List<InlineSpan> spans = [];
+    final tagRegex = RegExp(
+      r'(?:<b>(.*?)<\/b>|<strong>(.*?)<\/strong>|\*\*(.*?)\*\*)',
+      caseSensitive: false,
+      dotAll: true,
+    );
+
+    int lastMatchEnd = 0;
+    for (final match in tagRegex.allMatches(raw)) {
+      if (match.start > lastMatchEnd) {
+        spans.add(
+          TextSpan(
+            text: raw.substring(lastMatchEnd, match.start),
+            style: TextStyle(
+              fontSize: 13.5,
+              color: textColor,
+              fontWeight: FontWeight.w500,
+              height: 1.4,
+            ),
+          ),
+        );
+      }
+
+      final boldText = match.group(1) ?? match.group(2) ?? match.group(3) ?? '';
+      spans.add(
+        TextSpan(
+          text: boldText,
+          style: TextStyle(
+            fontSize: 13.5,
+            color: textColor,
+            fontWeight: FontWeight.w800,
+            height: 1.4,
+          ),
+        ),
+      );
+
+      lastMatchEnd = match.end;
+    }
+
+    if (lastMatchEnd < raw.length) {
+      spans.add(
+        TextSpan(
+          text: raw.substring(lastMatchEnd),
+          style: TextStyle(
+            fontSize: 13.5,
+            color: textColor,
+            fontWeight: FontWeight.w500,
+            height: 1.4,
+          ),
+        ),
+      );
+    }
+
+    return spans;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final isUserAction = widget.subtitle.toLowerCase().contains('your action');
+    final cardBg = isDark ? const Color(0xFF1E222A) : Colors.white;
+    final borderCol = isDark ? const Color(0xFF2C3240) : const Color(0xFFE5E7EB);
+    final primaryTextColor = isDark ? Colors.white : const Color(0xFF1F2937);
+    final subTextColor = isDark ? Colors.white60 : Colors.grey.shade600;
+
+    String cleanSubtitle = widget.subtitle.trim();
+    if (cleanSubtitle.isEmpty ||
+        cleanSubtitle.toLowerCase() == 'monkk is waiting' ||
+        cleanSubtitle.toLowerCase() == 'ai is waiting') {
+      cleanSubtitle = 'Zeno AI is analyzing';
+    }
 
     return FadeTransition(
       opacity: CurvedAnimation(parent: _enter, curve: Curves.easeOut),
       child: SlideTransition(
         position: Tween<Offset>(
-          begin: const Offset(0, 0.12),
+          begin: const Offset(0, 0.08),
           end: Offset.zero,
         ).animate(CurvedAnimation(parent: _enter, curve: Curves.easeOutCubic)),
         child: Padding(
-          padding: const EdgeInsets.only(bottom: 10, top: 6),
+          padding: const EdgeInsets.only(bottom: 12, top: 4),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -83,34 +152,29 @@ class _AiWaitingStatusBubbleState extends State<AiWaitingStatusBubble>
                   animation: Listenable.merge([_pulse, _shimmer]),
                   builder: (context, _) {
                     return Container(
-                      constraints: const BoxConstraints(maxWidth: 320),
+                      constraints: const BoxConstraints(maxWidth: 360),
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(14),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
+                            color: Colors.black.withValues(
+                              alpha: isDark ? 0.2 : 0.04,
+                            ),
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
                           ),
                         ],
                       ),
                       child: ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(14),
                         child: Stack(
                           children: [
                             Container(
-                              padding: const EdgeInsets.fromLTRB(
-                                14,
-                                11,
-                                14,
-                                12,
-                              ),
+                              padding: const EdgeInsets.fromLTRB(14, 11, 14, 13),
                               decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: Colors.grey.shade200,
-                                ),
+                                color: cardBg,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: borderCol),
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -124,58 +188,61 @@ class _AiWaitingStatusBubbleState extends State<AiWaitingStatusBubble>
                                             ? Icons.touch_app_outlined
                                             : Icons.auto_awesome,
                                         size: 13,
-                                        color: Colors.grey.shade500,
+                                        color: isUserAction
+                                            ? subTextColor
+                                            : AppColors.primary,
                                       ),
-                                      const SizedBox(width: 5),
+                                      const SizedBox(width: 6),
                                       Text(
-                                        widget.subtitle,
+                                        cleanSubtitle,
                                         style: TextStyle(
                                           fontSize: 11,
-                                          fontWeight: FontWeight.w600,
-                                          letterSpacing: 0.15,
-                                          color: Colors.grey.shade500,
+                                          fontWeight: FontWeight.w700,
+                                          letterSpacing: 0.2,
+                                          color: subTextColor,
                                         ),
                                       ),
                                       const SizedBox(width: 8),
                                       _PremiumThinkingDots(
                                         controller: _dots,
                                         color: isUserAction
-                                            ? Colors.grey.shade500
+                                            ? subTextColor
                                             : AppColors.primary,
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 7),
-                                  Text(
-                                    widget.text,
-                                    style: TextStyle(
-                                      color: Colors.grey.shade800,
-                                      fontSize: 13.5,
-                                      fontWeight: FontWeight.w600,
-                                      height: 1.35,
+                                  const SizedBox(height: 8),
+                                  RichText(
+                                    text: TextSpan(
+                                      children: _parseFormattedSpans(
+                                        widget.text,
+                                        primaryTextColor,
+                                      ),
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                            // Soft neutral shimmer
+                            // Soft ambient shimmer
                             Positioned.fill(
                               child: IgnorePointer(
                                 child: Transform.translate(
                                   offset: Offset(
-                                    -140 + (_shimmer.value * 400),
+                                    -160 + (_shimmer.value * 460),
                                     0,
                                   ),
                                   child: Container(
-                                    width: 70,
+                                    width: 80,
                                     decoration: BoxDecoration(
                                       gradient: LinearGradient(
                                         begin: Alignment.centerLeft,
                                         end: Alignment.centerRight,
                                         colors: [
-                                          Colors.white.withOpacity(0.0),
-                                          Colors.grey.shade100.withOpacity(0.7),
-                                          Colors.white.withOpacity(0.0),
+                                          Colors.white.withValues(alpha: 0.0),
+                                          (isDark
+                                                  ? Colors.white.withValues(alpha: 0.06)
+                                                  : Colors.purple.withValues(alpha: 0.08)),
+                                          Colors.white.withValues(alpha: 0.0),
                                         ],
                                       ),
                                     ),

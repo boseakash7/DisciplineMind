@@ -1,13 +1,22 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/controller/chat_controller.dart';
 import 'package:discipline_mind/model/chat_message_model.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
+import 'package:discipline_mind/services/openai_stt_service.dart';
 import 'package:discipline_mind/ui/main_home/trade_process.dart';
-import 'package:discipline_mind/ui/main_home/widgets/dmt_score_popup.dart';
+import 'package:discipline_mind/ui/main_home/dmt_score_screen.dart';
+import 'package:discipline_mind/ui/widgets/ai_waiting_status_bubble.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
+import 'package:discipline_mind/ui/widgets/audio_wave_visualizer.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:record/record.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key, this.onMonkkTap, this.isActive = true});
@@ -33,12 +42,210 @@ class _ChatScreenState extends State<ChatScreen> {
   String _previousFirstMessageId = '';
   String _previousLastMessageId = '';
 
+  /// Voice recording & STT states
+  AudioRecorder? _audioRecorder;
+  StreamSubscription<Amplitude>? _amplitudeSubscription;
+  bool _isRecording = false;
+  bool _isTranscribing = false;
+  double _currentAmplitude = 0.0;
+  int _recordingSeconds = 0;
+  Timer? _recordingTimer;
+  String? _currentRecordingPath;
+
   /// DMT score popup staged animation shown once per message (while unread).
   final Set<String> _dmtScorePopupAnimatedIds = <String>{};
 
   /// Selected action in trade signal dropdowns keyed by messageId / signalId.
   final Map<String, String> _selectedSignalActions = <String, String>{};
   final Set<String> _expandedSignalDropdowns = <String>{};
+
+  Future<void> _disposeRecorder() async {
+    _recordingTimer?.cancel();
+    _recordingTimer = null;
+    await _amplitudeSubscription?.cancel();
+    _amplitudeSubscription = null;
+    if (_audioRecorder != null) {
+      try {
+        if (await _audioRecorder!.isRecording()) {
+          await _audioRecorder!.stop();
+        }
+      } catch (_) {}
+      try {
+        await _audioRecorder!.dispose();
+      } catch (_) {}
+      _audioRecorder = null;
+    }
+  }
+
+  Future<void> _startRecording() async {
+    if (_isRecording || _isTranscribing) return;
+    try {
+      await _disposeRecorder();
+      _audioRecorder = AudioRecorder();
+
+      final status = await Permission.microphone.request();
+      if (!status.isGranted) {
+        AppToast.showToast('Microphone permission is required to record audio');
+        await _disposeRecorder();
+        return;
+      }
+      final hasPermission = await _audioRecorder!.hasPermission();
+      if (!hasPermission) {
+        AppToast.showToast('Microphone permission denied');
+        await _disposeRecorder();
+        return;
+      }
+
+      final tempDir = await getTemporaryDirectory();
+      final path =
+          '${tempDir.path}/chat_voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
+      await _audioRecorder!.start(
+        const RecordConfig(encoder: AudioEncoder.aacLc),
+        path: path,
+      );
+
+      setState(() {
+        _isRecording = true;
+        _isTranscribing = false;
+        _currentAmplitude = 0.0;
+        _recordingSeconds = 0;
+        _currentRecordingPath = path;
+      });
+
+      _recordingTimer?.cancel();
+      _recordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted && _isRecording) {
+          setState(() => _recordingSeconds++);
+        }
+      });
+
+      _amplitudeSubscription?.cancel();
+      _amplitudeSubscription = _audioRecorder!
+          .onAmplitudeChanged(const Duration(milliseconds: 70))
+          .listen((amp) {
+        if (!mounted || !_isRecording) return;
+        final db = amp.current;
+        double norm;
+        if (db <= -45.0) {
+          norm = 0.0;
+        } else {
+          norm = ((db + 45.0) / 45.0).clamp(0.0, 1.0);
+        }
+        setState(() {
+          _currentAmplitude = norm;
+        });
+      });
+    } catch (e) {
+      debugPrint('Error starting audio recording: $e');
+      AppToast.showToast('Failed to start recording');
+      await _disposeRecorder();
+      if (mounted) {
+        setState(() => _isRecording = false);
+      }
+    }
+  }
+
+  Future<void> _stopRecordingAndTranscribe() async {
+    if (!_isRecording) return;
+    try {
+      _recordingTimer?.cancel();
+      await _amplitudeSubscription?.cancel();
+      _amplitudeSubscription = null;
+
+      String? path;
+      if (_audioRecorder != null) {
+        try {
+          path = await _audioRecorder!.stop();
+        } catch (e) {
+          debugPrint('Error stopping audio recorder: $e');
+        }
+        try {
+          await _audioRecorder!.dispose();
+        } catch (_) {}
+        _audioRecorder = null;
+      }
+
+      setState(() {
+        _isRecording = false;
+        _isTranscribing = true;
+      });
+
+      final targetPath = path ?? _currentRecordingPath;
+      if (targetPath == null || targetPath.isEmpty) {
+        AppToast.showToast('No audio recorded');
+        setState(() => _isTranscribing = false);
+        return;
+      }
+
+      final text = await OpenAiSttService.transcribeAudio(targetPath);
+
+      if (!mounted) return;
+      setState(() {
+        _isTranscribing = false;
+      });
+
+      if (text != null && text.isNotEmpty) {
+        final currentText = _textController.text;
+        if (currentText.trim().isEmpty) {
+          _textController.text = text;
+        } else {
+          _textController.text = '$currentText $text';
+        }
+        _textController.selection = TextSelection.fromPosition(
+          TextPosition(offset: _textController.text.length),
+        );
+      } else {
+        AppToast.showToast('Could not convert voice to text');
+      }
+
+      try {
+        final f = File(targetPath);
+        if (await f.exists()) await f.delete();
+      } catch (_) {}
+    } catch (e) {
+      debugPrint('Error stopping/transcribing audio: $e');
+      await _disposeRecorder();
+      if (mounted) {
+        setState(() => _isTranscribing = false);
+        AppToast.showToast('Failed to process voice recording');
+      }
+    }
+  }
+
+  Future<void> _cancelRecording() async {
+    if (!_isRecording) return;
+    try {
+      _recordingTimer?.cancel();
+      await _amplitudeSubscription?.cancel();
+      _amplitudeSubscription = null;
+
+      String? path;
+      if (_audioRecorder != null) {
+        try {
+          path = await _audioRecorder!.stop();
+        } catch (_) {}
+        try {
+          await _audioRecorder!.dispose();
+        } catch (_) {}
+        _audioRecorder = null;
+      }
+
+      setState(() {
+        _isRecording = false;
+        _isTranscribing = false;
+        _currentAmplitude = 0.0;
+      });
+
+      final targetPath = path ?? _currentRecordingPath;
+      if (targetPath != null) {
+        final f = File(targetPath);
+        if (await f.exists()) await f.delete();
+      }
+    } catch (e) {
+      debugPrint('Error cancelling recording: $e');
+    }
+  }
 
   // ==================== Theme-aware color helpers ====================
   // Centralised so light/dark variants stay consistent across every bubble,
@@ -90,10 +297,12 @@ class _ChatScreenState extends State<ChatScreen> {
   /// Divider color used inside the (always-white) trade card stays the same
   /// in both themes since the card itself stays white per design.
 
+  final ValueNotifier<bool> _showScrollToLatest = ValueNotifier<bool>(false);
+
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(_handleScrollForOlderMessages);
+    _scrollController.addListener(_onChatScroll);
   }
 
   @override
@@ -112,10 +321,38 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
-    _scrollController.removeListener(_handleScrollForOlderMessages);
+    _disposeRecorder();
+    _scrollController.removeListener(_onChatScroll);
     _textController.dispose();
+    _showScrollToLatest.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _onChatScroll() {
+    _updateScrollToLatestVisibility();
+    _handleScrollForOlderMessages();
+  }
+
+  void _updateScrollToLatestVisibility() {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    final distanceFromBottom = position.maxScrollExtent - position.pixels;
+    final shouldShow =
+        position.maxScrollExtent > 120 && distanceFromBottom > 120;
+    if (shouldShow != _showScrollToLatest.value) {
+      _showScrollToLatest.value = shouldShow;
+    }
+  }
+
+  void _jumpToLatestMessages() {
+    if (!_scrollController.hasClients) return;
+    _showScrollToLatest.value = false;
+    _scrollToBottom(animated: true);
+    Future.delayed(const Duration(milliseconds: 280), () {
+      if (!mounted) return;
+      _scheduleScrollToBottom();
+    });
   }
 
   bool _isNearBottom() {
@@ -309,6 +546,192 @@ class _ChatScreenState extends State<ChatScreen> {
     return raw;
   }
 
+  DateTime? _messageDay(ChatMessage msg) {
+    final ts = msg.timestamp.trim();
+    if (ts.isNotEmpty) {
+      final parsed = DateTime.tryParse(ts);
+      if (parsed != null) {
+        final local = parsed.toLocal();
+        return DateTime(local.year, local.month, local.day);
+      }
+    }
+    if (msg is DmtScoreMessage) {
+      final scoreDate = msg.scoreDate.trim();
+      if (scoreDate.isNotEmpty) {
+        final parsed = DateTime.tryParse(scoreDate);
+        if (parsed != null) {
+          return DateTime(parsed.year, parsed.month, parsed.day);
+        }
+      }
+    }
+    return null;
+  }
+
+  String _chatDateLabel(DateTime day) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    if (day == today) return 'Today';
+    if (day == yesterday) return 'Yesterday';
+    const months = <String>[
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final month = months[day.month - 1];
+    if (day.year == today.year) return '${day.day} $month';
+    return '${day.day} $month ${day.year}';
+  }
+
+  static const _unreadBurstWindow = Duration(seconds: 1);
+
+  int _latestUnreadBurstStartIndex(List<ChatMessage> messages) {
+    var end = -1;
+    for (var i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].isUnread) {
+        end = i;
+        break;
+      }
+    }
+    if (end < 0) return -1;
+
+    var start = end;
+    while (start > 0) {
+      final prev = messages[start - 1];
+      if (!prev.isUnread) break;
+      final tCurr = ChatController.parseMessageTime(messages[start].timestamp);
+      final tPrev = ChatController.parseMessageTime(prev.timestamp);
+      if (tCurr == null || tPrev == null) break;
+      if (tCurr.difference(tPrev).abs() > _unreadBurstWindow) break;
+      start--;
+    }
+    return start;
+  }
+
+  List<_ChatFeedItem> _buildChatFeedItems(List<ChatMessage> messages) {
+    final items = <_ChatFeedItem>[];
+    DateTime? lastDay;
+    final newMessagesAt = _latestUnreadBurstStartIndex(messages);
+
+    for (var i = 0; i < messages.length; i++) {
+      final msg = messages[i];
+      final day = _messageDay(msg);
+
+      if (i == newMessagesAt) {
+        items.add(const _ChatFeedNewMessages());
+      }
+
+      if (day != null && (lastDay == null || day != lastDay)) {
+        items.add(_ChatFeedDateHeader(label: _chatDateLabel(day)));
+        lastDay = day;
+      }
+
+      items.add(_ChatFeedMessage(index: i, message: msg));
+    }
+    return items;
+  }
+
+  Widget _buildDateSeparator(String label, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Row(
+        children: [
+          Expanded(
+            child: Divider(
+              color: isDark ? const Color(0xFF2E3440) : Colors.grey.shade300,
+              thickness: 1,
+              height: 1,
+            ),
+          ),
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF242A36) : Colors.grey.shade200,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.white70 : Colors.grey.shade700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Divider(
+              color: isDark ? const Color(0xFF2E3440) : Colors.grey.shade300,
+              thickness: 1,
+              height: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNewMessagesSeparator() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Row(
+        children: [
+          Expanded(
+            child: SizedBox(
+              height: 1,
+              child: CustomPaint(
+                painter: _DottedLinePainter(
+                  color: AppColors.primary,
+                  strokeWidth: 1.5,
+                  dashWidth: 5,
+                  gap: 4,
+                ),
+              ),
+            ),
+          ),
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Text(
+              'New Messages',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          Expanded(
+            child: SizedBox(
+              height: 1,
+              child: CustomPaint(
+                painter: _DottedLinePainter(
+                  color: AppColors.primary,
+                  strokeWidth: 1.5,
+                  dashWidth: 5,
+                  gap: 4,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = _isDark(context);
@@ -391,79 +814,138 @@ class _ChatScreenState extends State<ChatScreen> {
                           scoreDate: t.scoreDate,
                           instructionsScore: t.instructionsScore,
                           commitmentScore: t.commitmentScore,
+                          acceptanceScore: t.acceptanceScore,
                           patienceScore: t.patienceScore,
                           consistencyScore: t.consistencyScore,
                           dmtTotalScore: t.dmtTotalScore,
                           dmtMaxScore: t.dmtMaxScore,
+                          hasAcceptanceScore: t.hasAcceptanceScore,
+                          acceptanceIsNa: t.acceptanceIsNa,
+                          acceptanceNote: t.acceptanceNote,
                           animateReveal: true,
                         );
                       });
                     }
                   }
-                  return controller.messages.isEmpty
-                      ? ListView(
-                          controller: _scrollController,
-                          children: [
-                            SizedBox(
-                              height: 420,
-                              child: Center(
-                                child: Text(
-                                  'No messages yet.',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: _secondaryText(isDark),
+                  final feedItems = _buildChatFeedItems(controller.messages);
+                  return Stack(
+                    children: [
+                      controller.messages.isEmpty
+                          ? ListView(
+                              controller: _scrollController,
+                              children: [
+                                SizedBox(
+                                  height: 420,
+                                  child: Center(
+                                    child: Text(
+                                      'No messages yet.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: _secondaryText(isDark),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : ListView.builder(
+                              controller: _scrollController,
+                              cacheExtent: 500,
+                              addRepaintBoundaries: true,
+                              addAutomaticKeepAlives: true,
+                              physics: const AlwaysScrollableScrollPhysics(
+                                parent: BouncingScrollPhysics(),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              itemCount: feedItems.length,
+                              itemBuilder: (_, i) {
+                                final item = feedItems[i];
+                                Widget childWidget;
+                                if (item is _ChatFeedDateHeader) {
+                                  childWidget = KeyedSubtree(
+                                    key: ValueKey('chat_date_${item.label}'),
+                                    child: _buildDateSeparator(item.label, isDark),
+                                  );
+                                } else if (item is _ChatFeedNewMessages) {
+                                  childWidget = KeyedSubtree(
+                                    key: const ValueKey('chat_new_messages'),
+                                    child: _buildNewMessagesSeparator(),
+                                  );
+                                } else {
+                                  final msgItem = item as _ChatFeedMessage;
+                                  final msg = msgItem.message;
+                                  final bubble = _buildMessage(
+                                    context,
+                                    msg,
+                                    controller,
+                                  );
+                                  final rowKey = msg.messageId.trim().isNotEmpty
+                                      ? ValueKey(
+                                          'chat_row_${msg.messageId}_${msg.type.name}',
+                                        )
+                                      : ValueKey(
+                                          'chat_row_fallback_${msg.type.name}_${msgItem.index}',
+                                        );
+                                  final id = msg.messageId.trim();
+                                  if (!msg.isUnread || id.isEmpty) {
+                                    childWidget = KeyedSubtree(key: rowKey, child: bubble);
+                                  } else if (_revealedUnreadMessageIds.contains(id)) {
+                                    childWidget = KeyedSubtree(key: rowKey, child: bubble);
+                                  } else {
+                                    childWidget = KeyedSubtree(
+                                      key: rowKey,
+                                      child: _UnreadRevealGate(
+                                        messageId: id,
+                                        onRevealed: (messageId) {
+                                          if (!mounted) return;
+                                          setState(() {
+                                            _revealedUnreadMessageIds.add(messageId);
+                                          });
+                                          _scheduleScrollAfterUnreadReveal(
+                                            messageId,
+                                            controller,
+                                          );
+                                        },
+                                      ),
+                                    );
+                                  }
+                                }
+                                return RepaintBoundary(child: childWidget);
+                              },
+                            ),
+                      ValueListenableBuilder<bool>(
+                        valueListenable: _showScrollToLatest,
+                        builder: (context, show, child) {
+                          if (!show) return const SizedBox.shrink();
+                          return Positioned(
+                            right: 16,
+                            bottom: 12,
+                            child: Material(
+                              elevation: 4,
+                              color: isDark ? const Color(0xFF1E222A) : Colors.white,
+                              shape: const CircleBorder(),
+                              shadowColor: Colors.black26,
+                              child: InkWell(
+                                customBorder: const CircleBorder(),
+                                onTap: _jumpToLatestMessages,
+                                child: const Padding(
+                                  padding: EdgeInsets.all(10),
+                                  child: Icon(
+                                    Icons.keyboard_arrow_down_rounded,
+                                    color: AppColors.primary,
+                                    size: 28,
                                   ),
                                 ),
                               ),
                             ),
-                          ],
-                        )
-                      : ListView.builder(
-                          controller: _scrollController,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          itemCount: controller.messages.length,
-                          itemBuilder: (_, i) {
-                            final msg = controller.messages[i];
-                            final bubble = _buildMessage(
-                              context,
-                              msg,
-                              controller,
-                            );
-                            final rowKey = msg.messageId.trim().isNotEmpty
-                                ? ValueKey(
-                                    'chat_row_${msg.messageId}_${msg.type.name}',
-                                  )
-                                : ValueKey(
-                                    'chat_row_fallback_${msg.type.name}_$i',
-                                  );
-                            final id = msg.messageId.trim();
-                            if (!msg.isUnread || id.isEmpty) {
-                              return KeyedSubtree(key: rowKey, child: bubble);
-                            }
-                            if (_revealedUnreadMessageIds.contains(id)) {
-                              return KeyedSubtree(key: rowKey, child: bubble);
-                            }
-                            return KeyedSubtree(
-                              key: rowKey,
-                              child: _UnreadRevealGate(
-                                messageId: id,
-                                onRevealed: (messageId) {
-                                  if (!mounted) return;
-                                  setState(() {
-                                    _revealedUnreadMessageIds.add(messageId);
-                                  });
-                                  _scheduleScrollAfterUnreadReveal(
-                                    messageId,
-                                    controller,
-                                  );
-                                },
-                              ),
-                            );
-                          },
-                        );
+                          );
+                        },
+                      ),
+                    ],
+                  );
                 }),
               ),
               _buildInput(context, controller, _textController),
@@ -554,17 +1036,15 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildAiWaiting(BuildContext context, AiWaitingMessage msg) {
-    final isDark = _isDark(context);
-    final text = msg.text.trim();
-    final subtitle = msg.subtitle.trim();
-    final fullText = subtitle.isNotEmpty &&
-            subtitle != 'Monkk is waiting' &&
-            subtitle != 'AI is waiting'
-        ? '$text\n$subtitle'
-        : text;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: _buildRichMessageContent(fullText, isDark),
+    return AiWaitingStatusBubble(
+      key: ValueKey('ai_waiting_${msg.messageId}_${msg.text}'),
+      text: msg.text,
+      subtitle: msg.subtitle.isNotEmpty &&
+              msg.subtitle != 'Monkk is waiting' &&
+              msg.subtitle != 'AI is waiting'
+          ? msg.subtitle
+          : 'Zeno AI is analyzing',
+      showAvatar: false,
     );
   }
 
@@ -596,10 +1076,14 @@ class _ChatScreenState extends State<ChatScreen> {
                 scoreDate: msg.scoreDate,
                 instructionsScore: msg.instructionsScore,
                 commitmentScore: msg.commitmentScore,
+                acceptanceScore: msg.acceptanceScore,
                 patienceScore: msg.patienceScore,
                 consistencyScore: msg.consistencyScore,
                 dmtTotalScore: msg.dmtTotalScore,
                 dmtMaxScore: msg.dmtMaxScore,
+                hasAcceptanceScore: msg.hasAcceptanceScore,
+                acceptanceIsNa: msg.acceptanceIsNa,
+                acceptanceNote: msg.acceptanceNote,
                 animateReveal: shouldAnimate,
               ).then((_) {
                 if (!mounted || !shouldAnimate || id.isEmpty) return;
@@ -647,6 +1131,18 @@ class _ChatScreenState extends State<ChatScreen> {
     ChatController controller,
   ) {
     final isDark = _isDark(context);
+    final hasPayloadData = msg.currentPrice.isNotEmpty ||
+        msg.dayLow.isNotEmpty ||
+        msg.dayHigh.isNotEmpty ||
+        msg.openPrice.isNotEmpty;
+
+    if (!hasPayloadData) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: _buildRichMessageContent(msg.headline, isDark),
+      );
+    }
+
     final msgKey = msg.messageId.isNotEmpty
         ? msg.messageId
         : (msg.signalId.isNotEmpty ? msg.signalId : 'ts_${msg.instrument}');
@@ -671,24 +1167,16 @@ class _ChatScreenState extends State<ChatScreen> {
     final ratio =
         diff > 0 ? ((currNum - lowNum) / diff).clamp(0.0, 1.0) : 0.5;
 
-    final isMovingUp = currNum >=
-        (double.tryParse(msg.openPrice.replaceAll(',', '')) ?? lowNum);
-    final movementText = isMovingUp
-        ? '${msg.instrument} is moving from Low to High.'
-        : '${msg.instrument} is moving from High to Low.';
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Your Process Overview at 10:00 am',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              color: _headlineText(isDark),
-            ),
+          _buildRichMessageContent(
+            msg.headline.isNotEmpty
+                ? msg.headline
+                : 'Your Process Overview',
+            isDark,
           ),
           const SizedBox(height: 12),
 
@@ -1041,53 +1529,6 @@ class _ChatScreenState extends State<ChatScreen> {
                           },
                         ),
                       ),
-                      const SizedBox(height: 12),
-
-                      // Sentiment Pill
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 7,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? const Color(0xFF142B21)
-                              : const Color(0xFFF0FAF6),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: isDark
-                                ? const Color(0xFF1F4A38)
-                                : const Color(0xFFD4EFE4),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              isMovingUp
-                                  ? Icons.trending_up_rounded
-                                  : Icons.trending_down_rounded,
-                              color: isMovingUp
-                                  ? const Color(0xFF208052)
-                                  : const Color(0xFFD32F2F),
-                              size: 18,
-                            ),
-                            const SizedBox(width: 7),
-                            Expanded(
-                              child: Text(
-                                movementText,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: isMovingUp
-                                      ? const Color(0xFF208052)
-                                      : const Color(0xFFD32F2F),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -1284,6 +1725,17 @@ class _ChatScreenState extends State<ChatScreen> {
                         ],
                       ],
                     ),
+                  ),
+                ] else ...[
+                  const SizedBox(height: 18),
+                  _tradePromptPrimaryButton(
+                    label: selectedAction != null &&
+                            selectedAction != 'Select Action'
+                        ? selectedAction!
+                        : 'Action Applied',
+                    icon: Icons.check_circle_outline_rounded,
+                    isCompleted: true,
+                    enabled: false,
                   ),
                 ],
               ],
@@ -2102,7 +2554,7 @@ class _ChatScreenState extends State<ChatScreen> {
             showInvalidOverlay: true,
           ),
           const SizedBox(height: 16),
-          Text('Trading App Unlocked', style: titleStyle),
+          Text('Mind Control Guard is Deactivated', style: titleStyle),
           const SizedBox(height: 12),
           Text(_deleteTradeStep1Text(msg), style: stepStyle),
           const SizedBox(height: 8),
@@ -2160,7 +2612,7 @@ class _ChatScreenState extends State<ChatScreen> {
             showInvalidOverlay: false,
           ),
           const SizedBox(height: 16),
-          Text('Trading App Unlocked', style: titleStyle),
+          Text('Mind Control Guard is Deactivated', style: titleStyle),
           const SizedBox(height: 12),
           Text(
             _tradeDeleteStepLine(1, backendText, backendText),
@@ -2537,6 +2989,14 @@ class _ChatScreenState extends State<ChatScreen> {
               enabled: true,
               onTap: () => _showGttDialog(context, msg, controller),
             ),
+          ] else ...[
+            const SizedBox(height: 14),
+            _tradePromptPrimaryButton(
+              label: 'GTT / Levels Applied',
+              icon: Icons.check_circle_outline_rounded,
+              isCompleted: true,
+              enabled: false,
+            ),
           ],
         ],
       ),
@@ -2553,12 +3013,13 @@ class _ChatScreenState extends State<ChatScreen> {
   }) {
     final isDark = _isDark(context);
     const primaryColor = Color(0xFF2B4BF2);
-    final borderColor = (isCompleted || enabled)
+    final isEffectivelyActive = enabled && !isCompleted;
+    final borderColor = isEffectivelyActive
         ? primaryColor
-        : (isDark ? Colors.white24 : Colors.grey.shade400);
-    final textColor = (isCompleted || enabled)
+        : (isDark ? const Color(0xFF333A48) : const Color(0xFFD1D5DB));
+    final textColor = isEffectivelyActive
         ? primaryColor
-        : (isDark ? Colors.white38 : Colors.grey.shade500);
+        : (isDark ? const Color(0xFF6B7280) : const Color(0xFF94A3B8));
     final iconColor = textColor;
     IconData getFallbackIcon() {
       final l = label.toUpperCase();
@@ -2573,7 +3034,9 @@ class _ChatScreenState extends State<ChatScreen> {
       return Icons.check_circle_outline_rounded;
     }
 
-    final effectiveIcon = icon ?? getFallbackIcon();
+    final effectiveIcon = isCompleted
+        ? Icons.check_circle_outline_rounded
+        : (icon ?? getFallbackIcon());
 
     final child = Container(
       width: double.infinity,
@@ -2608,7 +3071,7 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     );
 
-    final canTap = interactive && enabled && onTap != null;
+    final canTap = interactive && isEffectivelyActive && onTap != null;
     return SizedBox(
       width: double.infinity,
       child: Material(
@@ -3730,7 +4193,18 @@ class _ChatScreenState extends State<ChatScreen> {
             _tradePromptPrimaryButton(
               label: msg.buttonLabel,
               enabled: true,
-              onTap: () => AppToast.showToast('Thanks for confirming'),
+              onTap: () {
+                controller.markActionTaken(messageId: msg.messageId);
+                AppToast.showToast('Thanks for confirming');
+              },
+            ),
+          ] else ...[
+            const SizedBox(height: 14),
+            _tradePromptPrimaryButton(
+              label: msg.buttonLabel,
+              icon: Icons.check_circle_outline_rounded,
+              isCompleted: true,
+              enabled: false,
             ),
           ],
         ],
@@ -3744,24 +4218,149 @@ class _ChatScreenState extends State<ChatScreen> {
     TextEditingController textController,
   ) {
     final isDark = _isDark(context);
+
+    if (_isTranscribing) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        color: _bottomBarBg(isDark),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF3F0FF),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(
+              color: isDark ? const Color(0xFF2C3240) : const Color(0xFFE2DCF7),
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'Converting voice to text...',
+                style: TextStyle(
+                  color: isDark ? Colors.white70 : const Color(0xFF10122D),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_isRecording) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        color: _bottomBarBg(isDark),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF3F0FF),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(
+              color: isDark ? const Color(0xFF2C3240) : const Color(0xFFE2DCF7),
+            ),
+          ),
+          child: Row(
+            children: [
+              GestureDetector(
+                onTap: _cancelRecording,
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  child: Icon(
+                    Icons.close,
+                    color: isDark ? Colors.white70 : Colors.grey.shade700,
+                    size: 22,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: AudioWaveVisualizer(
+                  amplitude: _currentAmplitude,
+                  barCount: 26,
+                  height: 32,
+                  barWidth: 3.2,
+                  activeColor: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: _stopRecordingAndTranscribe,
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF2C3240) : Colors.grey.shade300,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: Icon(
+                      Icons.square_rounded,
+                      color: isDark ? Colors.white : Colors.grey.shade800,
+                      size: 14,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: _stopRecordingAndTranscribe,
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: const BoxDecoration(
+                    color: AppColors.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.arrow_upward_rounded,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       color: _bottomBarBg(isDark),
       child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1E222A) : Colors.white,
-          borderRadius: BorderRadius.circular(8),
+          color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF3F0FF),
+          borderRadius: BorderRadius.circular(28),
           border: Border.all(
-            color: const Color(0xFF2B4BF2),
-            width: 1.5,
+            color: isDark ? const Color(0xFF2C3240) : const Color(0xFFE2DCF7),
           ),
         ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
               child: TextField(
                 controller: textController,
-                style: TextStyle(color: _bubbleText(isDark), fontSize: 14),
+                minLines: 1,
+                maxLines: 5,
+                keyboardType: TextInputType.multiline,
+                style: TextStyle(
+                  color: _bubbleText(isDark),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
                 decoration: InputDecoration(
                   hintText: 'Send a message',
                   hintStyle: TextStyle(
@@ -3769,10 +4368,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     fontSize: 14,
                   ),
                   border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 12,
-                  ),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
                 ),
                 onSubmitted: (text) {
                   if (text.trim().isEmpty) return;
@@ -3782,21 +4378,43 @@ class _ChatScreenState extends State<ChatScreen> {
                 },
               ),
             ),
-            InkWell(
-              onTap: () {
-                final text = textController.text;
-                if (text.trim().isEmpty) return;
-                controller.sendTextMessage(text);
-                textController.clear();
-                _scheduleScrollToBottom();
-              },
-              borderRadius: BorderRadius.circular(8),
-              child: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Icon(
-                  Icons.send_rounded,
-                  color: Color(0xFF2B4BF2),
-                  size: 24,
+            const SizedBox(width: 6),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: GestureDetector(
+                onTap: _startRecording,
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  child: Icon(
+                    Icons.mic_none_rounded,
+                    color: isDark ? Colors.white70 : const Color(0xFF70717F),
+                    size: 24,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: GestureDetector(
+                onTap: () {
+                  final text = textController.text;
+                  if (text.trim().isEmpty) return;
+                  controller.sendTextMessage(text);
+                  textController.clear();
+                  _scheduleScrollToBottom();
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: const BoxDecoration(
+                    color: AppColors.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.arrow_upward_rounded,
+                    color: Colors.white,
+                    size: 18,
+                  ),
                 ),
               ),
             ),
@@ -4113,18 +4731,26 @@ class _InvalidTradeCrossPainter extends CustomPainter {
 }
 
 class _DottedLinePainter extends CustomPainter {
-  const _DottedLinePainter({this.isDark = false});
+  const _DottedLinePainter({
+    this.color,
+    this.strokeWidth = 2,
+    this.dashWidth = 6,
+    this.gap = 4,
+    this.isDark = false,
+  });
 
+  final Color? color;
+  final double strokeWidth;
+  final double dashWidth;
+  final double gap;
   final bool isDark;
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = isDark ? Colors.white24 : Colors.grey.shade400
-      ..strokeWidth = 2
+      ..color = color ?? (isDark ? Colors.white24 : Colors.grey.shade400)
+      ..strokeWidth = strokeWidth
       ..style = PaintingStyle.stroke;
-    const dashWidth = 6.0;
-    const gap = 4.0;
     double x = 0;
     while (x < size.width) {
       canvas.drawLine(
@@ -4138,6 +4764,10 @@ class _DottedLinePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _DottedLinePainter oldDelegate) =>
+      oldDelegate.color != color ||
+      oldDelegate.strokeWidth != strokeWidth ||
+      oldDelegate.dashWidth != dashWidth ||
+      oldDelegate.gap != gap ||
       oldDelegate.isDark != isDark;
 }
 
@@ -4196,4 +4826,23 @@ class _BlinkingCurrentPriceBadgeState extends State<_BlinkingCurrentPriceBadge>
       ),
     );
   }
+}
+
+abstract class _ChatFeedItem {
+  const _ChatFeedItem();
+}
+
+class _ChatFeedDateHeader extends _ChatFeedItem {
+  const _ChatFeedDateHeader({required this.label});
+  final String label;
+}
+
+class _ChatFeedNewMessages extends _ChatFeedItem {
+  const _ChatFeedNewMessages();
+}
+
+class _ChatFeedMessage extends _ChatFeedItem {
+  const _ChatFeedMessage({required this.index, required this.message});
+  final int index;
+  final ChatMessage message;
 }

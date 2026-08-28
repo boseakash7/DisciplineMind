@@ -19,6 +19,8 @@ abstract class ChatMessage {
   final bool isUnread;
   /// Backend control key: show action buttons only when this is null.
   final dynamic actionTaken;
+  /// Server timestamp (ISO-8601). Used for date separators and feed sorting.
+  final String timestamp;
 
   const ChatMessage({
     required this.type,
@@ -26,6 +28,7 @@ abstract class ChatMessage {
     this.messageId = '',
     this.isUnread = false,
     this.actionTaken,
+    this.timestamp = '',
   });
 }
 
@@ -41,8 +44,8 @@ class SimpleTextMessage extends ChatMessage {
     super.messageId,
     super.isUnread,
     super.actionTaken,
-  })
-    : super(type: ChatMessageType.simpleText);
+    super.timestamp,
+  }) : super(type: ChatMessageType.simpleText);
 }
 
 /// Backend AI waiting / status bubble (`message_type: ai_msgs`).
@@ -56,6 +59,7 @@ class AiWaitingMessage extends ChatMessage {
     super.messageId,
     super.isUnread,
     super.actionTaken,
+    super.timestamp,
   }) : super(type: ChatMessageType.aiWaiting);
 
   /// Presentation-only subtitle for the waiting bubble UI.
@@ -85,6 +89,7 @@ class AgentWithButtonMessage extends ChatMessage {
     super.messageId,
     super.isUnread,
     super.actionTaken,
+    super.timestamp,
   }) : super(type: ChatMessageType.agentWithButton);
 }
 
@@ -138,6 +143,7 @@ class NewTradeOpportunityMessage extends ChatMessage {
     super.messageId,
     super.isUnread,
     super.actionTaken,
+    super.timestamp,
   }) : super(type: ChatMessageType.newTradeOpportunity);
 }
 
@@ -147,11 +153,12 @@ class TradeExecutedMessage extends ChatMessage {
   final String buttonLabel;
 
   const TradeExecutedMessage({
-    this.text = 'Trading App is unlocked.',
+    this.text = 'Mind Control Guard is Deactivated.',
     this.buttonLabel = 'GTT / Levels Applied',
     super.messageId,
     super.isUnread,
     super.actionTaken,
+    super.timestamp,
   }) : super(type: ChatMessageType.tradeExecuted);
 }
 
@@ -162,10 +169,11 @@ class TradeExecutionPromptMessage extends ChatMessage {
 
   const TradeExecutionPromptMessage({
     required this.tradeData,
-    this.text = 'Trading App is unlocked.',
+    this.text = 'Mind Control Guard is Deactivated.',
     super.messageId,
     super.isUnread,
     super.actionTaken,
+    super.timestamp,
   }) : super(type: ChatMessageType.tradeExecutionPrompt);
 }
 
@@ -175,20 +183,39 @@ class DmtScoreMessage extends ChatMessage {
   final String scoreDate;
   final String instructionsScore;
   final String commitmentScore;
+  final String acceptanceScore;
   final String patienceScore;
   final String consistencyScore;
   final String dmtTotalScore;
   final String dmtMaxScore;
+
+  /// Optional API `bonus_score` (sum of consistency + patience).
+  final String bonusScore;
+
+  /// True when API payload included `acceptance_score`.
+  final bool hasAcceptanceScore;
+
+  /// True when API `acceptance_is_na` is set (show note instead of score bar).
+  final bool acceptanceIsNa;
+
+  /// API `acceptance_note` shown when [acceptanceIsNa] is true.
+  final String acceptanceNote;
 
   const DmtScoreMessage({
     this.headline = 'DMT Score',
     this.scoreDate = '',
     this.instructionsScore = '0',
     this.commitmentScore = '0',
+    this.acceptanceScore = '0',
     this.patienceScore = '0',
     this.consistencyScore = '0',
     this.dmtTotalScore = '0',
     this.dmtMaxScore = '60',
+    this.bonusScore = '0',
+    this.hasAcceptanceScore = false,
+    this.acceptanceIsNa = false,
+    this.acceptanceNote = '',
+    super.timestamp,
     super.messageId,
     super.isUnread,
     super.actionTaken,
@@ -214,7 +241,6 @@ class TradeSignalMessage extends ChatMessage {
   final String sequenceNo;
   final String status;
   final String createdAt;
-  final String timestamp;
 
   const TradeSignalMessage({
     required this.headline,
@@ -234,7 +260,7 @@ class TradeSignalMessage extends ChatMessage {
     this.sequenceNo = '',
     this.status = '',
     this.createdAt = '',
-    this.timestamp = '',
+    super.timestamp,
     super.messageId,
     super.isUnread,
     super.actionTaken,
@@ -268,6 +294,7 @@ class AlertHitWithButtonMessage extends ChatMessage {
     super.messageId,
     super.isUnread,
     super.actionTaken,
+    super.timestamp,
   }) : super(type: ChatMessageType.alertHitWithButton);
 }
 
@@ -313,6 +340,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
   final isUnread = status == 'unread';
   final buttonTypeOuter = (json['button_type'] ?? '').toString();
   final actionTaken = json['action_taken'];
+  final outerTimestamp = (json['timestamp'] ?? '').toString();
   final payload = json['payload'];
   final payloadMap = payload is Map<String, dynamic>
       ? payload
@@ -346,6 +374,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         messageId: messageId,
         isUnread: isUnread,
         actionTaken: actionTaken,
+        timestamp: outerTimestamp,
       ),
     ];
   }
@@ -361,6 +390,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         messageId: messageId,
         isUnread: isUnread,
         actionTaken: actionTaken,
+        timestamp: outerTimestamp,
       ),
     ];
   }
@@ -375,25 +405,39 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         messageId: messageId,
         isUnread: isUnread,
         actionTaken: actionTaken,
+        timestamp: outerTimestamp,
       ),
     ];
   }
 
   if (messageType == 'dmt_score' || entityType == 'dmt_score') {
     final p = payloadMap ?? <String, dynamic>{};
+    final hasAcceptance = p.containsKey('acceptance_score');
+    final acceptanceIsNa = p.containsKey('acceptance_is_na')
+        ? _parseBoolFlag(p['acceptance_is_na'])
+        : false;
     return [
       DmtScoreMessage(
         headline: message.isNotEmpty ? message : 'DMT Score',
         scoreDate: (p['score_date'] ?? '').toString(),
-        instructionsScore: (p['instructions_score'] ?? '0').toString(),
+        instructionsScore: (p['instructions_score'] ??
+                p['process_score'] ??
+                '0')
+            .toString(),
         commitmentScore: (p['commitment_score'] ?? '0').toString(),
+        acceptanceScore: (p['acceptance_score'] ?? '0').toString(),
         patienceScore: (p['patience_score'] ?? '0').toString(),
         consistencyScore: (p['consistency_score'] ?? '0').toString(),
         dmtTotalScore: (p['dmt_total_score'] ?? '0').toString(),
         dmtMaxScore: (p['dmt_max_score'] ?? '60').toString(),
+        bonusScore: (p['bonus_score'] ?? '0').toString(),
+        hasAcceptanceScore: hasAcceptance,
+        acceptanceIsNa: acceptanceIsNa,
+        acceptanceNote: (p['acceptance_note'] ?? '').toString().trim(),
         messageId: messageId,
         isUnread: isUnread,
         actionTaken: actionTaken,
+        timestamp: outerTimestamp,
       ),
     ];
   }
@@ -420,7 +464,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         sequenceNo: (p['sequence_no'] ?? '').toString(),
         status: (p['status'] ?? '').toString(),
         createdAt: (p['created_at'] ?? '').toString(),
-        timestamp: (json['timestamp'] ?? '').toString(),
+        timestamp: outerTimestamp,
         messageId: messageId,
         isUnread: isUnread,
         actionTaken: actionTaken,
@@ -532,6 +576,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         messageId: messageId,
         isUnread: isUnread,
         actionTaken: actionTaken,
+        timestamp: outerTimestamp,
       );
     }
 
@@ -550,6 +595,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         messageId: messageId,
         isUnread: isUnread,
         actionTaken: actionTaken,
+        timestamp: outerTimestamp,
       ),
     ];
   }
@@ -597,6 +643,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       messageId: messageId,
       isUnread: isUnread,
       actionTaken: actionTaken,
+      timestamp: outerTimestamp,
     );
     parsed.add(tradeMessage);
     if (_isTradePromptAction(action)) {
@@ -606,6 +653,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
           messageId: messageId,
           isUnread: isUnread,
           actionTaken: actionTaken,
+          timestamp: outerTimestamp,
         ),
       );
     }
@@ -619,6 +667,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       messageId: messageId,
       isUnread: isUnread,
       actionTaken: actionTaken,
+      timestamp: outerTimestamp,
     ),
   ];
 }
@@ -627,6 +676,13 @@ bool _isTradePromptAction(String action) {
   final a = action.toLowerCase();
   // Edit flow has its own dedicated UI (edit_button), so avoid generic prompt.
   return a == 'add' || a == 'update';
+}
+
+bool _parseBoolFlag(dynamic value) {
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  final s = value?.toString().toLowerCase().trim() ?? '';
+  return s == 'true' || s == '1' || s == 'yes';
 }
 
 /// Backward-compatible helper when callers expect a single message.

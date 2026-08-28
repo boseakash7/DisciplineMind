@@ -1,4 +1,4 @@
-import 'package:discipline_mind/ui/main_home/widgets/dmt_score_popup.dart';
+import 'package:discipline_mind/ui/main_home/dmt_score_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:discipline_mind/common/app_colors.dart';
 
@@ -59,9 +59,10 @@ class _DisciplineMindTestScreenState extends State<DisciplineMindTestScreen> {
       scoreDate: "July 06, 2026",
       instructionsScore: "82",
       commitmentScore: "75",
+      acceptanceScore: "70",
       patienceScore: "68",
       consistencyScore: "79",
-      dmtTotalScore: "totalScore",
+      dmtTotalScore: "$totalScore",
       dmtMaxScore: "300",
       animateReveal: true,
     ).then((_) {

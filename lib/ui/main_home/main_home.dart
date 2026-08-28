@@ -31,16 +31,20 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
     setState(() => currentIndex = 4);
   }
 
+  void _onTabSelected(int index) {
+    setState(() => currentIndex = index);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
     final navBarColor = theme.bottomNavigationBarTheme.backgroundColor ??
-        (isDark ? const Color(0xFF1A1A1A) : Colors.white);
+        (isDark ? const Color(0xFF1E222A) : Colors.white);
 
-    const navBarHeight = 70.0;
-    const fabSize = 62.0;
+    const navBarHeight = 64.0;
+    const fabSize = 54.0;
     final bottomInset = MediaQuery.of(context).padding.bottom;
 
     final screens = [
@@ -62,19 +66,20 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
       child: Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
         appBar: PreferredSize(
-          preferredSize: const Size.fromHeight(86),
+          preferredSize: const Size.fromHeight(58),
           child: Builder(
             builder: (context) {
               final theme = Theme.of(context);
               final isDark = theme.brightness == Brightness.dark;
-              final textColor = isDark ? Colors.white : Colors.black;
-              final subTextColor = isDark ? Colors.white60 : Colors.black54;
+              final textColor = isDark ? Colors.white : const Color(0xFF10122D);
+              final subTextColor = isDark ? Colors.white60 : const Color(0xFF70717F);
+              final headerBg = isDark ? const Color(0xFF14171D) : Colors.white;
 
               return Container(
-                color:isDark?Colors.black:Colors.white,
+                color: headerBg,
                 child: SafeArea(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                     child: Row(
                       children: [
                         Expanded(
@@ -89,24 +94,30 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                             return Row(
                               children: [
                                 Container(
-                                  width: 42,
-                                  height: 42,
+                                  width: 38,
+                                  height: 38,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
-                                    border: Border.all(color: AppColors.primary, width: 2),
+                                    color: isDark
+                                        ? const Color(0xFF2C3240)
+                                        : const Color(0xFFF3F0FF),
+                                    border: Border.all(
+                                      color: AppColors.primary,
+                                      width: 1.8,
+                                    ),
                                   ),
                                   child: Center(
                                     child: Text(
                                       avatarLetter,
                                       style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w700,
-                                        color: textColor,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w800,
+                                        color: AppColors.primary,
                                       ),
                                     ),
                                   ),
                                 ),
-                                const SizedBox(width: 12),
+                                const SizedBox(width: 10),
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -115,17 +126,21 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                                       Text(
                                         userName,
                                         style: TextStyle(
-                                          fontSize: 20,
+                                          fontSize: 16,
                                           fontWeight: FontWeight.w700,
                                           color: textColor,
                                         ),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
-                                      const SizedBox(height: 2),
+                                      const SizedBox(height: 1),
                                       Text(
                                         "Have a good Day !",
-                                        style: TextStyle(fontSize: 13, color: subTextColor),
+                                        style: TextStyle(
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w500,
+                                          color: subTextColor,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -150,13 +165,12 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
           ),
         ),
         bottomNavigationBar: SizedBox(
-          
-          height: navBarHeight + fabSize / 2 + bottomInset-40,
+          height: navBarHeight + fabSize / 2 + bottomInset,
           child: Stack(
-            alignment: Alignment.bottomCenter,
             clipBehavior: Clip.none,
+            alignment: Alignment.bottomCenter,
             children: [
-              // Background Bar
+              // Bottom Nav Bar Background
               Positioned(
                 left: 0,
                 right: 0,
@@ -167,101 +181,100 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                     color: navBarColor,
                     boxShadow: [
                       BoxShadow(
-                        blurRadius: 12,
-                        color: isDark ? Colors.black.withOpacity(0.4) : Colors.black.withOpacity(0.08),
+                        blurRadius: 10,
+                        color: isDark
+                            ? Colors.black.withValues(alpha: 0.35)
+                            : Colors.black.withValues(alpha: 0.06),
                       ),
                     ],
                   ),
-                  child: Padding(
-                    padding: EdgeInsets.only(bottom: bottomInset),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        _buildNavItem(0, Icons.dashboard_outlined, Icons.dashboard, "BM"),
-                        _buildNavItem(1, Icons.swap_horiz_outlined, Icons.swap_horiz, "Trades"),
-                        const SizedBox(width: 60), // Space for FAB
-                        _buildNavItem(3, Icons.bar_chart_outlined, Icons.bar_chart, "Analysis"),
-                        _buildNavItem(4, Icons.menu_outlined, Icons.menu, "More"),
-                      ],
+                  child: BottomNavigationBar(
+                    backgroundColor: Colors.transparent,
+                    type: BottomNavigationBarType.fixed,
+                    currentIndex: currentIndex,
+                    selectedItemColor: AppColors.primary,
+                    unselectedItemColor: isDark
+                        ? const Color(0xFF8E95A5)
+                        : const Color(0xFF70717F),
+                    showSelectedLabels: true,
+                    showUnselectedLabels: true,
+                    selectedLabelStyle: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      height: 1.1,
                     ),
+                    unselectedLabelStyle: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      height: 1.1,
+                    ),
+                    iconSize: 22,
+                    elevation: 0,
+                    onTap: _onTabSelected,
+                    items: const [
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.grid_view_outlined),
+                        activeIcon: Icon(Icons.grid_view),
+                        label: "BM",
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.swap_vert),
+                        activeIcon: Icon(Icons.swap_vert),
+                        label: "Trades",
+                      ),
+                      BottomNavigationBarItem(
+                        icon: SizedBox(height: 24, width: 24),
+                        label: "",
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.bar_chart_outlined),
+                        activeIcon: Icon(Icons.bar_chart),
+                        label: "Analysis",
+                      ),
+                      BottomNavigationBarItem(
+                        icon: Icon(Icons.menu),
+                        label: "More",
+                      ),
+                    ],
                   ),
                 ),
               ),
 
-              // Center FAB
+              // Floating Central AI Action Button
               Positioned(
-                bottom: navBarHeight / 2 - fabSize / 2 + bottomInset + 10,
-                child: GestureDetector(
-                  onTap: () => setState(() => currentIndex = 2),
-                  child: Container(
-                    width: fabSize,
-                    height: fabSize,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF2B4BF2), Color(0xFF4A22F4)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
+                left: 0,
+                right: 0,
+                top: 0,
+                child: Center(
+                  child: GestureDetector(
+                    onTap: () => _onTabSelected(2),
+                    child: Container(
+                      height: fabSize,
+                      width: fabSize,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: currentIndex == 2
+                            ? AppColors.primary
+                            : AppColors.primary.withValues(alpha: 0.92),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.primary.withValues(alpha: 0.35),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
                       ),
-                      boxShadow: [
-                        BoxShadow(
-                          blurRadius: 16,
-                          spreadRadius: 1,
-                          color: const Color(0xFF2B4BF2).withOpacity(0.5),
-                        ),
-                      ],
-                    ),
-                    child: Stack(
-                      children: [
-                        Positioned(
-                          top: 8,
-                          right: 10,
-                          child: Image.asset("assets/star.png", height: 26),
-                        ),
-                        Positioned(
-                          top: 28,
-                          left: 10,
-                          child: Image.asset("assets/star.png", height: 18),
-                        ),
-                      ],
+                      child: const Icon(
+                        Icons.auto_awesome,
+                        color: Colors.white,
+                        size: 26,
+                      ),
                     ),
                   ),
                 ),
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNavItem(int index, IconData icon, IconData activeIcon, String label) {
-    final isSelected = currentIndex == index;
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return GestureDetector(
-      onTap: () => setState(() => currentIndex = index),
-      child: SizedBox(
-        width: 60,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              isSelected ? activeIcon : icon,
-              color: isSelected ? AppColors.primary : (isDark ? Color(0xFF64748B) :Color(0xFF64748B)),
-              size: 26,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                color: isSelected ? AppColors.primary : (isDark ? Color(0xFF64748B) : Colors.grey.shade600),
-              ),
-            ),
-          ],
         ),
       ),
     );

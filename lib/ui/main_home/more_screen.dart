@@ -6,6 +6,7 @@ import 'package:discipline_mind/ui/main_home/alert_main.dart';
 import 'package:discipline_mind/ui/main_home/mct_lessons_screen.dart';
 import 'package:discipline_mind/ui/main_home/process_detail_screen.dart';
 import 'package:discipline_mind/ui/settings/app_block_settings_screen.dart';
+import 'package:discipline_mind/services/app_url_launcher.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -126,8 +127,24 @@ class MoreScreen extends StatelessWidget {
                     );
                   },
                 ),
-
                 const SizedBox(height: 12),
+
+                _buildTile(
+                  icon: Icons.description_outlined,
+                  title: 'Terms & Conditions',
+                  subtitle: 'Read our terms and conditions',
+                  onTap: AppUrlLauncher.openTermsAndConditions,
+                ),
+                const SizedBox(height: 12),
+
+                _buildTile(
+                  icon: Icons.privacy_tip_outlined,
+                  title: 'Privacy Policy',
+                  subtitle: 'Read our privacy policy',
+                  onTap: AppUrlLauncher.openPrivacyPolicy,
+                ),
+                const SizedBox(height: 12),
+
                 // Theme Switcher — hidden while the app is light-theme only.
                 // _themeTile(isDark: isDark) kept below (unused) so the
                 // switcher can be re-enabled later without rebuilding it.
@@ -145,6 +162,10 @@ class MoreScreen extends StatelessWidget {
         ),
       );
     });
+  }
+
+  static Future<void> _launchUrlString(String urlStr) async {
+    await AppUrlLauncher.openInAppWebView(urlStr);
   }
 
 

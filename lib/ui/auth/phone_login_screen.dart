@@ -1,7 +1,9 @@
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/controller/auth_controller.dart';
+import 'package:discipline_mind/services/app_url_launcher.dart';
 import 'package:discipline_mind/ui/auth/otp_verify_screen.dart';
 import 'package:discipline_mind/ui/widgets/common_widgets.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
@@ -19,7 +21,8 @@ class PhoneLoginScreen extends StatelessWidget {
 
     final backgroundColor = isDark ? const Color(0xFF121212) : AppColors.white;
     final textColor = isDark ? Colors.white : AppColors.textBlack;
-    final secondaryTextColor = isDark ? Colors.grey.shade400 : AppColors.textGrey;
+    final secondaryTextColor =
+        isDark ? Colors.grey.shade400 : AppColors.textGrey;
 
     return Scaffold(
       backgroundColor: backgroundColor,
@@ -77,7 +80,7 @@ class PhoneLoginScreen extends StatelessWidget {
                   },
                 ),
               ),
-              const SizedBox(height: 64),
+              const SizedBox(height: 50),
               Obx(
                 () => PrimaryButton(
                   height: 45,
@@ -89,7 +92,9 @@ class PhoneLoginScreen extends StatelessWidget {
                   isLoading: authController.isLoading.value,
                   onPressed: () async {
                     if (!_formKey.currentState!.validate()) return;
-                    final phone = phoneController.text.trim().replaceAll(RegExp(r'\s+'), '');
+                    final phone = phoneController.text
+                        .trim()
+                        .replaceAll(RegExp(r'\s+'), '');
                     final ok = await authController.sendOtp(phone);
                     if (ok) {
                       Get.to(() => OtpVerifyScreen(phone: phone));
@@ -97,6 +102,49 @@ class PhoneLoginScreen extends StatelessWidget {
                   },
                 ),
               ),
+              const SizedBox(height: 28),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: RichText(
+                  textAlign: TextAlign.center,
+                  text: TextSpan(
+                    text: 'By logging in I agree to the ',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: secondaryTextColor,
+                      height: 1.45,
+                      fontFamily: 'Inter',
+                    ),
+                    children: [
+                      TextSpan(
+                        text: 'Terms and Conditions',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primary,
+                          decoration: TextDecoration.underline,
+                        ),
+                        recognizer: TapGestureRecognizer()
+                          ..onTap = AppUrlLauncher.openTermsAndConditions,
+                      ),
+                      const TextSpan(text: ' and '),
+                      TextSpan(
+                        text: 'Privacy Policy',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primary,
+                          decoration: TextDecoration.underline,
+                        ),
+                        recognizer: TapGestureRecognizer()
+                          ..onTap = AppUrlLauncher.openPrivacyPolicy,
+                      ),
+                      const TextSpan(text: '.'),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
             ],
           ),
         ),

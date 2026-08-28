@@ -6,6 +6,7 @@ import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_block_bootstrap.dart';
+import 'package:discipline_mind/services/app_url_launcher.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -385,9 +386,11 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         return SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
-          child: SizedBox(
-            height: height,
-            child: child,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: height),
+            child: IntrinsicHeight(
+              child: child,
+            ),
           ),
         );
       },
@@ -421,7 +424,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
           const SizedBox(height: 11),
           const Text(
             'Set up your Mind Control Trading\n'
-                'Process in 4 simple steps.',
+                'Process in 6 simple steps.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: _Type.caption,
@@ -521,8 +524,8 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         ...List.generate(
-          4,
-              (index) => Container(
+          6,
+          (index) => Container(
             width: index == 0 ? 8 : 7,
             height: index == 0 ? 8 : 7,
             margin: const EdgeInsets.symmetric(horizontal: 3),
@@ -557,7 +560,13 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       step: 1,
       title: 'Trading Segment',
       subtitle: 'Choose how you want to trade',
-      nextEnabled: tradingSegment != null,
+      onNext: () {
+        if (tradingSegment == null) {
+          AppToast.showToast('Please select a trading segment (Options or Futures)');
+          return;
+        }
+        nextPage();
+      },
       content: [
         _largeOptionCard(
           title: 'Options',
@@ -586,7 +595,13 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       step: 2,
       title: 'Select Instrument',
       subtitle: 'Choose the index you want to trade',
-      nextEnabled: instrument != null,
+      onNext: () {
+        if (instrument == null) {
+          AppToast.showToast('Please select an instrument (Nifty 50, BankNifty, or Sensex)');
+          return;
+        }
+        nextPage();
+      },
       content: [
         _instrumentCard(
           title: 'Nifty 50',
@@ -622,7 +637,29 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       step: 3,
       title: 'Trading Capital & Rules',
       subtitle: 'Set your capital and trading discipline',
-      nextEnabled: _step3Valid,
+      onNext: () {
+        if (tradingCapital <= 0) {
+          AppToast.showToast('Please enter your trading capital');
+          return;
+        }
+        if (tradingCapital < minCapital) {
+          AppToast.showToast('Minimum capital is ₹${_formatIndianNumber(minCapital)}');
+          return;
+        }
+        if (tradingCapital > maxCapital) {
+          AppToast.showToast('Maximum capital is ₹${_formatIndianNumber(maxCapital)}');
+          return;
+        }
+        if (tradesPerDay == null) {
+          AppToast.showToast('Please select trades per day (1 or 2 trades)');
+          return;
+        }
+        if (marketEntryTimeOfDay == null) {
+          AppToast.showToast('Please select market entry time');
+          return;
+        }
+        nextPage();
+      },
       content: [
         const Text(
           'Trading Capital',
@@ -1062,7 +1099,13 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       title: 'Select Your Broking App',
       subtitle: 'Choose the app you will use\n'
           'exclusively for Mind Control Trading.',
-      nextEnabled: brokerage != null,
+      onNext: () {
+        if (brokerage == null) {
+          AppToast.showToast('Please select your trading broker app');
+          return;
+        }
+        nextPage();
+      },
       content: [
         _brokerCard(
           title: 'Zerodha Kite',
@@ -1210,9 +1253,11 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   Widget _permissionStep1Screen() {
     return _permissionPageLayout(
       key: const ValueKey('perm1'),
+      step: 5,
       title: 'Enable Permission 1',
+      subtitle: '[ Display over the Top ]',
       description:
-      'This permission helps Zeno AI stay visible during live market hours and guide you to stay disciplined.',
+          'This permission helps Zeno AI stay visible during live market hours and guide you to stay disciplined.',
       illustration: _permissionIllustration(asset: 'assets/trade-phonne.png'),
       bottom: _psychologicalTraps(),
       granted: _hasOverlay,
@@ -1220,38 +1265,24 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     );
   }
 
-  // ============================================================
-  // PERMISSION STEP 2 — Package usage stats
-  // ============================================================
-
-  Widget _permissionStep2Screen() {
-    return _permissionPageLayout(
-      key: const ValueKey('perm2'),
-      title: 'Enable Permission 2',
-      description:
-      'This permission helps Zeno AI track your trading process discipline during the session and measure your overall discipline across different parameters.',
-      illustration: _permissionIllustration(asset: 'assets/zenoai_trade.png'),
-      bottom: _usageInsights(),
-      granted: _hasUsage,
-      onEnable: _requestUsagePermission,
-    );
-  }
-
   Widget _permissionPageLayout({
     required Key key,
+    required int step,
     required String title,
+    required String subtitle,
     required String description,
     required Widget illustration,
     required Widget bottom,
     required bool granted,
     required VoidCallback onEnable,
   }) {
-    return Column(
-      key: key,
-      children: [
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+    return _page(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _header(step),
+          const SizedBox(height: 18),
+          Center(
             child: Column(
               children: [
                 Text(
@@ -1261,34 +1292,44 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                     fontSize: _Type.screenTitle,
                     fontWeight: FontWeight.w800,
                     color: ink,
+                    letterSpacing: -0.2,
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: _Type.cardTitle,
+                    fontWeight: FontWeight.w700,
+                    color: purple,
+                  ),
+                ),
+                const SizedBox(height: 14),
                 illustration,
-                const SizedBox(height: 20),
+                const SizedBox(height: 14),
                 Text(
                   description,
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    fontSize: _Type.label,
-                    height: 1.5,
+                    fontSize: _Type.caption,
+                    height: 1.4,
                     fontWeight: FontWeight.w500,
                     color: grey,
                   ),
                 ),
-                const SizedBox(height: 20),
-                bottom,
               ],
             ),
           ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
-          child: SizedBox(
+          const SizedBox(height: 14),
+          bottom,
+          const Spacer(),
+          const SizedBox(height: 10),
+          SizedBox(
             width: double.infinity,
             height: 46,
             child: Opacity(
-              opacity: (_permissionBusy || granted) ? 0.6 : 1,
+              opacity: _permissionBusy ? 0.6 : 1,
               child: Container(
                 decoration: BoxDecoration(
                   gradient: primaryGradient,
@@ -1298,35 +1339,56 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                   color: Colors.transparent,
                   child: InkWell(
                     borderRadius: BorderRadius.circular(10),
-                    onTap: (_permissionBusy || granted) ? null : onEnable,
+                    onTap: _permissionBusy
+                        ? null
+                        : (granted ? nextPage : onEnable),
                     child: Center(
                       child: _permissionBusy
                           ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
                           : Text(
-                        granted
-                            ? 'Permission Granted'
-                            : 'Enable Permission',
-                        style: const TextStyle(
-                          fontSize: _Type.buttonLabel,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
+                              granted
+                                  ? 'Permission Granted'
+                                  : 'Enable Permission',
+                              style: const TextStyle(
+                                fontSize: _Type.buttonLabel,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
                     ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
-      ],
+          const SizedBox(height: 10),
+          Center(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: nextPage,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(vertical: 4, horizontal: 16),
+                child: Text(
+                  "I'll do this later",
+                  style: TextStyle(
+                    fontSize: _Type.label,
+                    fontWeight: FontWeight.w600,
+                    color: purple,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+        ],
+      ),
     );
   }
 
@@ -1345,7 +1407,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         const Padding(
           padding: EdgeInsets.only(bottom: 10),
           child: Text(
-            'It protects you from psychological traps',
+            'It protects you from psychological traps:',
             style: TextStyle(
               fontSize: _Type.label,
               fontWeight: FontWeight.w700,
@@ -1356,22 +1418,19 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         _trapRow(
           icon: Icons.access_time_filled_rounded,
           iconBg: purple,
-          title: 'FOMO',
-          subtitle: '(Before the Trade)',
+          title: 'FOMO (Before the Trade)',
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
         _trapRow(
           icon: Icons.favorite_rounded,
           iconBg: const Color(0xFFFF9F4A),
-          title: 'Fear & Greed',
-          subtitle: '(During the Trade)',
+          title: 'Fear & Greed (During the Trade)',
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
         _trapRow(
           icon: Icons.replay_rounded,
           iconBg: const Color(0xFFFF4A7D),
-          title: 'Revenge Trading',
-          subtitle: '(After the Outcome)',
+          title: 'Revenge Trading (After the Outcome)',
         ),
       ],
     );
@@ -1381,95 +1440,608 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     required IconData icon,
     required Color iconBg,
     required String title,
-    required String subtitle,
   }) {
     return Row(
       children: [
         Container(
-          width: 30,
-          height: 30,
+          width: 28,
+          height: 28,
           decoration: BoxDecoration(
             color: iconBg,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(7),
           ),
-          child: Icon(icon, color: Colors.white, size: 16),
+          child: Icon(icon, color: Colors.white, size: 15),
         ),
         const SizedBox(width: 10),
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: _Type.label,
-            fontWeight: FontWeight.w700,
-            color: ink,
-          ),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          subtitle,
-          style: const TextStyle(
-            fontSize: _Type.body,
-            fontWeight: FontWeight.w500,
-            color: grey,
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: _Type.label,
+              fontWeight: FontWeight.w600,
+              color: ink,
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _usageInsights() {
-    const items = [
-      'Process Discipline',
-      'Emotional Control',
-      'Rule Adherence',
-      'Consistency Score',
-    ];
+  // ============================================================
+  // PERMISSION STEP 2 — Package usage stats
+  // ============================================================
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Padding(
-          padding: EdgeInsets.only(bottom: 10),
-          child: Text(
-            'You will get insights on:',
-            style: TextStyle(
-              fontSize: _Type.label,
-              fontWeight: FontWeight.w700,
-              color: ink,
+  Widget _permissionStep2Screen() {
+    return _page(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _header(6),
+          const SizedBox(height: 14),
+          const Center(
+            child: Text(
+              'Enable Usage Access',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 21,
+                fontWeight: FontWeight.w800,
+                color: ink,
+                letterSpacing: -0.3,
+              ),
             ),
           ),
-        ),
-        ...items.map(
-              (label) => Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Row(
-              children: [
-                Container(
-                  width: 20,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    gradient: primaryGradient,
-                    borderRadius: BorderRadius.circular(5),
-                  ),
-                  child: const Icon(
-                    Icons.check_rounded,
-                    color: Colors.white,
-                    size: 14,
+          const SizedBox(height: 14),
+          // Top Phone & Floating Notification Graphic
+          _buildUsageGraphic(),
+          const SizedBox(height: 14),
+          // "Why we need this" card
+          _buildWhyWeNeedThisCard(),
+          const SizedBox(height: 16),
+          // "── What we track ──"
+          _buildWhatWeTrackSection(),
+          const SizedBox(height: 16),
+          // "✦ This helps Zeno AI provide"
+          _buildThisHelpsZenoProvideSection(),
+          const SizedBox(height: 14),
+          // "Your privacy is important" card
+          _buildPrivacyCard(),
+          const SizedBox(height: 18),
+          // Primary button: Enable Permission
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: Opacity(
+              opacity: _permissionBusy ? 0.6 : 1,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: primaryGradient,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: _permissionBusy
+                        ? null
+                        : (_hasUsage ? nextPage : _requestUsagePermission),
+                    child: Center(
+                      child: _permissionBusy
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(
+                              _hasUsage
+                                  ? 'Permission Granted'
+                                  : 'Enable Permission',
+                              style: const TextStyle(
+                                fontSize: _Type.buttonLabel,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 10),
-                Text(
-                  label,
-                  style: const TextStyle(
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          // Secondary button: I'll do this later
+          Center(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: nextPage,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(vertical: 4, horizontal: 16),
+                child: Text(
+                  "I'll do this later",
+                  style: TextStyle(
                     fontSize: _Type.label,
                     fontWeight: FontWeight.w600,
-                    color: ink,
+                    color: purple,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          // Footer privacy lock note
+          const Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.lock_outline_rounded, size: 13, color: grey),
+                SizedBox(width: 5),
+                Text(
+                  "You're in control. You can change this anytime in Settings.",
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: grey,
                   ),
                 ),
               ],
             ),
           ),
+          const SizedBox(height: 6),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUsageGraphic() {
+    return Center(
+      child: Container(
+        width: double.infinity,
+        height: 130,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF3EEFF),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Phone top silhouette
+            Positioned(
+              top: 8,
+              child: Container(
+                width: 140,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF321E6A),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(20),
+                    topRight: Radius.circular(20),
+                  ),
+                  border: Border.all(color: const Color(0xFF4C309B), width: 2),
+                ),
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: Container(
+                    margin: const EdgeInsets.only(top: 4),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E1045),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            // Floating notification glass card
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFE5DBFF), width: 1.5),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x187C3AED),
+                    blurRadius: 16,
+                    offset: Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      gradient: primaryGradient,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.bolt_rounded,
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Zeno AI',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: ink,
+                        ),
+                      ),
+                      Text(
+                        'Stay Focused.\nFollow Your Process.',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          height: 1.2,
+                          fontWeight: FontWeight.w600,
+                          color: grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWhyWeNeedThisCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9F6FF),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFEDE5FF)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: const BoxDecoration(
+              color: Color(0xFFEDE5FF),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.security_rounded, color: purple, size: 18),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Why we need this',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: ink,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                RichText(
+                  text: const TextSpan(
+                    style: TextStyle(fontSize: 11.5, height: 1.35, color: grey),
+                    children: [
+                      TextSpan(
+                        text:
+                            'Zeno AI uses app-usage information from your selected trading apps to ',
+                      ),
+                      TextSpan(
+                        text: 'understand your behavior during active trading.',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: ink,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWhatWeTrackSection() {
+    return Column(
+      children: [
+        const Row(
+          children: [
+            Expanded(child: Divider(color: Color(0xFFE7E3F0), thickness: 1)),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 10),
+              child: Text(
+                'What we track',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: purple,
+                ),
+              ),
+            ),
+            Expanded(child: Divider(color: Color(0xFFE7E3F0), thickness: 1)),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: _buildTrackMiniCard(
+                icon: Icons.stay_current_portrait_rounded,
+                title: 'Active App',
+                desc: 'Which trading app is active',
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: _buildTrackMiniCard(
+                icon: Icons.exit_to_app_rounded,
+                title: 'App Activity',
+                desc: 'When the app is opened or closed',
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: _buildTrackMiniCard(
+                icon: Icons.timer_outlined,
+                title: 'Time Spent',
+                desc: 'How long you stay active in the app',
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: _buildTrackMiniCard(
+                icon: Icons.auto_graph_rounded,
+                title: 'Insights',
+                desc: 'Patterns that help improve discipline',
+              ),
+            ),
+          ],
         ),
       ],
+    );
+  }
+
+  Widget _buildTrackMiniCard({
+    required IconData icon,
+    required String title,
+    required String desc,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAF9FD),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFEBE7F3)),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF3EEFF),
+              borderRadius: BorderRadius.circular(7),
+            ),
+            child: Icon(icon, color: purple, size: 16),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              color: ink,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            desc,
+            textAlign: TextAlign.center,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 9,
+              height: 1.2,
+              fontWeight: FontWeight.w500,
+              color: grey,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildThisHelpsZenoProvideSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Row(
+          children: [
+            Icon(Icons.auto_awesome_rounded, color: purple, size: 16),
+            SizedBox(width: 6),
+            Text(
+              'This helps Zeno AI provide',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: ink,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _buildHelpRowCard(
+          icon: Icons.assignment_turned_in_outlined,
+          title: 'Process Discipline',
+          subtitle: 'See how well you follow your trading process.',
+        ),
+        const SizedBox(height: 6),
+        _buildHelpRowCard(
+          icon: Icons.psychology_outlined,
+          title: 'Behavioral Insights',
+          subtitle: 'Understand patterns in your trading behavior.',
+        ),
+        const SizedBox(height: 6),
+        _buildHelpRowCard(
+          icon: Icons.track_changes_rounded,
+          title: 'Focused Sessions',
+          subtitle: 'Track your focus and session quality.',
+        ),
+        const SizedBox(height: 6),
+        _buildHelpRowCard(
+          icon: Icons.trending_up_rounded,
+          title: 'Better Decisions',
+          subtitle: 'Get insights to build stronger trading habits.',
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHelpRowCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFEDE9FE)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x067C3AED),
+            blurRadius: 4,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF3EEFF),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: purple, size: 17),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: ink,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w500,
+                    color: grey,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Icon(
+            Icons.chevron_right_rounded,
+            size: 18,
+            color: Color(0xFFA59DB8),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPrivacyCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAF7FE),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFEBE3FB)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: const BoxDecoration(
+              color: Color(0xFFEDE5FF),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.shield_rounded, color: purple, size: 18),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Your privacy is important',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: ink,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                RichText(
+                  text: const TextSpan(
+                    style: TextStyle(fontSize: 11, height: 1.35, color: grey),
+                    children: [
+                      TextSpan(
+                        text: 'We use this information ',
+                      ),
+                      TextSpan(
+                        text: 'only',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: purple,
+                        ),
+                      ),
+                      TextSpan(
+                        text:
+                            ' for trading-session and discipline features. We do not access the content of your apps, messages, passwords, or financial account details.',
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1478,15 +2050,6 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   // ============================================================
 
   Widget _successScreen() {
-    final canSubmit = termsAccepted &&
-        isCapitalValid &&
-        tradingSegment != null &&
-        instrument != null &&
-        brokerage != null &&
-        tradesPerDay != null &&
-        marketEntryTimeOfDay != null &&
-        (!Platform.isAndroid || _allPermissionsGranted);
-
     return _page(
       child: Column(
         children: [
@@ -1539,31 +2102,39 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
           _successItem('Consistency is your strength', Icons.shield_rounded),
           _successItem('Patience is your power', Icons.radio_button_checked),
           const SizedBox(height: 12),
-          GestureDetector(
-            onTap: () => setState(() => termsAccepted = !termsAccepted),
-            child: Row(
-              children: [
-                Container(
-                  width: 19,
-                  height: 19,
-                  decoration: BoxDecoration(
-                    color: termsAccepted ? purple : Colors.white,
-                    borderRadius: BorderRadius.circular(5),
-                    border: Border.all(
-                      color: termsAccepted ? purple : const Color(0xFFAAA7B5),
+          Row(
+            children: [
+              GestureDetector(
+                onTap: () => setState(() => termsAccepted = !termsAccepted),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 19,
+                      height: 19,
+                      decoration: BoxDecoration(
+                        color: termsAccepted ? purple : Colors.white,
+                        borderRadius: BorderRadius.circular(5),
+                        border: Border.all(
+                          color: termsAccepted ? purple : const Color(0xFFAAA7B5),
+                        ),
+                      ),
+                      child: termsAccepted
+                          ? const Icon(Icons.check, color: Colors.white, size: 13)
+                          : null,
                     ),
-                  ),
-                  child: termsAccepted
-                      ? const Icon(Icons.check, color: Colors.white, size: 13)
-                      : null,
+                    const SizedBox(width: 8),
+                    const Text(
+                      'I agree to ',
+                      style: TextStyle(fontSize: _Type.label, color: ink),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                const Text(
-                  'I agree to ',
-                  style: TextStyle(fontSize: _Type.label, color: ink),
-                ),
-                const Text(
-                  'Terms and Conditions',
+              ),
+              GestureDetector(
+                onTap: AppUrlLauncher.openRiskDisclosure,
+                child: const Text(
+                  'Risk Disclosure',
                   style: TextStyle(
                     fontSize: _Type.label,
                     fontWeight: FontWeight.w700,
@@ -1571,13 +2142,40 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                     decoration: TextDecoration.underline,
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           _gradientButton(
             text: _isSubmitting ? 'SETTING UP...' : 'SET UP MY PROCESS 🚀',
-            onTap: (canSubmit && !_isSubmitting) ? _completeSetup : null,
+            onTap: () {
+              if (_isSubmitting) return;
+              if (tradingSegment == null) {
+                AppToast.showToast('Please select a trading segment');
+                return;
+              }
+              if (instrument == null) {
+                AppToast.showToast('Please select an instrument');
+                return;
+              }
+              if (tradingCapital < minCapital) {
+                AppToast.showToast('Minimum capital is ₹${_formatIndianNumber(minCapital)}');
+                return;
+              }
+              if (tradesPerDay == null) {
+                AppToast.showToast('Please select trades per day');
+                return;
+              }
+              if (brokerage == null) {
+                AppToast.showToast('Please select your broking app');
+                return;
+              }
+              if (!termsAccepted) {
+                AppToast.showToast('Please agree to the Risk Disclosure');
+                return;
+              }
+              _completeSetup();
+            },
           ),
         ],
       ),
@@ -1662,6 +2260,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     if (lower.contains('upstox')) return 'upstox';
     if (lower.contains('groww')) return 'groww';
     if (lower.contains('angel')) return 'angel_one';
+    if (lower.contains('dhan')) return 'dhan';
     return lower.replaceAll(RegExp(r'\s+'), '_');
   }
 
@@ -1672,6 +2271,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     if (lower.contains('upstox')) return 'in.upstox.app';
     if (lower.contains('groww')) return 'com.nextbillion.groww';
     if (lower.contains('angel')) return 'com.msf.angelmobile';
+    if (lower.contains('dhan')) return 'co.dhan';
     return 'com.zerodha.kite3';
   }
 
@@ -1682,8 +2282,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         instrument == null ||
         brokerage == null ||
         tradesPerDay == null ||
-        marketEntryTimeOfDay == null ||
-        (Platform.isAndroid && !_allPermissionsGranted)) {
+        marketEntryTimeOfDay == null) {
       return;
     }
 
@@ -1693,7 +2292,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     final storage = GetStorage();
     final brokerPkg = _getBrokerPackageName(brokerage);
 
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid && (_hasOverlay || _hasUsage)) {
       await _prefs.saveSelectedPackage(userId: widget.userId, packageName: brokerPkg);
       await _blockService.saveUserIdForOverlay(widget.userId);
       await _blockService.blockApp(brokerPkg);
@@ -1757,7 +2356,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     required String title,
     required String subtitle,
     required List<Widget> content,
-    bool nextEnabled = true,
+    VoidCallback? onNext,
   }) {
     return _page(
       child: Column(
@@ -1786,7 +2385,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
           const SizedBox(height: 20),
           ...content,
           const Spacer(),
-          _gradientButton(text: 'Next', onTap: nextEnabled ? nextPage : null),
+          _gradientButton(text: 'Next', onTap: onNext ?? nextPage),
           const SizedBox(height: 2),
         ],
       ),
@@ -1813,7 +2412,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
             ),
             Expanded(
               child: Text(
-                'Step $step of 4',
+                'Step $step of 6',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: _Type.sectionTitle,
@@ -1829,7 +2428,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: LinearProgressIndicator(
-            value: step / 4,
+            value: step / 6,
             minHeight: 5,
             backgroundColor: const Color(0xFFE4E2EB),
             valueColor: const AlwaysStoppedAnimation<Color>(purple),

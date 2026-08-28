@@ -45,6 +45,31 @@ class ApiService extends GetxService {
     }
   }
 
+  /// POST request with JSON body
+  Future<ApiResponse<dynamic>> postJson(
+    String endpoint,
+    Map<String, dynamic> body, {
+    Map<String, String>? headers,
+  }) async {
+    try {
+      final uri = Uri.parse(
+        endpoint.startsWith('http') ? endpoint : "${ApiConfig.baseUrl}$endpoint",
+      );
+      final response = await http.post(
+        uri,
+        headers: {
+          ...ApiConfig.defaultHeaders,
+          'Content-Type': 'application/json',
+          ...?headers,
+        },
+        body: jsonEncode(body),
+      );
+      return _processResponse(response);
+    } catch (e) {
+      return ApiResponse.error(_friendlyError(e, endpoint));
+    }
+  }
+
   /// POST request to messages API (disciplinedminds.in) with form-data
   Future<ApiResponse<dynamic>> postMessagesForm(
     String endpoint,

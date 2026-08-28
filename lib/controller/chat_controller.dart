@@ -5,6 +5,7 @@ import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/constants/blocked_apps.dart';
 import 'package:discipline_mind/controller/alert_controller.dart';
 import 'package:discipline_mind/model/chat_message_model.dart';
+import 'package:discipline_mind/services/api/api_config.dart';
 import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
@@ -13,6 +14,7 @@ import 'package:discipline_mind/services/trading_apps_service.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class ChatController extends GetxController {
@@ -115,6 +117,7 @@ class ChatController extends GetxController {
           messageId: x.messageId,
           isUnread: x.isUnread,
           actionTaken: actionTaken,
+          timestamp: x.timestamp,
         );
       case ChatMessageType.aiWaiting:
         final x = m as AiWaitingMessage;
@@ -124,13 +127,17 @@ class ChatController extends GetxController {
           messageId: x.messageId,
           isUnread: x.isUnread,
           actionTaken: actionTaken,
+          timestamp: x.timestamp,
         );
       case ChatMessageType.agentWithButton:
         final x = m as AgentWithButtonMessage;
         return AgentWithButtonMessage(
           text: x.text,
           buttonLabel: x.buttonLabel,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
           actionTaken: actionTaken,
+          timestamp: x.timestamp,
         );
       case ChatMessageType.newTradeOpportunity:
         final x = m as NewTradeOpportunityMessage;
@@ -156,6 +163,7 @@ class ChatController extends GetxController {
           messageId: x.messageId,
           isUnread: x.isUnread,
           actionTaken: actionTaken,
+          timestamp: x.timestamp,
         );
       case ChatMessageType.tradeExecutionPrompt:
         final x = m as TradeExecutionPromptMessage;
@@ -165,6 +173,7 @@ class ChatController extends GetxController {
           messageId: x.messageId,
           isUnread: x.isUnread,
           actionTaken: actionTaken,
+          timestamp: x.timestamp,
         );
       case ChatMessageType.tradeExecuted:
         final x = m as TradeExecutedMessage;
@@ -174,6 +183,7 @@ class ChatController extends GetxController {
           messageId: x.messageId,
           isUnread: x.isUnread,
           actionTaken: actionTaken,
+          timestamp: x.timestamp,
         );
       case ChatMessageType.alertHitWithButton:
         final x = m as AlertHitWithButtonMessage;
@@ -191,6 +201,7 @@ class ChatController extends GetxController {
           messageId: x.messageId,
           isUnread: x.isUnread,
           actionTaken: actionTaken,
+          timestamp: x.timestamp,
         );
       case ChatMessageType.dmtScore:
         final x = m as DmtScoreMessage;
@@ -199,13 +210,19 @@ class ChatController extends GetxController {
           scoreDate: x.scoreDate,
           instructionsScore: x.instructionsScore,
           commitmentScore: x.commitmentScore,
+          acceptanceScore: x.acceptanceScore,
           patienceScore: x.patienceScore,
           consistencyScore: x.consistencyScore,
           dmtTotalScore: x.dmtTotalScore,
           dmtMaxScore: x.dmtMaxScore,
+          bonusScore: x.bonusScore,
+          hasAcceptanceScore: x.hasAcceptanceScore,
+          acceptanceIsNa: x.acceptanceIsNa,
+          acceptanceNote: x.acceptanceNote,
           messageId: x.messageId,
           isUnread: x.isUnread,
           actionTaken: actionTaken,
+          timestamp: x.timestamp,
         );
       case ChatMessageType.tradeSignal:
         final x = m as TradeSignalMessage;
@@ -424,9 +441,78 @@ class ChatController extends GetxController {
     messages.add(msg);
   }
 
-  void sendTextMessage(String text) {
-    if (text.trim().isEmpty) return;
-    addMessage(SimpleTextMessage(text: text.trim(), isFromUser: true));
+  String _llmAskUrl() {
+    return '${ApiConfig.baseUrl}${ApiUrl.llmAsk}';
+  }
+
+  Future<void> sendTextMessage(String text) async {
+    final query = text.trim();
+    if (query.isEmpty) return;
+
+    addMessage(
+      SimpleTextMessage(
+        text: query,
+        isFromUser: true,
+      ),
+    );
+
+    final waitingMsgId = 'ai_waiting_${DateTime.now().millisecondsSinceEpoch}';
+    addMessage(
+      AiWaitingMessage(
+        text: 'Analyzing...',
+        messageId: waitingMsgId,
+      ),
+    );
+
+    try {
+      final userId = Common.userData.value?.payload?.id?.toString() ??
+          GetStorage().read<String>('user_id') ??
+          '123';
+
+      final response = await ApiService().postJson(
+        _llmAskUrl(),
+        {
+          'user_id': userId,
+          'user_query': query,
+        },
+      );
+
+      messages.removeWhere((m) => m.messageId == waitingMsgId);
+
+      if (response.isSuccess && response.data != null) {
+        final payload = response.data['payload'];
+        if (payload is Map<String, dynamic> &&
+            payload['response_markdown'] != null) {
+          final replyText = payload['response_markdown'].toString();
+          if (replyText.isNotEmpty) {
+            addMessage(
+              SimpleTextMessage(
+                text: replyText,
+                isFromUser: false,
+              ),
+            );
+            return;
+          }
+        }
+      }
+
+      final errorMsg =
+          response.errorMessage ?? 'Unable to get response from AI.';
+      addMessage(
+        SimpleTextMessage(
+          text: errorMsg,
+          isFromUser: false,
+        ),
+      );
+    } catch (e) {
+      messages.removeWhere((m) => m.messageId == waitingMsgId);
+      addMessage(
+        SimpleTextMessage(
+          text: 'Error getting AI response. Please try again.',
+          isFromUser: false,
+        ),
+      );
+    }
   }
 
   /// Called when user submits trade params from New Trade Opportunity popup.
@@ -460,13 +546,13 @@ class ChatController extends GetxController {
         } catch (e) {
           print('[ChatController] startBlockingService failed: $e');
         }
-        AppToast.showToast('Trading apps have been locked');
+        AppToast.showToast('Mind Control Guard is Activated');
       } else if (Platform.isIOS) {
         final limiter = AppLimiter();
         final granted = await limiter.requestIosPermission();
         if (granted) {
           await limiter.blockAndUnblockIOSApp();
-          AppToast.showToast('Trading apps have been locked');
+          AppToast.showToast('Mind Control Guard is Activated');
         } else {
           AppToast.showToast('iOS permission required to block apps');
         }
@@ -554,6 +640,7 @@ class ChatController extends GetxController {
       }
       final response = await api.postFormData(ApiUrl.gttAlertCreate, fields);
       if (response.isSuccess) {
+        markActionTaken(tradeId: msg.tradeId, messageId: msg.messageId);
         await _applyTradingAppBlock(userId);
         AppToast.showToast('GTT alert created successfully');
         loadMessages(refresh: true);
@@ -710,16 +797,36 @@ class ChatController extends GetxController {
     }
   }
 
-  void _markSignalActionTaken(TradeSignalMessage msg) {
+  void markActionTaken({String? tradeId, String? messageId}) {
+    final cleanTradeId = (tradeId ?? '').trim();
+    final cleanMsgId = (messageId ?? '').trim();
+    if (cleanTradeId.isEmpty && cleanMsgId.isEmpty) return;
+
     for (int i = 0; i < messages.length; i++) {
       final m = messages[i];
-      if (m is TradeSignalMessage &&
-          ((msg.signalId.isNotEmpty && m.signalId == msg.signalId) ||
-              (msg.messageId.isNotEmpty && m.messageId == msg.messageId))) {
+      bool match = false;
+      if (cleanMsgId.isNotEmpty && m.messageId.trim() == cleanMsgId) {
+        match = true;
+      }
+      if (!match && cleanTradeId.isNotEmpty) {
+        if (m is NewTradeOpportunityMessage && m.tradeId.trim() == cleanTradeId) match = true;
+        if (m is TradeExecutionPromptMessage && m.tradeData.tradeId.trim() == cleanTradeId) match = true;
+        if (m is AlertHitWithButtonMessage && m.tradeId.trim() == cleanTradeId) match = true;
+        if (m is SimpleTextMessage && m.tradeId.trim() == cleanTradeId) match = true;
+        if (m is TradeSignalMessage && (m.signalId.trim() == cleanTradeId || m.messageId.trim() == cleanTradeId)) match = true;
+      }
+      if (match) {
         messages[i] = _withActionTaken(m, 1);
       }
     }
     messages.refresh();
+  }
+
+  void _markSignalActionTaken(TradeSignalMessage msg) {
+    markActionTaken(
+      tradeId: msg.signalId.isNotEmpty ? msg.signalId : null,
+      messageId: msg.messageId.isNotEmpty ? msg.messageId : null,
+    );
   }
 
   Future<bool> _checkBlockAppPermissions() async {
@@ -770,7 +877,7 @@ class ChatController extends GetxController {
       } catch (e) {
         print('[ChatController] startBlockingService failed: $e');
       }
-      AppToast.showToast('Trading apps have been locked');
+      AppToast.showToast('Mind Control Guard is Activated');
       return;
     }
 
@@ -778,7 +885,7 @@ class ChatController extends GetxController {
       try {
         final limiter = AppLimiter();
         await limiter.blockAndUnblockIOSApp();
-        AppToast.showToast('Trading apps have been locked');
+        AppToast.showToast('Mind Control Guard is Activated');
       } catch (e) {
         print('[ChatController] iOS block failed: $e');
       }
@@ -807,6 +914,7 @@ class ChatController extends GetxController {
       tradeId: msg.tradeId,
     );
     if (success) {
+      markActionTaken(tradeId: msg.tradeId, messageId: msg.messageId);
       loadMessages(refresh: true);
     }
     return success;
@@ -832,6 +940,7 @@ class ChatController extends GetxController {
         'user_id': userId,
       });
       if (response.isSuccess) {
+        markActionTaken(tradeId: msg.tradeId, messageId: msg.messageId);
         await _applyTradingAppBlock(userId);
         AppToast.showToast('Trade deleted');
         await loadMessages(refresh: true);
@@ -874,6 +983,7 @@ class ChatController extends GetxController {
       }
       final response = await api.postFormData(ApiUrl.editTrade, fields);
       if (response.isSuccess) {
+        markActionTaken(tradeId: msg.tradeId, messageId: msg.messageId);
         await _applyTradingAppBlock(userId);
         AppToast.showToast('SL trailed');
         await loadMessages(refresh: true);
@@ -989,11 +1099,11 @@ class ChatController extends GetxController {
         if (!launched) {
           AppToast.showToast('Selected trading app is not installed/enabled');
         }
-        AppToast.showToast('Trading apps unlocked');
+        AppToast.showToast('Mind Control Guard is Deactivated');
       } else if (Platform.isIOS) {
         final limiter = AppLimiter();
         await limiter.blockAndUnblockIOSApp();
-        AppToast.showToast('Trading apps unlocked');
+        AppToast.showToast('Mind Control Guard is Deactivated');
       }
     } catch (e) {
       print('[ChatController] openTradingApp failed: $e');
@@ -1010,14 +1120,27 @@ class ChatController extends GetxController {
         }
         await _blockService.unblockAndClose(selectedPackages);
         await _blockService.stopBlockingService();
-        AppToast.showToast('Trading apps unlocked');
+        AppToast.showToast('Mind Control Guard is Deactivated');
       } else if (Platform.isIOS) {
         final limiter = AppLimiter();
         await limiter.blockAndUnblockIOSApp();
-        AppToast.showToast('Trading apps unlocked');
+        AppToast.showToast('Mind Control Guard is Deactivated');
       }
     } catch (e) {
       print('[ChatController] onTradeExecuted failed: $e');
     }
+  }
+
+  static DateTime? parseMessageTime(String timestamp) {
+    final raw = timestamp.trim();
+    if (raw.isEmpty) return null;
+    final iso = DateTime.tryParse(raw);
+    if (iso != null) return iso.toUtc();
+    final n = int.tryParse(raw);
+    if (n == null) return null;
+    if (n > 9999999999) {
+      return DateTime.fromMillisecondsSinceEpoch(n, isUtc: true);
+    }
+    return DateTime.fromMillisecondsSinceEpoch(n * 1000, isUtc: true);
   }
 }

@@ -12,4 +12,8 @@
     <color name="overlay_icon_circle">#F3EEFF</color>
     <color name="overlay_white">#FFFFFF</color>
     <color name="overlay_line">#D8B4FE</color>
+    <color name="overlay_grey">#64748B</color>
+    <color name="overlay_light_grey">#FAF9FD</color>
+    <color name="overlay_border">#E9DDFC</color>
+    <color name="overlay_ink">#10122D</color>
 </resources>
