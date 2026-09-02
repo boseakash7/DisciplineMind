@@ -43,6 +43,7 @@ class TradingProcessData {
   final String status;
   final String createdAt;
   final String updatedAt;
+  final int isMindControllActive;
 
   TradingProcessData({
     required this.id,
@@ -61,6 +62,7 @@ class TradingProcessData {
     required this.status,
     required this.createdAt,
     required this.updatedAt,
+    required this.isMindControllActive,
   });
 
   factory TradingProcessData.fromJson(Map<String, dynamic> json) {
@@ -83,6 +85,9 @@ class TradingProcessData {
       status: json['status']?.toString() ?? '',
       createdAt: json['created_at']?.toString() ?? '',
       updatedAt: json['updated_at']?.toString() ?? '',
+      isMindControllActive: json['is_mind_controll_active'] != null
+          ? int.tryParse(json['is_mind_controll_active'].toString()) ?? 0
+          : 0,
     );
   }
 
@@ -103,6 +108,7 @@ class TradingProcessData {
         'status': status,
         'created_at': createdAt,
         'updated_at': updatedAt,
+        'is_mind_controll_active': isMindControllActive,
       };
 
   TradingProcessData copyWith({
@@ -122,6 +128,7 @@ class TradingProcessData {
     String? status,
     String? createdAt,
     String? updatedAt,
+    int? isMindControllActive,
   }) {
     return TradingProcessData(
       id: id ?? this.id,
@@ -142,6 +149,7 @@ class TradingProcessData {
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      isMindControllActive: isMindControllActive ?? this.isMindControllActive,
     );
   }
 }

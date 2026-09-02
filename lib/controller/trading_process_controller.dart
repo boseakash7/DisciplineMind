@@ -132,4 +132,41 @@ class TradingProcessController extends GetxController {
       isUpdating.value = false;
     }
   }
+
+  /// Activate Mind Control
+  Future<bool> activateMindControl() async {
+    final effectiveUserId = Common.userData.value?.payload?.id?.toString();
+    if (effectiveUserId == null || effectiveUserId.isEmpty) {
+      AppToast.showToast('User not authenticated');
+      return false;
+    }
+
+    try {
+      isUpdating.value = true;
+      final response = await _apiService.postFormData(
+        ApiUrl.mindControlActive,
+        {
+          'user_id': effectiveUserId,
+          'is_mind_controll_active': 'true',
+        },
+      );
+
+      if (response.isSuccess) {
+        if (currentProcess.value != null) {
+          currentProcess.value = currentProcess.value!.copyWith(isMindControllActive: 1);
+        }
+        AppToast.showToast('Mind Control activated successfully!');
+        return true;
+      }
+
+      AppToast.showToast(response.errorMessage ?? 'Failed to activate mind control');
+      return false;
+    } catch (e) {
+      debugPrint('[TradingProcessController] activateMindControl error: $e');
+      AppToast.showToast('Error activating mind control');
+      return false;
+    } finally {
+      isUpdating.value = false;
+    }
+  }
 }

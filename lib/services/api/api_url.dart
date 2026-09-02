@@ -61,4 +61,7 @@ class ApiUrl {
 
   /// Endpoint to send user query to LLM AI (POST JSON: user_id, user_query).
   static const String llmAsk = "llm/ask";
+
+  /// Activate Mind Control (POST form: user_id, is_mind_controll_active).
+  static const String mindControlActive = "user/mind-control-active";
 }

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/controller/chat_controller.dart';
+import 'package:discipline_mind/controller/trading_process_controller.dart';
 import 'package:discipline_mind/model/chat_message_model.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
 import 'package:discipline_mind/services/openai_stt_service.dart';
@@ -18,6 +19,7 @@ import 'package:get_storage/get_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
+import 'package:discipline_mind/services/native_app_block_service.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key, this.onMonkkTap, this.isActive = true});
@@ -31,7 +33,12 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
+  final NativeAppBlockService _blockService = NativeAppBlockService();
+  bool _overlayGranted = false;
+  bool _usageGranted = false;
+  bool _isCheckingPermissions = true;
+
   final _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   int _lastMessageCount = 0;
@@ -303,7 +310,36 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _checkPermissions();
     _scrollController.addListener(_onChatScroll);
+  }
+
+  Future<void> _checkPermissions() async {
+    final permissions = await _blockService.checkPermissions();
+    if (!mounted) return;
+    setState(() {
+      _overlayGranted = permissions['hasOverlayPermission'] ?? false;
+      _usageGranted = permissions['hasUsageStatsPermission'] ?? false;
+      _isCheckingPermissions = false;
+    });
+  }
+
+  Future<void> _requestOverlay() async {
+    await _blockService.requestOverlayPermission();
+    _checkPermissions();
+  }
+
+  Future<void> _requestUsage() async {
+    await _blockService.requestUsageStatsPermission();
+    _checkPermissions();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkPermissions();
+    }
   }
 
   @override
@@ -322,6 +358,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _disposeRecorder();
     _scrollController.removeListener(_onChatScroll);
     _textController.dispose();
@@ -736,9 +773,13 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = _isDark(context);
+    final allGranted = _overlayGranted && _usageGranted;
+
     return GetBuilder<ChatController>(
       init: Get.put(ChatController(), permanent: true),
       builder: (controller) {
+        final processController = Get.put(TradingProcessController());
+        
         final activeUserId = Common.userData.value?.payload?.id?.toString() ??
             GetStorage().read<String>('user_id');
         if (controller.currentUserId != null &&
@@ -749,9 +790,51 @@ class _ChatScreenState extends State<ChatScreen> {
             controller.loadMessages(force: true);
           });
         }
-        return Scaffold(
-        backgroundColor: _screenBg(isDark),
-        body: SafeArea(
+
+        return Obx(() {
+          final process = processController.currentProcess.value;
+          final isProcessLoading = processController.isLoading.value;
+
+          if (isProcessLoading && process == null) {
+            return Scaffold(
+              backgroundColor: _screenBg(isDark),
+              body: const Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          // If no process exists, bypass gates and show chat (which contains the "create process" flow)
+          if (process == null) {
+            return _buildMainChat(context, isDark, controller);
+          }
+
+          // If process exists, enforce permissions
+          if (_isCheckingPermissions) {
+            return Scaffold(
+              backgroundColor: _screenBg(isDark),
+              body: const Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          if (!allGranted) {
+            return _buildPermissionGateUI(isDark);
+          }
+
+          // If permissions granted, enforce Mind Control
+          if (process.isMindControllActive == 0) {
+            return _buildMindControlGateUI(isDark, processController);
+          }
+
+          // Everything is active, show the chat
+          return _buildMainChat(context, isDark, controller);
+        });
+      },
+    );
+  }
+
+  Widget _buildMainChat(BuildContext context, bool isDark, ChatController controller) {
+    return Scaffold(
+      backgroundColor: _screenBg(isDark),
+      body: SafeArea(
           child: Column(
             children: [
               // _buildHeader(context, controller),
@@ -965,9 +1048,223 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ),
       );
-    },
-  );
-}
+  }
+
+  Widget _buildMindControlGateUI(bool isDark, TradingProcessController processController) {
+    return Scaffold(
+      backgroundColor: _screenBg(isDark),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Spacer(),
+              Icon(
+                Icons.psychology_outlined,
+                size: 80,
+                color: AppColors.primary,
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Activate Mind Control',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: _headlineText(isDark),
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'You have created a trading process. To protect your capital and maintain discipline, you must activate Mind Control Guard.',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: _secondaryText(isDark),
+                  height: 1.5,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 40),
+              Obx(() => SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: processController.isUpdating.value
+                      ? null
+                      : () => processController.activateMindControl(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    elevation: 2,
+                  ),
+                  child: processController.isUpdating.value
+                      ? const SizedBox(
+                          height: 24,
+                          width: 24,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        )
+                      : const Text(
+                          'Activate Now',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                ),
+              )),
+              const Spacer(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPermissionGateUI(bool isDark) {
+    return Scaffold(
+      backgroundColor: _screenBg(isDark),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Spacer(),
+              Icon(
+                Icons.security_rounded,
+                size: 80,
+                color: AppColors.primary,
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Permissions Required',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: _headlineText(isDark),
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'To create a seamless process and use app block services, please allow the following permissions.',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: _secondaryText(isDark),
+                  height: 1.5,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 40),
+              _buildPermissionCard(
+                title: 'Display Over Apps',
+                description: 'Required to show overlay alerts.',
+                icon: Icons.layers_outlined,
+                isGranted: _overlayGranted,
+                onTap: _requestOverlay,
+                isDark: isDark,
+              ),
+              const SizedBox(height: 16),
+              _buildPermissionCard(
+                title: 'Usage Access',
+                description: 'Required for app blocking services.',
+                icon: Icons.analytics_outlined,
+                isGranted: _usageGranted,
+                onTap: _requestUsage,
+                isDark: isDark,
+              ),
+              const Spacer(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPermissionCard({
+    required String title,
+    required String description,
+    required IconData icon,
+    required bool isGranted,
+    required VoidCallback onTap,
+    required bool isDark,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E222A) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isGranted
+              ? Colors.green.withOpacity(0.5)
+              : (isDark ? Colors.white12 : Colors.grey.shade300),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: isGranted
+                ? Colors.green.withOpacity(0.1)
+                : AppColors.primary.withOpacity(0.1),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            isGranted ? Icons.check_circle_rounded : icon,
+            color: isGranted ? Colors.green : AppColors.primary,
+            size: 28,
+          ),
+        ),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 16,
+            color: _headlineText(isDark),
+          ),
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 4.0),
+          child: Text(
+            description,
+            style: TextStyle(
+              fontSize: 13,
+              color: _secondaryText(isDark),
+            ),
+          ),
+        ),
+        trailing: isGranted
+            ? const SizedBox.shrink()
+            : ElevatedButton(
+                onPressed: onTap,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  elevation: 0,
+                ),
+                child: const Text(
+                  'Allow',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+      ),
+    );
+  }
 
   Widget _buildHeader(BuildContext context, ChatController controller) {
     return Padding(
@@ -2406,12 +2703,15 @@ class _ChatScreenState extends State<ChatScreen> {
           upperLabel.contains('CREATE A PROCESS')) {
         final userId = Common.userData.value?.payload?.id?.toString();
         if (userId != null && userId.isNotEmpty) {
-          await Navigator.push(
+          final result = await Navigator.push(
             context,
             MaterialPageRoute(
               builder: (_) => TradingProcessScreen(userId: userId),
             ),
           );
+          if (result == true && Get.isRegistered<TradingProcessController>()) {
+            await Get.find<TradingProcessController>().fetchProcess();
+          }
           if (Get.isRegistered<ChatController>()) {
             await Get.find<ChatController>().loadMessages(refresh: true);
           }
