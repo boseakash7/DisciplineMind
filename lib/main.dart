@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:discipline_mind/common/ThemeService.dart';
 import 'package:discipline_mind/common/app_colors.dart';
@@ -14,6 +15,7 @@ import 'package:discipline_mind/ui/onboarding/post_login_trading_block_screen.da
 import 'package:discipline_mind/ui/android_app_block/blocked_app_overlay_page.dart';
 import 'package:discipline_mind/ui/main_home/main_home.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -104,9 +106,15 @@ Future<void> main() async {
 
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.presentError(details);
+    FirebaseCrashlytics.instance.recordFlutterFatalError(details);
     if (kReleaseMode) {
       debugPrint('FlutterError: ${details.exception} ${details.stack}');
     }
+  };
+  
+  PlatformDispatcher.instance.onError = (error, stack) {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    return true;
   };
 
   ErrorWidget.builder = (FlutterErrorDetails details) => Material(
@@ -140,7 +148,9 @@ Future<void> main() async {
     ),
   );
 
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  // if (Firebase.apps.isEmpty) {
+    await Firebase.initializeApp();
+  
   await GetStorage.init();
 
   if (Platform.isAndroid) {

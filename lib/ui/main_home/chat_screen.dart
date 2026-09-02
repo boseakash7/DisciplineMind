@@ -4240,7 +4240,7 @@ class _ChatScreenState extends State<ChatScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
             color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF3F0FF),
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: isDark ? const Color(0xFF2C3240) : const Color(0xFFE2DCF7),
             ),
@@ -4279,7 +4279,7 @@ class _ChatScreenState extends State<ChatScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
             color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF3F0FF),
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: isDark ? const Color(0xFF2C3240) : const Color(0xFFE2DCF7),
             ),
@@ -4315,7 +4315,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   height: 34,
                   decoration: BoxDecoration(
                     color: isDark ? const Color(0xFF2C3240) : Colors.grey.shade300,
-                    shape: BoxShape.circle,
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   child: Center(
                     child: Icon(
@@ -4331,9 +4331,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 onTap: _stopRecordingAndTranscribe,
                 child: Container(
                   padding: const EdgeInsets.all(8),
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                     color: AppColors.primary,
-                    shape: BoxShape.circle,
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(
                     Icons.arrow_upward_rounded,
@@ -4349,13 +4349,13 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       color: _bottomBarBg(isDark),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
         decoration: BoxDecoration(
           color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF3F0FF),
-          borderRadius: BorderRadius.circular(28),
+          borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: isDark ? const Color(0xFF2C3240) : const Color(0xFFE2DCF7),
           ),
@@ -4381,7 +4381,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     fontSize: 14,
                   ),
                   border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 6),
                 ),
                 onSubmitted: (text) {
                   if (text.trim().isEmpty) return;
@@ -4391,24 +4392,24 @@ class _ChatScreenState extends State<ChatScreen> {
                 },
               ),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 4),
             Padding(
-              padding: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.only(bottom: 3),
               child: GestureDetector(
                 onTap: _startRecording,
                 child: Container(
-                  padding: const EdgeInsets.all(6),
+                  padding: const EdgeInsets.all(5),
                   child: Icon(
                     Icons.mic_none_rounded,
                     color: isDark ? Colors.white70 : const Color(0xFF70717F),
-                    size: 24,
+                    size: 22,
                   ),
                 ),
               ),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 2),
             Padding(
-              padding: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.only(bottom: 2),
               child: GestureDetector(
                 onTap: () {
                   final text = textController.text;
@@ -4418,15 +4419,15 @@ class _ChatScreenState extends State<ChatScreen> {
                   _scheduleScrollToBottom();
                 },
                 child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: const BoxDecoration(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
                     color: AppColors.primary,
-                    shape: BoxShape.circle,
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(
                     Icons.arrow_upward_rounded,
                     color: Colors.white,
-                    size: 18,
+                    size: 16,
                   ),
                 ),
               ),

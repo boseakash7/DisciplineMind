@@ -1,13 +1,9 @@
 import 'package:discipline_mind/common/ThemeService.dart';
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
-import 'package:discipline_mind/ui/android_app_block/app_usage_stats_page.dart';
 import 'package:discipline_mind/ui/main_home/alert_main.dart';
-import 'package:discipline_mind/ui/main_home/mct_lessons_screen.dart';
 import 'package:discipline_mind/ui/main_home/process_detail_screen.dart';
-import 'package:discipline_mind/ui/settings/app_block_settings_screen.dart';
 import 'package:discipline_mind/services/app_url_launcher.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -73,59 +69,6 @@ class MoreScreen extends StatelessWidget {
                     context,
                     MaterialPageRoute(builder: (_) => AlertsMainScreen()),
                   ),
-                ),
-                const SizedBox(height: 12),
-
-                _buildTile(
-                  icon: Icons.shield_outlined,
-                  title: 'Blocked Apps',
-                  subtitle: 'Choose which trading app should stay locked',
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const AppBlockSettingsScreen(),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                _buildTile(
-                  icon: Icons.analytics_outlined,
-                  title: 'App Tracking',
-                  subtitle: 'View tracked usage and blocking activity',
-                  onTap: () {
-                    if (defaultTargetPlatform == TargetPlatform.android) {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const AppUsageStatsPage(),
-                        ),
-                      );
-                    } else {
-                      Get.snackbar(
-                        'Not Available',
-                        'App tracking is available on Android only',
-                      );
-                    }
-                  },
-                ),
-                const SizedBox(height: 12),
-
-                _buildTile(
-                  icon: Icons.play_lesson_outlined,
-                  title: 'MCT Lessons',
-                  subtitle: 'Watch protocol videos for Mind Control Trading',
-                  onTap: () {
-                    final userId = Common.userData.value?.payload?.id
-                        ?.toString();
-                    if (userId == null) return;
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => MctLessonsScreen(userId: userId),
-                      ),
-                    );
-                  },
                 ),
                 const SizedBox(height: 12),
 

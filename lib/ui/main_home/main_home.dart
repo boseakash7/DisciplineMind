@@ -43,8 +43,8 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
     final navBarColor = theme.bottomNavigationBarTheme.backgroundColor ??
         (isDark ? const Color(0xFF1E222A) : Colors.white);
 
-    const navBarHeight = 64.0;
-    const fabSize = 54.0;
+    const navBarHeight = 48.0;
+    const fabSize = 46.0;
     final bottomInset = MediaQuery.of(context).padding.bottom;
 
     final screens = [
@@ -122,6 +122,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     mainAxisAlignment: MainAxisAlignment.center,
+                                    mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Text(
                                         userName,
@@ -129,17 +130,18 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                                           fontSize: 16,
                                           fontWeight: FontWeight.w700,
                                           color: textColor,
+                                          height: 1.1,
                                         ),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
-                                      const SizedBox(height: 1),
                                       Text(
                                         "Have a good Day !",
                                         style: TextStyle(
                                           fontSize: 11.5,
                                           fontWeight: FontWeight.w500,
                                           color: subTextColor,
+                                          height: 1.1,
                                         ),
                                       ),
                                     ],
@@ -199,12 +201,12 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                     showSelectedLabels: true,
                     showUnselectedLabels: true,
                     selectedLabelStyle: const TextStyle(
-                      fontSize: 11,
+                      fontSize: 10,
                       fontWeight: FontWeight.w700,
                       height: 1.1,
                     ),
                     unselectedLabelStyle: const TextStyle(
-                      fontSize: 11,
+                      fontSize: 10,
                       fontWeight: FontWeight.w500,
                       height: 1.1,
                     ),
