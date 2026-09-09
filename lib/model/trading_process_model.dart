@@ -41,6 +41,7 @@ class TradingProcessData {
   final String permissionUsageStatsEnabled;
   final String termsAccepted;
   final String status;
+  final String tradingSetupType;
   final String createdAt;
   final String updatedAt;
   final int isMindControllActive;
@@ -60,6 +61,7 @@ class TradingProcessData {
     required this.permissionUsageStatsEnabled,
     required this.termsAccepted,
     required this.status,
+    required this.tradingSetupType,
     required this.createdAt,
     required this.updatedAt,
     required this.isMindControllActive,
@@ -83,6 +85,7 @@ class TradingProcessData {
           json['permission_usage_stats_enabled']?.toString() ?? '0',
       termsAccepted: json['terms_accepted']?.toString() ?? '0',
       status: json['status']?.toString() ?? '',
+      tradingSetupType: json['trading_setup_type']?.toString() ?? 'zeno_ai_signals',
       createdAt: json['created_at']?.toString() ?? '',
       updatedAt: json['updated_at']?.toString() ?? '',
       isMindControllActive: json['is_mind_controll_active'] != null
@@ -106,6 +109,7 @@ class TradingProcessData {
         'permission_usage_stats_enabled': permissionUsageStatsEnabled,
         'terms_accepted': termsAccepted,
         'status': status,
+        'trading_setup_type': tradingSetupType,
         'created_at': createdAt,
         'updated_at': updatedAt,
         'is_mind_controll_active': isMindControllActive,
@@ -126,6 +130,7 @@ class TradingProcessData {
     String? permissionUsageStatsEnabled,
     String? termsAccepted,
     String? status,
+    String? tradingSetupType,
     String? createdAt,
     String? updatedAt,
     int? isMindControllActive,
@@ -147,6 +152,7 @@ class TradingProcessData {
           permissionUsageStatsEnabled ?? this.permissionUsageStatsEnabled,
       termsAccepted: termsAccepted ?? this.termsAccepted,
       status: status ?? this.status,
+      tradingSetupType: tradingSetupType ?? this.tradingSetupType,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       isMindControllActive: isMindControllActive ?? this.isMindControllActive,

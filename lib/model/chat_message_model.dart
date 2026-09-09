@@ -111,6 +111,12 @@ class NewTradeOpportunityMessage extends ChatMessage {
   final String tradeId; // ID of the trade
   /// Previous SL value from payload key `old_stop_loss_history` (edit flow).
   final String oldStopLoss;
+  /// Previous Target value from payload key `old_take_profit_history` (edit flow).
+  final String oldTakeProfit;
+  /// Whether the SL was edited (extracted from outer json)
+  final bool slChanged;
+  /// Whether the Target was edited (extracted from outer json)
+  final bool tpChanged;
   /// Outer API `message` when [entity_type] is trade (e.g. instructions).
   final String apiMessage;
 
@@ -136,6 +142,9 @@ class NewTradeOpportunityMessage extends ChatMessage {
     this.exchange = '',
     this.tradeId = '',
     this.oldStopLoss = '',
+    this.oldTakeProfit = '',
+    this.slChanged = false,
+    this.tpChanged = false,
     this.apiMessage = '',
     this.buttonType = '',
     this.tradeName = '',
@@ -341,6 +350,8 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
   final buttonTypeOuter = (json['button_type'] ?? '').toString();
   final actionTaken = json['action_taken'];
   final outerTimestamp = (json['timestamp'] ?? '').toString();
+  final slChanged = _parseBoolFlag(json['sl_changed']);
+  final tpChanged = _parseBoolFlag(json['tp_changed']);
   final payload = json['payload'];
   final payloadMap = payload is Map<String, dynamic>
       ? payload
@@ -544,6 +555,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       final takeProfit = (tp['take_profit'] ?? '').toString();
       final currentPrice = (tp['current_price'] ?? '').toString();
       final oldStopLoss = (tp['old_stop_loss_history'] ?? '').toString();
+      final oldTakeProfit = (tp['old_take_profit_history'] ?? '').toString();
       final action = (tp['action'] ?? '').toString();
       final tradeId =
           (p['trade_id'] ?? tp['trade_id'] ?? tp['id'] ?? tp['trade_uid'] ?? '')
@@ -569,6 +581,9 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         exchange: exchange,
         tradeId: tradeId,
         oldStopLoss: oldStopLoss,
+        oldTakeProfit: oldTakeProfit,
+        slChanged: slChanged,
+        tpChanged: tpChanged,
         apiMessage: message.trim(),
         buttonType: buttonTypeOuter,
         tradeName: name,
@@ -612,6 +627,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
     final takeProfit = (p['take_profit'] ?? '').toString();
     final currentPrice = (p['current_price'] ?? '').toString();
     final oldStopLoss = (p['old_stop_loss_history'] ?? '').toString();
+    final oldTakeProfit = (p['old_take_profit_history'] ?? '').toString();
     final action = (p['action'] ?? '').toString();
     final tradeId = (p['trade_id'] ?? p['id'] ?? p['trade_uid'] ?? '')
         .toString();
@@ -636,6 +652,9 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       exchange: exchange,
       tradeId: tradeId,
       oldStopLoss: oldStopLoss,
+      oldTakeProfit: oldTakeProfit,
+      slChanged: slChanged,
+      tpChanged: tpChanged,
       apiMessage: apiMessage,
       buttonType: buttonTypeOuter,
       tradeName: name,

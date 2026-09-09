@@ -78,7 +78,7 @@ class _TradesScreenState extends State<TradesScreen>
 
   @override
   void dispose() {
-    _closeLevelDropdown();
+    _closeLevelDropdown(isDisposing: true);
     _tradesLoadWorker?.dispose();
     _entranceController.dispose();
     super.dispose();
@@ -677,10 +677,10 @@ class _TradesScreenState extends State<TradesScreen>
   // =============================================
   // CUSTOM DROPDOWN (always opens BELOW the field)
   // =============================================
-  void _closeLevelDropdown() {
+  void _closeLevelDropdown({bool isDisposing = false}) {
     _levelDropdownOverlay?.remove();
     _levelDropdownOverlay = null;
-    if (mounted) setState(() => _levelDropdownOpen = false);
+    if (mounted && !isDisposing) setState(() => _levelDropdownOpen = false);
   }
 
   void _toggleLevelDropdown() {

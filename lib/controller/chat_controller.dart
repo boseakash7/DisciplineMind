@@ -27,6 +27,13 @@ class ChatController extends GetxController {
   final hasMoreOlderMessages = true.obs;
 
   String? currentUserId;
+  int _emptyLoadRetryCount = 0;
+  int _sessionVersion = 0;
+  int _loadVersion = 0;
+  Worker? _userWorker;
+
+  bool _isCurrentSession(String userId, int version) =>
+      !isClosed && _sessionVersion == version && _resolvedUserId == userId;
 
   String? get _resolvedUserId {
     final fromModel = Common.userData.value?.payload?.id?.toString();
@@ -37,11 +44,14 @@ class ChatController extends GetxController {
   }
 
   void reset() {
+    _sessionVersion++;
+    _loadVersion++;
     messages.clear();
     currentUserId = null;
     isLoading.value = false;
     isRefreshing.value = false;
     hasMoreOlderMessages.value = true;
+    _emptyLoadRetryCount = 0;
     update();
   }
 
@@ -56,7 +66,20 @@ class ChatController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    _userWorker = ever(Common.userData, (_) {
+      final userId = Common.userData.value?.payload?.id?.toString();
+      if (userId == currentUserId) return;
+      reset();
+      if (userId != null && userId.isNotEmpty) loadMessages();
+    });
     loadMessages();
+  }
+
+  @override
+  void onClose() {
+    _userWorker?.dispose();
+    _sessionVersion++;
+    super.onClose();
   }
 
   String _lastKnownMessageId() {
@@ -287,16 +310,19 @@ class ChatController extends GetxController {
   }) async {
     final userId = _resolvedUserId;
     if (userId == null || userId.isEmpty) {
-      messages.clear();
-      currentUserId = null;
+      reset();
       return;
     }
 
     if (currentUserId != null && currentUserId != userId) {
-      messages.clear();
+      reset();
       force = true;
     }
     currentUserId = userId;
+    final sessionVersion = _sessionVersion;
+    final loadVersion = ++_loadVersion;
+    bool isCurrentLoad() =>
+        _isCurrentSession(userId, sessionVersion) && _loadVersion == loadVersion;
 
     if (!silent) {
       if (refresh) {
@@ -313,12 +339,24 @@ class ChatController extends GetxController {
       final response = await api.postMessagesForm(ApiUrl.getMessagesByUser, {
         'user_id': userId,
       });
+      if (!isCurrentLoad()) return;
 
       if (response.isSuccess && response.data != null) {
         final payload = response.data['payload'];
         final display = _parseDisplayMessages(payload);
         messages.assignAll(display);
         hasMoreOlderMessages.value = true;
+
+        if (messages.isEmpty && _emptyLoadRetryCount < 3) {
+          _emptyLoadRetryCount++;
+          Future.delayed(const Duration(milliseconds: 2000), () {
+            if (isCurrentLoad() && messages.isEmpty) {
+              loadMessages(silent: true);
+            }
+          });
+        } else if (messages.isNotEmpty) {
+          _emptyLoadRetryCount = 0;
+        }
       } else {
         if (!refresh) {
           messages.clear();
@@ -328,11 +366,12 @@ class ChatController extends GetxController {
         }
       }
     } catch (e, stack) {
+      if (!isCurrentLoad()) return;
       debugPrint('[ChatController] loadMessages error: $e\n$stack');
       if (!refresh && !silent) messages.clear();
       if (!silent) AppToast.showToast('Unable to load chat. Please try again.');
     } finally {
-      if (!silent) {
+      if (isCurrentLoad()) {
         isLoading.value = false;
         isRefreshing.value = false;
       }
@@ -344,8 +383,7 @@ class ChatController extends GetxController {
   Future<void> loadNewMessages({bool silent = true}) async {
     final userId = _resolvedUserId;
     if (userId == null || userId.isEmpty) {
-      messages.clear();
-      currentUserId = null;
+      reset();
       return;
     }
 
@@ -358,6 +396,7 @@ class ChatController extends GetxController {
       await loadMessages(silent: silent);
       return;
     }
+    final sessionVersion = _sessionVersion;
     if (!silent) {
       isRefreshing.value = true;
     }
@@ -375,6 +414,7 @@ class ChatController extends GetxController {
         ApiUrl.getMessagesByUser,
         fields,
       );
+      if (!_isCurrentSession(userId, sessionVersion)) return;
       if (response.isSuccess && response.data != null) {
         final incoming = _parseDisplayMessages(response.data['payload']);
         if (incoming.isNotEmpty) {
@@ -391,7 +431,9 @@ class ChatController extends GetxController {
           // load with correct `action_taken` state.
           if (hasDeleteRequest) {
             Future.delayed(const Duration(milliseconds: 250), () {
-              loadMessages(silent: true);
+              if (_isCurrentSession(userId, sessionVersion)) {
+                loadMessages(silent: true);
+              }
             });
           }
         }
@@ -399,12 +441,13 @@ class ChatController extends GetxController {
         AppToast.showToast(response.errorMessage!);
       }
     } catch (e, stack) {
+      if (!_isCurrentSession(userId, sessionVersion)) return;
       debugPrint('[ChatController] loadNewMessages error: $e\n$stack');
       if (!silent) {
         AppToast.showToast('Failed to load new messages. Please try again.');
       }
     } finally {
-      if (!silent) {
+      if (_isCurrentSession(userId, sessionVersion) && !silent) {
         isRefreshing.value = false;
       }
     }
@@ -414,11 +457,13 @@ class ChatController extends GetxController {
   /// sends earliest local `message_id` + `direction=before`.
   Future<void> loadOlderMessages() async {
     if (isRefreshing.value || !hasMoreOlderMessages.value) return;
+    final userId = _resolvedUserId;
+    if (userId == null || currentUserId != userId) return;
+    final sessionVersion = _sessionVersion;
     final firstMessageId = _firstKnownMessageId();
     if (firstMessageId.isEmpty) return;
     isRefreshing.value = true;
     try {
-      final userId = Common.userData.value?.payload?.id?.toString() ?? '2';
       final fields = <String, String>{'user_id': userId};
       fields['message_id'] = firstMessageId;
       fields['direction'] = 'before';
@@ -429,6 +474,7 @@ class ChatController extends GetxController {
         ApiUrl.getMessagesByUser,
         fields,
       );
+      if (!_isCurrentSession(userId, sessionVersion)) return;
       if (response.isSuccess && response.data != null) {
         final incoming = _parseDisplayMessages(response.data['payload']);
         if (incoming.isNotEmpty) {
@@ -445,10 +491,13 @@ class ChatController extends GetxController {
         AppToast.showToast(response.errorMessage!);
       }
     } catch (e, stack) {
+      if (!_isCurrentSession(userId, sessionVersion)) return;
       debugPrint('[ChatController] loadOlderMessages error: $e\n$stack');
       AppToast.showToast('Failed to load older messages. Please try again.');
     } finally {
-      isRefreshing.value = false;
+      if (_isCurrentSession(userId, sessionVersion)) {
+        isRefreshing.value = false;
+      }
     }
   }
 
@@ -488,7 +537,7 @@ class ChatController extends GetxController {
   }
 
   String _llmAskUrl() {
-    return '${ApiConfig.baseUrl}${ApiUrl.llmAsk}';
+    return '${ApiConfig.getBaseUrl(ApiUrl.llmAsk)}${ApiUrl.llmAsk}';
   }
 
   Future<void> sendTextMessage(String text) async {
@@ -1004,7 +1053,10 @@ class ChatController extends GetxController {
   /// POST `edit/trade` (trade_id + user_id) after user taps SL Trailed.
   Future<void> acknowledgeSlTrailed(
     NewTradeOpportunityMessage msg, {
+    String? newEntry,
     String? newSl,
+    String? newTp,
+    bool isGttEdit = false,
   }) async {
     final userId = Common.userData.value?.payload?.id?.toString();
     if (userId == null || userId.isEmpty) {
@@ -1023,15 +1075,26 @@ class ChatController extends GetxController {
         'trade_id': msg.tradeId,
         'user_id': userId,
       };
-      final trimmed = (newSl ?? '').trim();
-      if (trimmed.isNotEmpty) {
-        fields['new_sl'] = trimmed;
+      final trimmedEntry = (newEntry ?? '').trim();
+      if (trimmedEntry.isNotEmpty) {
+        fields['new_entry'] = trimmedEntry;
       }
-      final response = await api.postFormData(ApiUrl.editTrade, fields);
+      final trimmedSl = (newSl ?? '').trim();
+      if (trimmedSl.isNotEmpty) {
+        fields['new_sl'] = trimmedSl;
+      }
+      final trimmedTp = (newTp ?? '').trim();
+      if (trimmedTp.isNotEmpty) {
+        fields['new_tp'] = trimmedTp;
+        fields['new_take_profit'] = trimmedTp;
+        fields['new_target'] = trimmedTp;
+      }
+      final endpoint = isGttEdit ? ApiUrl.editGtt : ApiUrl.editTrade;
+      final response = await api.postFormData(endpoint, fields);
       if (response.isSuccess) {
         markActionTaken(tradeId: msg.tradeId, messageId: msg.messageId);
         await _applyTradingAppBlock(userId);
-        AppToast.showToast('SL trailed');
+        AppToast.showToast(isGttEdit ? 'GTT updated' : 'SL trailed');
         await loadMessages(refresh: true);
       } else {
         AppToast.showToast(
@@ -1041,6 +1104,42 @@ class ChatController extends GetxController {
     } catch (e, stack) {
       debugPrint('[ChatController] acknowledgeSlTrailed error: $e\n$stack');
       AppToast.showToast('Something went wrong. Please try again.');
+    }
+  }
+
+  /// POST `trade/gtt-missed` (user_id + trade_id) after user taps GTT Missed.
+  Future<void> acknowledgeGttMissed(AlertHitWithButtonMessage msg) async {
+    final userId = Common.userData.value?.payload?.id?.toString();
+    if (userId == null || userId.isEmpty) {
+      AppToast.showToast('Please sign in to confirm');
+      return;
+    }
+    final tradeId = msg.tradeId.trim().isNotEmpty
+        ? msg.tradeId.trim()
+        : (msg.tradeData?.tradeId.trim() ?? '');
+    if (tradeId.isEmpty) {
+      AppToast.showToast('Missing trade id');
+      return;
+    }
+    try {
+      final api = Get.isRegistered<ApiService>()
+          ? Get.find<ApiService>()
+          : Get.put(ApiService(), permanent: true);
+      final response = await api.postFormData(ApiUrl.gttMissed, {
+        'user_id': userId,
+        'trade_id': tradeId,
+      });
+      if (response.isSuccess) {
+        markActionTaken(tradeId: tradeId, messageId: msg.messageId);
+        loadMessages(refresh: true);
+      } else {
+        AppToast.showToast(
+          response.errorMessage ?? 'Could not mark GTT as missed',
+        );
+      }
+    } catch (e) {
+      AppToast.showToast('Something went wrong. Please try again.');
+      debugPrint('[ChatController] acknowledgeGttMissed failed: $e');
     }
   }
 

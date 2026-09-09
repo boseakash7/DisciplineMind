@@ -13,6 +13,7 @@ import '../common/device_utils.dart';
 import '../controller/chat_controller.dart';
 import '../model/login_reponse_model.dart';
 import '../model/otp_auth_models.dart';
+import '../services/api/api_config.dart';
 import '../services/api/api_reponse.dart';
 import '../services/api/api_services.dart';
 import '../services/local_db.dart';
@@ -30,9 +31,10 @@ class AuthController extends GetxController {
     Get.offAll(() => const MainHomeScreen(initialIndex: 2));
   }
 
-Future<void> goToHomeAfterAuth() async {
-  await _navigateAfterLogin();
-}
+  Future<void> goToHomeAfterAuth() async {
+    await _navigateAfterLogin();
+  }
+
   Future<void> _syncFcmAndSubscribe(String userId) async {
     await Common.getFcmToken();
     if (Common.fcmToken.isNotEmpty) {
@@ -154,7 +156,7 @@ Future<void> goToHomeAfterAuth() async {
     required String email,
     required String phone,
     String? password,
-    bool navigateAfterLogin = true,  
+    bool navigateAfterLogin = true,
   }) async {
     try {
       isLoading.value = true;
@@ -198,7 +200,10 @@ Future<void> goToHomeAfterAuth() async {
 
         AppToast.showToast("Account created successfully!");
         // await applyLoggedInUser(loginModel);
-         await applyLoggedInUser(loginModel, navigateAfterLogin: navigateAfterLogin);
+        await applyLoggedInUser(
+          loginModel,
+          navigateAfterLogin: navigateAfterLogin,
+        );
       } else {
         AppToast.showToast(response.errorMessage ?? "Failed to create account");
       }
@@ -214,6 +219,10 @@ Future<void> goToHomeAfterAuth() async {
     Common.userData.value = null;
     GetStorage().remove('user_id');
     ApiService.clearPersistedSessionCookie();
+    ApiConfig.activeSetupType = null;
+    if (Get.isRegistered<ChatController>()) {
+      Get.delete<ChatController>(force: true);
+    }
     Get.offAll(() => PhoneLoginScreen());
   }
 }

@@ -1,6 +1,7 @@
 package com.discipline.mind
 
 import android.app.AppOpsManager
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -175,7 +176,18 @@ class AppBlockPlugin(private val activity: android.app.Activity) : MethodChannel
     }
 
     private fun requestUsageStatsPermission() {
-        val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
-        activity.startActivityForResult(intent, 1237)
+        // Some Settings apps support opening usage access for a specific package.
+        // Fall back to the standard list on devices without that route.
+        val intent = Intent(
+            Settings.ACTION_USAGE_ACCESS_SETTINGS,
+            Uri.parse("package:${activity.packageName}")
+        )
+        try {
+            activity.startActivityForResult(intent, 1237)
+        } catch (_: ActivityNotFoundException) {
+            activity.startActivityForResult(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS), 1237)
+        } catch (_: SecurityException) {
+            activity.startActivityForResult(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS), 1237)
+        }
     }
 }

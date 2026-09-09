@@ -1,4 +1,6 @@
 import 'package:discipline_mind/common/app_colors.dart';
+import 'package:discipline_mind/common/common.dart';
+import 'package:discipline_mind/services/api/api_config.dart';
 import 'package:discipline_mind/model/dmt_level_model.dart';
 import 'package:discipline_mind/model/dmt_score_history_model.dart';
 import 'package:discipline_mind/model/dmt_user_return_percentages_model.dart';
@@ -254,6 +256,8 @@ class _AnalysisScreenState extends State<AnalysisScreen>
               }
 
               final returns = _service.returnsPayload.value;
+              final setupType = ApiConfig.activeSetupType ?? Common.userData.value?.payload?.tradingSetupType ?? 'own_setup';
+              final isZenoAi = setupType == 'zeno_ai_signals';
 
               return RefreshIndicator(
                 color: AppColors.primary,
@@ -265,7 +269,11 @@ class _AnalysisScreenState extends State<AnalysisScreen>
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
                   children: [
-                    _entranceSection(1, _buildAnimatedProfitChartCard(returns)),
+                    if (isZenoAi) ...[
+                      _entranceSection(1, _buildAnimatedScoreChartCard(payload)),
+                      const SizedBox(height: 16),
+                    ],
+                    _entranceSection(isZenoAi ? 2 : 1, _buildAnimatedProfitChartCard(returns)),
                   ],
                 ),
               );

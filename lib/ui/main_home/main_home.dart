@@ -1,8 +1,11 @@
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
+import 'package:discipline_mind/controller/trading_process_controller.dart';
 import 'package:discipline_mind/ui/main_home/analysis_screen.dart';
 import 'package:discipline_mind/ui/main_home/bm_screen.dart';
 import 'package:discipline_mind/ui/main_home/chat_screen.dart';
+import 'package:discipline_mind/ui/main_home/chat_screencopy.dart';
+import 'package:discipline_mind/ui/credits/widgets/credits_header_avatar.dart';
 import 'package:discipline_mind/ui/main_home/more_screen.dart';
 import 'package:discipline_mind/ui/main_home/trade_screen.dart';
 import 'package:flutter/material.dart';
@@ -47,15 +50,25 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
     const fabSize = 46.0;
     final bottomInset = MediaQuery.of(context).padding.bottom;
 
-    final screens = [
-      BmScreen(onMonkkTap: _openMoreTab, isActive: currentIndex == 0),
-      TradesScreen(onMonkkTap: _openMoreTab, isActive: currentIndex == 1),
-      ChatScreen(onMonkkTap: _openMoreTab, isActive: currentIndex == 2),
-      AnalysisScreen(onMonkkTap: _openMoreTab, isActive: currentIndex == 3),
-      const MoreScreen(),
-    ];
+    final processController = Get.isRegistered<TradingProcessController>() 
+        ? Get.find<TradingProcessController>() 
+        : Get.put(TradingProcessController());
+    
+    return Obx(() {
+      final setupType = processController.currentProcess.value?.tradingSetupType 
+          ?? Common.userData.value?.payload?.tradingSetupType 
+          ?? 'own_setup';
+      final isZenoAi = setupType == 'zeno_ai_signals';
 
-    return AnnotatedRegion<SystemUiOverlayStyle>(
+      final screens = [
+        BmScreen(onMonkkTap: _openMoreTab, isActive: currentIndex == 0),
+        TradesScreen(onMonkkTap: _openMoreTab, isActive: currentIndex == 1),
+        ChatScreen(onMonkkTap: _openMoreTab, isActive: currentIndex == 2),
+        AnalysisScreen(onMonkkTap: _openMoreTab, isActive: currentIndex == 3),
+        const MoreScreen(),
+      ];
+
+      return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
         statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
@@ -147,6 +160,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                                     ],
                                   ),
                                 ),
+                                if (isZenoAi) const CreditsHeaderAvatar(),
                               ],
                             );
                           }),
@@ -280,5 +294,6 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
         ),
       ),
     );
+    });
   }
 }

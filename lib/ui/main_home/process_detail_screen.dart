@@ -249,7 +249,7 @@ class _ProcessDetailScreenState extends State<ProcessDetailScreen> {
                             ],
                           ),
                           Text(
-                            process.tradingSegment.toUpperCase(),
+                            '${process.tradingSegment.toUpperCase()} • ${process.tradingSetupType == 'zeno_ai_signals' ? 'ZENO AI' : 'OWN SETUP'}',
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w800,
@@ -601,12 +601,14 @@ class _EditProcessModal extends StatefulWidget {
 class _EditProcessModalState extends State<_EditProcessModal> {
   late final TextEditingController _capitalController;
   late String _segment;
+  late String _setupType;
   late String _instrument;
   late String _tradesPerDay;
   late String _entryTime;
   late String _brokingApp;
 
   final List<String> _segments = ['Options', 'Futures'];
+  final List<String> _setupTypes = ['Zeno AI Signals', 'Own Setup'];
   final List<String> _instruments = ['Nifty 50', 'BankNifty', 'Sensex'];
   final List<String> _tradesOptions = ['1', '2'];
   final List<String> _brokerOptions = ['Upstox', 'Zerodha Kite', 'Groww'];
@@ -621,6 +623,10 @@ class _EditProcessModalState extends State<_EditProcessModal> {
     // Segment matching
     final pSeg = p.tradingSegment.toLowerCase();
     _segment = pSeg.contains('option') ? 'Options' : 'Futures';
+
+    // Setup Type matching
+    final pSetup = p.tradingSetupType.toLowerCase();
+    _setupType = pSetup.contains('own') ? 'Own Setup' : 'Zeno AI Signals';
 
     // Instrument matching
     final pInst = p.instrument.trim();
@@ -708,16 +714,18 @@ class _EditProcessModalState extends State<_EditProcessModal> {
       return;
     }
 
-    String apiBroker = 'upstox';
-    if (_brokingApp == 'Zerodha Kite') {
-      apiBroker = 'zerodha';
-    } else if (_brokingApp == 'Groww') {
-      apiBroker = 'groww';
-    }
+    final apiBroker = _brokingApp == 'Zerodha Kite'
+        ? 'zerodha'
+        : _brokingApp == 'Groww'
+            ? 'groww'
+            : 'upstox';
+
+    final apiSetupType = _setupType == 'Own Setup' ? 'own_setup' : 'zeno_ai_signals';
 
     final success = await widget.controller.editProcess(
       processId: widget.process.id,
       tradingSegment: _segment.toLowerCase(),
+      tradingSetupType: apiSetupType,
       instrument: _instrument,
       tradingCapital: cap.toString(),
       tradesPerDay: _tradesPerDay,
@@ -827,6 +835,52 @@ class _EditProcessModalState extends State<_EditProcessModal> {
                           ),
                           child: Text(
                             seg,
+                            style: TextStyle(
+                              color: selected
+                                  ? Colors.white
+                                  : primaryTextColor,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              // 1.5. Trading Setup Type
+              _buildLabel('Trading Setup', secondaryTextColor),
+              const SizedBox(height: 8),
+              Row(
+                children: _setupTypes.map((setup) {
+                  final selected = _setupType == setup;
+                  return Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.only(
+                        right: setup == _setupTypes.first ? 8 : 0,
+                        left: setup == _setupTypes.last ? 8 : 0,
+                      ),
+                      child: InkWell(
+                        onTap: () => setState(() => _setupType = setup),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          height: 44,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: selected
+                                ? AppColors.primary
+                                : fieldBg,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: selected
+                                  ? AppColors.primary
+                                  : borderColor,
+                              width: 1.2,
+                            ),
+                          ),
+                          child: Text(
+                            setup,
                             style: TextStyle(
                               color: selected
                                   ? Colors.white

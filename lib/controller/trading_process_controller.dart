@@ -1,5 +1,6 @@
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/model/trading_process_model.dart';
+import 'package:discipline_mind/services/api/api_config.dart';
 import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
@@ -46,6 +47,7 @@ class TradingProcessController extends GetxController {
           final res = TradingProcessResponse.fromJson(raw);
           if (res.status == 'ok' && res.payload != null) {
             currentProcess.value = res.payload;
+            ApiConfig.activeSetupType = res.payload!.tradingSetupType;
             return res.payload;
           } else {
             errorMessage.value = res.message ?? 'No active process found';
@@ -67,6 +69,7 @@ class TradingProcessController extends GetxController {
   Future<bool> editProcess({
     required String processId,
     required String tradingSegment,
+    required String tradingSetupType,
     required String instrument,
     required String tradingCapital,
     required String tradesPerDay,
@@ -91,6 +94,7 @@ class TradingProcessController extends GetxController {
         'user_id': effectiveUserId,
         'process_id': processId,
         'trading_segment': tradingSegment.toLowerCase(),
+        'trading_setup_type': tradingSetupType,
         'instrument': instrument,
         'trading_capital': tradingCapital,
         'trades_per_day': tradesPerDay,
@@ -113,6 +117,7 @@ class TradingProcessController extends GetxController {
           final res = TradingProcessResponse.fromJson(raw);
           if (res.status == 'ok' && res.payload != null) {
             currentProcess.value = res.payload;
+            ApiConfig.activeSetupType = res.payload!.tradingSetupType;
             AppToast.showToast('Process updated successfully!');
             return true;
           } else {

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
+import 'package:discipline_mind/services/api/api_config.dart';
 import 'package:discipline_mind/controller/chat_controller.dart';
 import 'package:discipline_mind/controller/trading_process_controller.dart';
 import 'package:discipline_mind/model/chat_message_model.dart';
@@ -15,7 +16,6 @@ import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:discipline_mind/ui/widgets/audio_wave_visualizer.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:get_storage/get_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
@@ -34,10 +34,13 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
+  late final ChatController _chatController;
   final NativeAppBlockService _blockService = NativeAppBlockService();
   bool _overlayGranted = false;
   bool _usageGranted = false;
   bool _isCheckingPermissions = true;
+  bool _hideMindControlGateTemporary = false;
+  bool _skippedMindControl = false;
 
   final _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
@@ -259,6 +262,35 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   // Centralised so light/dark variants stay consistent across every bubble,
   // card, dialog and input in this screen.
 
+  bool get _isMarketOpen {
+    final nowUtc = DateTime.now().toUtc();
+    final istOffset = const Duration(hours: 5, minutes: 30);
+    final nowIst = nowUtc.add(istOffset);
+
+    if (nowIst.weekday == DateTime.saturday || nowIst.weekday == DateTime.sunday) {
+      return false;
+    }
+
+    final minutes = nowIst.hour * 60 + nowIst.minute;
+    final startMinutes = 9 * 60 + 15; // 9:15 AM
+    final endMinutes = 15 * 60 + 30; // 3:30 PM
+
+    return minutes >= startMinutes && minutes <= endMinutes;
+  }
+
+  bool _enforceMindControlOnClick() {
+    final processController = Get.find<TradingProcessController>();
+    final process = processController.currentProcess.value;
+    if (process != null && process.isMindControllActive == 0 && _isMarketOpen) {
+      AppToast.showToast('Activate Mind Control Guard');
+      setState(() {
+        _skippedMindControl = false;
+      });
+      return true;
+    }
+    return false;
+  }
+
   bool _isDark(BuildContext context) =>
       Theme.of(context).brightness == Brightness.dark;
 
@@ -310,6 +342,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _chatController = Get.isRegistered<ChatController>()
+        ? Get.find<ChatController>()
+        : Get.put(ChatController(), permanent: true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && widget.isActive) _syncOnTabFocus();
+    });
     WidgetsBinding.instance.addObserver(this);
     _checkPermissions();
     _scrollController.addListener(_onChatScroll);
@@ -339,6 +377,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _checkPermissions();
+      if (widget.isActive) _syncOnTabFocus();
     }
   }
 
@@ -346,14 +385,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void didUpdateWidget(ChatScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
+      if (_hideMindControlGateTemporary || _skippedMindControl) {
+        setState(() {
+          _hideMindControlGateTemporary = false;
+          _skippedMindControl = false;
+        });
+      }
       _syncOnTabFocus();
     }
   }
 
   void _syncOnTabFocus() {
-    if (!Get.isRegistered<ChatController>()) return;
-    // Same effect as Sync button, but without UI noise.
-    Get.find<ChatController>().loadNewMessages(silent: true);
+    if (_chatController.isClosed) return;
+    _chatController.loadNewMessages(silent: _chatController.messages.isNotEmpty);
   }
 
   @override
@@ -584,6 +628,338 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return raw;
   }
 
+  String _tradeSignalTime(String ts) {
+    if (ts.isEmpty) return '';
+    final parsed = DateTime.tryParse(ts);
+    if (parsed == null) return ts;
+    final local = parsed.toLocal();
+    final h = local.hour;
+    final m = local.minute.toString().padLeft(2, '0');
+    final period = h >= 12 ? 'pm' : 'am';
+    final hr12 = h == 0 ? 12 : (h > 12 ? h - 12 : h);
+    return '$hr12:$m $period';
+  }
+
+  Widget _buildMarketOpenMindControlPrompt(BuildContext context, bool isDark) {
+    final titleStyle = TextStyle(
+      fontSize: 16,
+      fontWeight: FontWeight.w800,
+      color: _headlineText(isDark),
+    );
+    final textStyle = TextStyle(
+      fontSize: 15,
+      color: _secondaryText(isDark),
+      height: 1.4,
+    );
+    final timeStyle = TextStyle(
+      fontSize: 12,
+      color: _tertiaryText(isDark),
+    );
+    final timeStr = _tradeSignalTime(DateTime.now().toUtc().toIso8601String());
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Zeno Chat Bubble
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              const SizedBox(width: 32),
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: _dialogBg(isDark),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(isDark ? 0.2 : 0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Zeno',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF5A4FCF),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Market is Open 🔔',
+                        style: titleStyle,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        "It's time to activate your\nMind Control.",
+                        style: textStyle,
+                      ),
+                      const SizedBox(height: 12),
+                      Align(
+                        alignment: Alignment.bottomRight,
+                        child: Text(timeStr, style: timeStyle),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 48),
+            ],
+          ),
+        ),
+
+        // Action Card
+        Padding(
+          padding: const EdgeInsets.only(left: 32, right: 16),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _dialogBg(isDark),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(isDark ? 0.2 : 0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Activate Mind Control',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: _headlineText(isDark),
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () => _showMindControlInfoBottomSheet(context, isDark),
+                      child: Icon(
+                        Icons.info_outline,
+                        size: 20,
+                        color: _tertiaryText(isDark),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => _showActivateMindControlBottomSheet(context, isDark),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF5A4FCF),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          alignment: Alignment.center,
+                          child: const Text(
+                            'Yes',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _skippedMindControl = true;
+                          });
+                          _scheduleScrollToBottom();
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _fieldBorder(isDark),
+                              width: 1,
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            'No',
+                            style: TextStyle(
+                              color: _headlineText(isDark),
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showActivateMindControlBottomSheet(BuildContext context, bool isDark) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          decoration: BoxDecoration(
+            color: _dialogBg(isDark),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.only(top: 12, left: 24, right: 24, bottom: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: const Color(0xFF5A4FCF),
+                    width: 1.5,
+                  ),
+                ),
+                alignment: Alignment.center,
+                child: const Text(
+                  '?',
+                  style: TextStyle(
+                    color: Color(0xFF5A4FCF),
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Do you wish to activate\nMind Control Guard?',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: _headlineText(isDark),
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 32),
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => Navigator.pop(ctx),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        decoration: BoxDecoration(
+                          color: Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _fieldBorder(isDark),
+                            width: 1,
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          'No',
+                          style: TextStyle(
+                            color: _headlineText(isDark),
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Obx(() {
+                      final pCtrl = Get.find<TradingProcessController>();
+                      if (pCtrl.isUpdating.value) {
+                        return Container(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF5A4FCF),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          alignment: Alignment.center,
+                          child: const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          ),
+                        );
+                      }
+
+                      return GestureDetector(
+                        onTap: () async {
+                          final success = await pCtrl.activateMindControl();
+                          if (success && mounted) {
+                            Navigator.pop(ctx);
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF5A4FCF),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          alignment: Alignment.center,
+                          child: const Text(
+                            'Yes',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   DateTime? _messageDay(ChatMessage msg) {
     final ts = msg.timestamp.trim();
     if (ts.isNotEmpty) {
@@ -776,21 +1152,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final allGranted = _overlayGranted && _usageGranted;
 
     return GetBuilder<ChatController>(
-      init: Get.put(ChatController(), permanent: true),
+      init: _chatController,
+      autoRemove: false,
       builder: (controller) {
         final processController = Get.put(TradingProcessController());
         
-        final activeUserId = Common.userData.value?.payload?.id?.toString() ??
-            GetStorage().read<String>('user_id');
-        if (controller.currentUserId != null &&
-            activeUserId != null &&
-            controller.currentUserId != activeUserId) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            controller.reset();
-            controller.loadMessages(force: true);
-          });
-        }
-
         return Obx(() {
           final process = processController.currentProcess.value;
           final isProcessLoading = processController.isLoading.value;
@@ -819,12 +1185,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             return _buildPermissionGateUI(isDark);
           }
 
-          // If permissions granted, enforce Mind Control
-          if (process.isMindControllActive == 0) {
-            return _buildMindControlGateUI(isDark, processController);
-          }
-
-          // Everything is active, show the chat
+          // Everything is active or market is closed, show the chat
           return _buildMainChat(context, isDark, controller);
         });
       },
@@ -843,6 +1204,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   if (controller.isLoading.value) {
                     return const Center(child: CircularProgressIndicator());
                   }
+
+                  final processController = Get.put(TradingProcessController());
+                  final process = processController.currentProcess.value;
+                  if (process != null && process.isMindControllActive == 0 && _isMarketOpen && !_skippedMindControl) {
+                    return ListView(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      children: [
+                        _buildMarketOpenMindControlPrompt(context, isDark),
+                      ],
+                    );
+                  }
+
                   final currentFirstId = _firstMessageId(controller.messages);
                   final currentLastId = _lastMessageId(controller.messages);
                   final wasNearBottom = _isNearBottom();
@@ -1043,11 +1416,99 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   );
                 }),
               ),
-              _buildInput(context, controller, _textController),
+              Obx(() {
+                final processController = Get.put(TradingProcessController());
+                final process = processController.currentProcess.value;
+                final isPromptShowing = process != null && process.isMindControllActive == 0 && _isMarketOpen && !_skippedMindControl;
+                if (isPromptShowing) return const SizedBox.shrink();
+                return _buildInput(context, controller, _textController);
+              }),
             ],
           ),
         ),
       );
+  }
+
+  void _showMindControlInfoBottomSheet(BuildContext context, bool isDark) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: _screenBg(isDark),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 24),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Text(
+                'What is Mind Control?',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: _headlineText(isDark),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Mind Control helps you stay focused on your trading process and protects you from impulsive decisions like FOMO, Fear and Revenge Trading.',
+                style: TextStyle(
+                  fontSize: 16,
+                  height: 1.5,
+                  color: _secondaryText(isDark),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'When activated, Zeno stays with you during the market and helps you follow your defined process.',
+                style: TextStyle(
+                  fontSize: 16,
+                  height: 1.5,
+                  color: _secondaryText(isDark),
+                ),
+              ),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    'Got it',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Widget _buildMindControlGateUI(bool isDark, TradingProcessController processController) {
@@ -1067,8 +1528,23 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 color: AppColors.primary,
               ),
               const SizedBox(height: 24),
-              Text(
-                'Activate Mind Control',
+              Text.rich(
+                TextSpan(
+                  children: [
+                    const TextSpan(text: 'Activate Mind Control\nGuard '),
+                    WidgetSpan(
+                      alignment: PlaceholderAlignment.middle,
+                      child: GestureDetector(
+                        onTap: () => _showMindControlInfoBottomSheet(context, isDark),
+                        child: Icon(
+                          Icons.info_outline_rounded,
+                          color: _headlineText(isDark),
+                          size: 26,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
@@ -1092,7 +1568,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 child: ElevatedButton(
                   onPressed: processController.isUpdating.value
                       ? null
-                      : () => processController.activateMindControl(),
+                      : () async {
+                          final success = await processController.activateMindControl();
+                          if (success && Get.isRegistered<ChatController>()) {
+                            Get.find<ChatController>().loadMessages();
+                          }
+                        },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
@@ -1114,6 +1595,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         ),
                 ),
               )),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: () {
+                  setState(() => _hideMindControlGateTemporary = true);
+                },
+                child: Text(
+                  'I will do it later',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: _secondaryText(isDark),
+                  ),
+                ),
+              ),
               const Spacer(),
             ],
           ),
@@ -1252,7 +1747,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   elevation: 0,
@@ -2602,7 +3097,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Widget _buildRichMessageContent(String rawText, bool isDark) {
     final primaryTextColor = isDark ? Colors.white : const Color(0xFF10122D);
     final normalized = rawText
-        .replaceAll(RegExp(r'<br\s*\/?>', caseSensitive: false), '\n');
+        .replaceAll(RegExp(r'<br\s*\/?>', caseSensitive: false), '\n')
+        .replaceAll(r'\n', '\n');
     final lines = normalized.split('\n');
     final List<Widget> widgets = [];
 
@@ -2748,8 +3244,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   bool _isDeleteTradeAction(NewTradeOpportunityMessage msg) =>
       msg.action.toLowerCase() == 'delete';
-  bool _isEditTradeAction(NewTradeOpportunityMessage msg) =>
-      msg.action.toLowerCase() == 'edit';
+  bool _isEditTradeAction(NewTradeOpportunityMessage msg) {
+    final a = msg.action.toLowerCase();
+    return a == 'edit' || a == 'editgtt';
+  }
   bool _showButtons(ChatMessage msg) => msg.actionTaken == null;
 
   String _tradeDeleteStepLine(int n, String api, String fallback) {
@@ -2795,7 +3293,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ChatController controller,
   ) {
     final isDark = _isDark(context);
-    if (_isEditTradeAction(msg) && msg.buttonType == 'edit_button') {
+    if (_isEditTradeAction(msg) && (msg.buttonType == 'edit_button' || msg.buttonType == 'edit_gtt_button')) {
       return _buildTradeEditCombinedMessage(context, msg, controller);
     }
     if (_isDeleteTradeAction(msg) &&
@@ -2908,16 +3406,32 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       fontSize: 14,
       fontWeight: FontWeight.bold,
     );
+    final isGttEdit = msg.buttonType == 'edit_gtt_button' || msg.action.toLowerCase() == 'editgtt';
+    String titlePrefix = 'SL';
+    if (!isGttEdit) {
+      if (msg.slChanged && msg.tpChanged) {
+        titlePrefix = 'SL and Target';
+      } else if (msg.tpChanged) {
+        titlePrefix = 'Target';
+      }
+    }
+    final cardTitle = isGttEdit ? 'GTT Edited' : '$titlePrefix Edited';
     final backendText = msg.apiMessage.trim().isNotEmpty
         ? msg.apiMessage.trim()
-        : 'Open Trading App and Trail your SL to reduce risk.';
+        : (isGttEdit
+            ? 'Open Trading App and update your pending GTT order.'
+            : 'Open Trading App and Trail your $titlePrefix to reduce risk.');
+    final step2Text = isGttEdit 
+        ? '2. Intimate me once you update the GTT' 
+        : '2. Intimate me once you Trail your $titlePrefix';
+    final btnLabel = isGttEdit ? 'GTT Updated' : '$titlePrefix Trailed';
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('SL Edited', style: titleStyle),
+          Text(cardTitle, style: titleStyle),
           const SizedBox(height: 8),
           _buildTradeOpportunityCard(
             context,
@@ -2938,13 +3452,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             onTap: () => controller.openTradingApp(),
           ),
           const SizedBox(height: 14),
-          Text(
-            '2. Intimate me once you Trail your SL',
-            style: stepStyle,
-          ),
+          Text(step2Text, style: stepStyle),
           const SizedBox(height: 8),
           _tradePromptPrimaryButton(
-            label: 'SL Trailed',
+            label: btnLabel,
             icon: !_showButtons(msg) ? Icons.check_circle_outline_rounded : null,
             isCompleted: !_showButtons(msg),
             enabled: _showButtons(msg),
@@ -3041,7 +3552,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               ),
             ),
             const Spacer(),
-            if (msg.rtt.trim().isNotEmpty)
+            if (msg.rtt.trim().isNotEmpty && msg.actionTaken == null && !_isDeleteTradeAction(msg))
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 decoration: BoxDecoration(
@@ -3392,7 +3903,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         borderRadius: BorderRadius.circular(8),
         child: canTap
             ? InkWell(
-                onTap: onTap,
+                onTap: () {
+                  if (_enforceMindControlOnClick()) return;
+                  onTap?.call();
+                },
                 borderRadius: BorderRadius.circular(8),
                 child: child,
               )
@@ -3647,7 +4161,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ChatController controller,
   ) {
     final isDark = _isDark(context);
+    final isGttEdit = msg.buttonType == 'edit_gtt_button' || msg.action.toLowerCase() == 'editgtt';
+    
+    String dialogTitle = 'Trail Stop Loss';
+    if (isGttEdit) {
+      dialogTitle = 'Update GTT';
+    } else if (msg.slChanged && msg.tpChanged) {
+      dialogTitle = 'Update SL and Target';
+    } else if (msg.tpChanged) {
+      dialogTitle = 'Update Target';
+    }
+
     final slController = TextEditingController(text: msg.stopLoss);
+    final tpController = TextEditingController(text: msg.frr);
+    final gttController = TextEditingController(text: msg.entryRange);
     showChatFadeDialog(
       context: context,
       builder: (ctx) => Dialog(
@@ -3674,9 +4201,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 child: Row(
                   children: [
                     Icon(Icons.close,color: Colors.white,),
-                    const Text(
-                      'Trail Stop Loss',
-                      style: TextStyle(
+                    Text(
+                      dialogTitle,
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
@@ -3741,7 +4268,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       ],
                     ),
                     const SizedBox(height: 18),
-                    _popupField('New Stop Loss', slController, '', isDark),
+                    if (isGttEdit)
+                      _popupField('New GTT', gttController, '', isDark)
+                    else ...[
+                      if (msg.slChanged || (!msg.slChanged && !msg.tpChanged))
+                        _popupField('New Stop Loss', slController, '', isDark),
+                      if (msg.slChanged && msg.tpChanged)
+                        const SizedBox(height: 16),
+                      if (msg.tpChanged)
+                        _popupField('New Target', tpController, '', isDark),
+                    ],
                   ],
                 ),
               ),
@@ -3751,9 +4287,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   width: double.infinity,
                   child: FilledButton(
                     onPressed: () async {
-                      final v = slController.text.trim();
+                      final vGtt = gttController.text.trim();
+                      final vSl = slController.text.trim();
+                      final vTp = tpController.text.trim();
                       Navigator.pop(ctx);
-                      await controller.acknowledgeSlTrailed(msg, newSl: v);
+                      if (isGttEdit) {
+                        await controller.acknowledgeSlTrailed(msg, newEntry: vGtt, isGttEdit: true);
+                      } else {
+                        await controller.acknowledgeSlTrailed(msg, newSl: vSl, newTp: vTp);
+                      }
                     },
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.primary,
@@ -4019,15 +4561,38 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final dimDotColor = isDark ? Colors.white24 : Colors.grey.shade400;
     final dotColor = isDark ? Colors.white38 : const Color(0xFF616161);
     const dotRadius = 6.0;
-    final labels = ['Stop Loss', 'Trail SL', 'Target'];
-    final oldSl = msg.oldStopLoss.trim().isNotEmpty
-        ? msg.oldStopLoss
-        : msg.stopLoss;
-    final values = [
-      _formatTradeCardPrice(oldSl),
-      _formatTradeCardPrice(msg.stopLoss),
-      _formatTradeCardPrice(msg.frr),
-    ];
+    final oldSl = msg.oldStopLoss.trim().isNotEmpty ? msg.oldStopLoss : msg.stopLoss;
+    final oldTp = msg.oldTakeProfit.trim().isNotEmpty ? msg.oldTakeProfit : msg.frr;
+
+    List<String> labels;
+    List<String> values;
+    List<String> numericRaw;
+
+    if (msg.slChanged && msg.tpChanged) {
+      labels = ['Trail SL', 'Entry', 'New Target'];
+      numericRaw = [msg.stopLoss, msg.entryRange, msg.frr];
+      values = [
+        _formatTradeCardPrice(msg.stopLoss),
+        _formatTradeCardPrice(msg.entryRange),
+        _formatTradeCardPrice(msg.frr),
+      ];
+    } else if (msg.tpChanged) {
+      labels = ['Stop Loss', 'Old Target', 'New Target'];
+      numericRaw = [msg.stopLoss, oldTp, msg.frr];
+      values = [
+        _formatTradeCardPrice(msg.stopLoss),
+        _formatTradeCardPrice(oldTp),
+        _formatTradeCardPrice(msg.frr),
+      ];
+    } else {
+      labels = ['Stop Loss', 'Trail SL', 'Target'];
+      numericRaw = [oldSl, msg.stopLoss, msg.frr];
+      values = [
+        _formatTradeCardPrice(oldSl),
+        _formatTradeCardPrice(msg.stopLoss),
+        _formatTradeCardPrice(msg.frr),
+      ];
+    }
 
     double parseNumeric(String raw) {
       final matches = RegExp(r'[\d.]+').allMatches(raw);
@@ -4040,11 +4605,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       return sum / nums.length;
     }
 
-    final numeric = [
-      parseNumeric(oldSl),
-      parseNumeric(msg.stopLoss),
-      parseNumeric(msg.frr),
-    ];
+    final numeric = numericRaw.map(parseNumeric).toList();
     final minV = numeric.reduce((a, b) => a < b ? a : b);
     final maxV = numeric.reduce((a, b) => a > b ? a : b);
     final denom = (maxV - minV).abs();
@@ -4459,13 +5020,42 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             isCompleted: !_showButtons(msg),
             enabled: _showButtons(msg),
             onTap: () {
-              _showTargetHitConfirmDialog(
-                context,
-                msg,
-                controller,
-              );
+              final setupType = ApiConfig.activeSetupType ?? Common.userData.value?.payload?.tradingSetupType ?? 'own_setup';
+              final isZenoAi = setupType == 'zeno_ai_signals';
+              
+              if (msg.buttonType == 'trade_executed' || msg.isSlHit) {
+                _showTargetHitConfirmDialog(
+                  context,
+                  msg,
+                  controller,
+                );
+              } else if (msg.isGttHit) {
+                if (isZenoAi && msg.tradeData != null) {
+                  _showTradeParamsPopup(
+                    context,
+                    msg.tradeData!,
+                    controller,
+                  );
+                } else {
+                  _showTargetHitConfirmDialog(
+                    context,
+                    msg,
+                    controller,
+                  );
+                }
+              } else {
+                controller.onTradeExecuted();
+              }
             },
           ),
+          if (msg.isGttHit && msg.tradeData != null && (ApiConfig.activeSetupType ?? Common.userData.value?.payload?.tradingSetupType ?? 'own_setup') == 'zeno_ai_signals') ...[
+            const SizedBox(height: 10),
+            _tradePromptPrimaryButton(
+              label: 'GTT Missed',
+              enabled: _showButtons(msg),
+              onTap: () => controller.acknowledgeGttMissed(msg),
+            ),
+          ],
         ],
       ),
     );

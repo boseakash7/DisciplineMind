@@ -1,3 +1,5 @@
+import 'package:discipline_mind/common/common.dart';
+import 'package:discipline_mind/controller/trading_process_controller.dart';
 import 'package:discipline_mind/services/dmt_user_levels_summary_service.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -23,13 +25,37 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
 
   static const Duration _entranceDuration = Duration(milliseconds: 1200);
 
-  static const List<String> _levelCodes = ['BM', 'AM', 'LM'];
-  static const List<String> _levelNames = ['Believe Mode', 'Achieve Mode', 'Leap Mode'];
-  static const List<Color> _levelColors = [
-    Color(0xFF00BCD4), // Blue
-    Color(0xFFAB47BC), // Purple
-    Color(0xFF4CAF50), // Green
-  ];
+
+
+  bool get _isZenoAi {
+    final setupType = Get.isRegistered<TradingProcessController>() 
+        ? Get.find<TradingProcessController>().currentProcess.value?.tradingSetupType 
+          ?? Common.userData.value?.payload?.tradingSetupType 
+        : Common.userData.value?.payload?.tradingSetupType;
+    return setupType == 'zeno_ai_signals';
+  }
+
+  List<String> get _levelCodes => _isZenoAi 
+      ? ['BM', 'AP', 'AO', 'AA', 'AI']
+      : ['BM', 'AM', 'LM'];
+
+  List<String> get _levelNames => _isZenoAi 
+      ? ['Believe Mode', 'Apprentice Phase', 'Advanced Operator', 'Apex Achiever', 'Absolute Instinct']
+      : ['Believe Mode', 'Achieve Mode', 'Leap Mode'];
+
+  List<Color> get _levelColors => _isZenoAi
+      ? [
+          const Color(0xFF00BCD4), // Blue
+          Colors.purple,
+          Colors.green,
+          Colors.orange,
+          Colors.indigo,
+        ]
+      : [
+          const Color(0xFF00BCD4), // Blue
+          const Color(0xFFAB47BC), // Purple
+          const Color(0xFF4CAF50), // Green
+        ];
 
   @override
   void initState() {

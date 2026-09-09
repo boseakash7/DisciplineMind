@@ -27,8 +27,16 @@ class Payload {
   String? phone;
   String? email;
   String? createdAt;
+  String? tradingSetupType;
 
-  Payload({this.id, this.fullName, this.phone, this.email, this.createdAt});
+  Payload({
+    this.id,
+    this.fullName,
+    this.phone,
+    this.email,
+    this.createdAt,
+    this.tradingSetupType,
+  });
 
   Payload.fromJson(Map<String, dynamic> json) {
     id = json['id'];
@@ -36,6 +44,7 @@ class Payload {
     phone = json['phone'];
     email = json['email'];
     createdAt = json['created_at'];
+    tradingSetupType = json['trading_setup_type'];
   }
 
   Map<String, dynamic> toJson() {
@@ -45,6 +54,7 @@ class Payload {
     data['phone'] = phone;
     data['email'] = email;
     data['created_at'] = createdAt;
+    data['trading_setup_type'] = tradingSetupType;
     return data;
   }
 }

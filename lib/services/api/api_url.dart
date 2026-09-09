@@ -44,8 +44,14 @@ class ApiUrl {
   /// Confirms user trailed the SL in the broker app (form: trade_id, user_id).
   static const String editTrade = "edit/trade";
 
+  /// Confirms user updated the GTT in the broker app (form: trade_id, user_id, new_entry).
+  static const String editGtt = "edit/gtt";
+
   /// Confirms target hit (form: trade_id, user_id, hit_price).
   static const String tradeExecuted = "trade/executed";
+
+  /// Confirms GTT was missed (form: user_id, trade_id).
+  static const String gttMissed = "trade/gtt-missed";
 
   /// Set up trading process (form: user_id, trading_segment, instrument, trading_capital, trades_per_day, max_risk_percent, market_entry_time, broking_app, permission_overlay_enabled, permission_usage_stats_enabled, terms_accepted).
   static const String processSetup = "process/setup";

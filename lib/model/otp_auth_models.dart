@@ -64,13 +64,20 @@ class VerifyOtpPayload {
 
   factory VerifyOtpPayload.fromJson(Map<String, dynamic> json) {
     final userRaw = json['user'];
+    final userPayload = userRaw is Map<String, dynamic>
+        ? Payload.fromJson(userRaw)
+        : userRaw is Map
+            ? Payload.fromJson(Map<String, dynamic>.from(userRaw))
+            : null;
+            
+    // Ensure trading_setup_type is passed to the user payload if it exists at the root of verify-otp payload
+    if (userPayload != null && json.containsKey('trading_setup_type')) {
+      userPayload.tradingSetupType = json['trading_setup_type']?.toString();
+    }
+
     return VerifyOtpPayload(
       isOldUser: _isOldUserFlag(json['is_old_user']),
-      user: userRaw is Map<String, dynamic>
-          ? Payload.fromJson(userRaw)
-          : userRaw is Map
-              ? Payload.fromJson(Map<String, dynamic>.from(userRaw))
-              : null,
+      user: userPayload,
     );
   }
 

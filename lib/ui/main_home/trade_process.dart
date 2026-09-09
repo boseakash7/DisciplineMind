@@ -34,6 +34,8 @@ class _Type {
   static const double hero = 56;
 }
 
+enum _TradingSetup { zenoSignals, custom }
+
 class TradingProcessScreen extends StatefulWidget {
   const TradingProcessScreen({
     super.key,
@@ -65,8 +67,6 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   static const Color ink = Color(0xFF10122D);
   static const Color grey = Color(0xFF70717F);
 
-  static const Color lightPurple = Color(0xFFF7F4FF);
-  static const Color veryLightPurple = Color(0xFFFAF8FF);
   static const Color border = Color(0xFFE2E0E9);
 
   static const Color green = Color(0xFF208052);
@@ -99,6 +99,13 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   String? instrument;
   String? brokerage;
 
+  _TradingSetup _tradingSetup = _TradingSetup.zenoSignals;
+
+  bool get _followsZenoSignals => _tradingSetup == _TradingSetup.zenoSignals;
+
+  // The existing process API requires a trade limit and market entry time.
+  int? get _effectiveTradesPerDay => _followsZenoSignals ? 1 : tradesPerDay;
+
   int tradingCapital = 0;
   int? tradesPerDay;
   TimeOfDay? marketEntryTimeOfDay = const TimeOfDay(hour: 9, minute: 15);
@@ -116,8 +123,10 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   bool get isCapitalValid =>
       tradingCapital >= minCapital && tradingCapital <= maxCapital;
 
-  bool get _step3Valid =>
-      isCapitalValid && tradesPerDay != null && marketEntryTimeOfDay != null;
+  bool get _capitalStepValid =>
+      isCapitalValid &&
+      (_followsZenoSignals ||
+          (tradesPerDay != null && marketEntryTimeOfDay != null));
 
   String? get capitalErrorText {
     if (tradingCapital <= 0) return 'Enter your trading capital';
@@ -229,14 +238,15 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
 
       // Only advance / warn based on whichever permission step the user
       // is actually sitting on right now.
-      if (currentPage == 5) {
+      if (currentPage == 6) {
         if (newOverlay) {
           nextPage();
         } else if (showToastIfMissing) {
           AppToast.showToast(
-              'Please grant the "Display over other apps" permission.');
+            'Please grant the "Display over other apps" permission.',
+          );
         }
-      } else if (currentPage == 6) {
+      } else if (currentPage == 7) {
         if (newUsage) {
           nextPage();
         } else if (showToastIfMissing) {
@@ -272,15 +282,15 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   // ============================================================
   // NAVIGATION
   //
-  // Pages: 0 = Welcome, 1 = Step1, 2 = Step2, 3 = Step3, 4 = Step4,
-  // 5 = Permission1, 6 = Permission2, 7 = Success.
+  // Pages: 0 = Welcome, 1 = Segment, 2 = Instrument, 3 = Setup,
+  // 4 = Capital, 5 = Broker, 6/7 = Permissions (steps 6 and 7), 8 = Success.
   // ============================================================
 
   void nextPage() {
     if (!mounted) return;
-    if (currentPage >= 7) return;
+    if (currentPage >= 8) return;
 
-    if (currentPage == 3 && !_step3Valid) {
+    if (currentPage == 4 && !_capitalStepValid) {
       setState(() {});
       return;
     }
@@ -288,11 +298,11 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     var next = currentPage + 1;
 
     if (Platform.isAndroid) {
-      if (next == 5 && _hasOverlay) next = 6;
-      if (next == 6 && _hasUsage) next = 7;
-    } else if (next == 5) {
+      if (next == 6 && _hasOverlay) next = 7;
+      if (next == 7 && _hasUsage) next = 8;
+    } else if (next == 6) {
       // No permission steps needed off Android.
-      next = 7;
+      next = 8;
     }
 
     setState(() {
@@ -315,8 +325,8 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
 
     var previous = currentPage - 1;
 
-    if (!Platform.isAndroid && (previous == 5 || previous == 6)) {
-      previous = 4;
+    if (!Platform.isAndroid && (previous == 6 || previous == 7)) {
+      previous = 5;
     }
 
     setState(() {
@@ -362,7 +372,8 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
               _welcomeScreen(),
               _step1Screen(),
               _step2Screen(),
-              _step3Screen(),
+              _setupSelectionScreen(),
+              _followsZenoSignals ? _zenoCapitalScreen() : _step3Screen(),
               _step4Screen(),
               _permissionStep1Screen(),
               _permissionStep2Screen(),
@@ -388,9 +399,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
           child: ConstrainedBox(
             constraints: BoxConstraints(minHeight: height),
-            child: IntrinsicHeight(
-              child: child,
-            ),
+            child: IntrinsicHeight(child: child),
           ),
         );
       },
@@ -424,19 +433,12 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
           const SizedBox(height: 11),
           const Text(
             'Set up your Mind Control Trading\n'
-                'Process in 6 simple steps.',
+            'Process in 7 simple steps.',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: _Type.caption,
-              height: 1.35,
-              color: ink,
-            ),
+            style: TextStyle(fontSize: _Type.caption, height: 1.35, color: ink),
           ),
           const SizedBox(height: 17),
-          _gradientButton(
-            text: 'Define My Process',
-            onTap: nextPage,
-          ),
+          _gradientButton(text: 'Define My Process', onTap: nextPage),
           const SizedBox(height: 14),
           _mctCard(),
           const Spacer(),
@@ -459,10 +461,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     return SizedBox(
       height: 190,
       width: double.infinity,
-      child: Image.asset(
-        'assets/z_trade.png',
-        fit: BoxFit.contain,
-      ),
+      child: Image.asset('assets/z_trade.png', fit: BoxFit.contain),
     );
   }
 
@@ -506,10 +505,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                 SizedBox(height: 3),
                 Text(
                   'Discipline  •  Patience  •  Consistency',
-                  style: TextStyle(
-                    fontSize: _Type.caption,
-                    color: grey,
-                  ),
+                  style: TextStyle(fontSize: _Type.caption, color: grey),
                 ),
               ],
             ),
@@ -524,7 +520,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         ...List.generate(
-          6,
+          7,
           (index) => Container(
             width: index == 0 ? 8 : 7,
             height: index == 0 ? 8 : 7,
@@ -562,7 +558,9 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       subtitle: 'Choose how you want to trade',
       onNext: () {
         if (tradingSegment == null) {
-          AppToast.showToast('Please select a trading segment (Options or Futures)');
+          AppToast.showToast(
+            'Please select a trading segment (Options or Futures)',
+          );
           return;
         }
         nextPage();
@@ -597,7 +595,9 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       subtitle: 'Choose the index you want to trade',
       onNext: () {
         if (instrument == null) {
-          AppToast.showToast('Please select an instrument (Nifty 50, BankNifty, or Sensex)');
+          AppToast.showToast(
+            'Please select an instrument (Nifty 50, BankNifty, or Sensex)',
+          );
           return;
         }
         nextPage();
@@ -632,9 +632,466 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   // STEP 3 — TRADING CAPITAL & RULES
   // ============================================================
 
+  static const Color _referencePurple = Color(0xFF5124FF);
+  static const LinearGradient _referenceGradient = LinearGradient(
+    colors: [Color(0xFF4D22F3), Color(0xFF973AF4)],
+    begin: Alignment.centerLeft,
+    end: Alignment.centerRight,
+  );
+
+  /// Presentation shared only by the two screens from the supplied references.
+  Widget _referenceStep({
+    required int step,
+    required String title,
+    required String subtitle,
+    required List<Widget> content,
+    bool capital = false,
+    VoidCallback? onNext,
+  }) {
+    return Theme(
+      data: Theme.of(context).copyWith(
+        textTheme: Theme.of(context).textTheme.apply(fontFamily: 'Roboto'),
+      ),
+      child: DefaultTextStyle.merge(
+        style: const TextStyle(fontFamily: 'Roboto', color: ink),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(18, 10, 18, 12),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: math.max(0, constraints.maxHeight - 22),
+                ),
+                child: IntrinsicHeight(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _header(step, reference: true),
+                      SizedBox(height: capital ? 26 : 24),
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontFamily: 'Roboto',
+                          fontSize: capital ? 23 : 21,
+                          fontWeight: FontWeight.w600,
+                          color: ink,
+                          height: 1.2,
+                          letterSpacing: -0.4,
+                        ),
+                      ),
+                      SizedBox(height: capital ? 8 : 7),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontFamily: 'Roboto',
+                          fontSize: capital ? 15 : 13,
+                          height: capital ? 1.5 : 1.35,
+                          color: ink,
+                        ),
+                      ),
+                      SizedBox(height: capital ? 25 : 17),
+                      ...content,
+                      const Spacer(),
+                      Container(
+                        height: capital ? 48 : 44,
+                        decoration: BoxDecoration(
+                          gradient: _referenceGradient,
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(9),
+                            onTap: onNext ?? nextPage,
+                            child: Center(
+                              child: Text(
+                                'Next',
+                                style: TextStyle(
+                                  fontFamily: 'Roboto',
+                                  color: Colors.white,
+                                  fontSize: capital ? 17 : 16,
+                                  fontWeight: FontWeight.w400,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _setupSelectionScreen() {
+    return _referenceStep(
+      step: 3,
+      title: 'Select Trading Setup',
+      subtitle: 'Choose how you want to get your trade setups',
+      content: [
+        _setupOptionCard(
+          setup: _TradingSetup.zenoSignals,
+          title: 'Follow Zeno AI Signals',
+          subtitle: 'Trade ready setups by SEBI\nRegistered Analyst',
+          icon: Icons.bar_chart_rounded,
+          features: const [
+            'Pre-defined, researched setups',
+            'Clear entry, exit and stop loss levels',
+            'Backed by SEBI Registered Analyst',
+            'Designed for disciplined trading',
+          ],
+        ),
+        const SizedBox(height: 12),
+        _setupOptionCard(
+          setup: _TradingSetup.custom,
+          title: 'Create My Own Setup',
+          subtitle: 'Create a setup using your own indicators',
+          icon: Icons.edit_outlined,
+          features: const [
+            'Choose and customize your own indicators',
+            'Indicators will decide your entry, stop loss and target',
+            'Define your own rules and conditions',
+            'Ideal for advanced traders',
+          ],
+        ),
+        const SizedBox(height: 14),
+        _setupInfoCard(
+          icon: Icons.lightbulb_outline_rounded,
+          title: 'Recommended for Most Traders',
+          compact: true,
+          description:
+              'To build discipline and consistency, we recommend '
+              'using Zeno AI signals by SEBI Registered Analyst.',
+        ),
+        const SizedBox(height: 20),
+      ],
+    );
+  }
+
+  Widget _setupOptionCard({
+    required _TradingSetup setup,
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required List<String> features,
+  }) {
+    final selected = _tradingSetup == setup;
+    return Semantics(
+      selected: selected,
+      inMutuallyExclusiveGroup: true,
+      child: Material(
+        color: const Color(0xFFFAF7FE),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(9),
+          side: BorderSide(color: selected ? _referencePurple : border),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => setState(() => _tradingSetup = setup),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        gradient: selected ? _referenceGradient : null,
+                        color: selected ? null : const Color(0xFFEEE8FF),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(
+                        icon,
+                        color: selected ? Colors.white : _referencePurple,
+                      ),
+                    ),
+                    const SizedBox(width: 11),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: const TextStyle(
+                              color: ink,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            subtitle,
+                            style: const TextStyle(
+                              color: Color(0xFF9695A1),
+                              fontSize: 11,
+                              height: 1.15,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Icon(
+                      selected
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_off,
+                      color: selected
+                          ? _referencePurple
+                          : const Color(0xFFB2B0BD),
+                      size: 18,
+                    ),
+                  ],
+                ),
+                if (setup == _TradingSetup.zenoSignals) ...[
+                  const SizedBox(height: 9),
+                  Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: lightGreen,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Text(
+                        '\u2713 SEBI Registered Analyst',
+                        style: TextStyle(color: green, fontSize: 9),
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                for (final feature in features)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.check_circle,
+                          size: 14,
+                          color: selected
+                              ? _referencePurple
+                              : const Color(0xFFB2B0BD),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            feature,
+                            style: const TextStyle(
+                              color: Color(0xFF9695A1),
+                              fontSize: 11,
+                              height: 1.3,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _zenoCapitalScreen() {
+    return _referenceStep(
+      step: 4,
+      capital: true,
+      title: 'Trading Capital',
+      subtitle:
+          'Enter your trading capital to get started with Zeno AI signals.',
+      onNext: () {
+        if (!isCapitalValid) {
+          AppToast.showToast(capitalErrorText!);
+          return;
+        }
+        _capitalFocusNode.unfocus();
+        nextPage();
+      },
+      content: [
+        const Text(
+          'Trading Capital',
+          style: TextStyle(
+            color: ink,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        _capitalField(signalStyle: true),
+        if (tradingCapital > 0 && capitalErrorText != null) ...[
+          const SizedBox(height: 5),
+          Text(
+            capitalErrorText!,
+            style: const TextStyle(color: red, fontSize: _Type.caption),
+          ),
+        ],
+        const SizedBox(height: 12),
+        _wordsCard(signalStyle: true),
+        const SizedBox(height: 16),
+        _setupInfoCard(
+          icon: Icons.bar_chart_rounded,
+          title: 'Risk Management',
+          description:
+              'When you follow Zeno AI signals, the maximum risk '
+              'per day is set to 2% of your capital.',
+          footer: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Max Risk per Day (2% of Capital)',
+                        style: TextStyle(
+                          color: ink,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '\u20b9${_formatIndianNumber(maxRiskPerTrade)}',
+                      style: const TextStyle(
+                        color: green,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Row(
+                children: [
+                  Icon(Icons.lock_rounded, color: _referencePurple, size: 20),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'This is pre-defined to protect your '
+                      'capital and help you trade with discipline.',
+                      style: TextStyle(
+                        color: Color(0xFF898A95),
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _setupInfoCard(
+          icon: Icons.check_rounded,
+          title: 'Trade with discipline. Stay consistent.',
+          description:
+              'Zeno AI automatically manages position sizing based '
+              'on your capital and a maximum 2% daily risk.',
+          positive: true,
+        ),
+        const SizedBox(height: 20),
+      ],
+    );
+  }
+
+  Widget _setupInfoCard({
+    required IconData icon,
+    required String title,
+    required String description,
+    bool positive = false,
+    bool compact = false,
+    Widget? footer,
+  }) {
+    final accent = positive ? green : _referencePurple;
+    return Container(
+      padding: EdgeInsets.all(compact ? 12 : 15),
+      decoration: BoxDecoration(
+        color: positive
+            ? const Color(0xFFF2FBF8)
+            : (compact ? const Color(0xFFF7F4FF) : const Color(0xFFF9F8FE)),
+        border: compact || positive
+            ? null
+            : Border.all(color: const Color(0xFFEEECF2)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: compact ? 34 : (positive ? 28 : 42),
+                height: compact ? 34 : (positive ? 28 : 42),
+                decoration: BoxDecoration(
+                  color: positive ? green : const Color(0xFFEEE8FF),
+                  borderRadius: BorderRadius.circular(compact ? 9 : 10),
+                ),
+                child: Icon(
+                  icon,
+                  color: positive ? Colors.white : accent,
+                  size: compact ? 23 : 27,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: positive
+                            ? green
+                            : (compact ? _referencePurple : ink),
+                        fontSize: compact ? 11 : 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      description,
+                      style: TextStyle(
+                        color: compact
+                            ? const Color(0xFF777683)
+                            : const Color(0xFF898A95),
+                        fontSize: compact ? 10 : 13,
+                        height: 1.45,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (footer != null) ...[const SizedBox(height: 16), footer],
+        ],
+      ),
+    );
+  }
+
   Widget _step3Screen() {
     return _normalStep(
-      step: 3,
+      step: 4,
       title: 'Trading Capital & Rules',
       subtitle: 'Set your capital and trading discipline',
       onNext: () {
@@ -643,14 +1100,18 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
           return;
         }
         if (tradingCapital < minCapital) {
-          AppToast.showToast('Minimum capital is ₹${_formatIndianNumber(minCapital)}');
+          AppToast.showToast(
+            'Minimum capital is ₹${_formatIndianNumber(minCapital)}',
+          );
           return;
         }
         if (tradingCapital > maxCapital) {
-          AppToast.showToast('Maximum capital is ₹${_formatIndianNumber(maxCapital)}');
+          AppToast.showToast(
+            'Maximum capital is ₹${_formatIndianNumber(maxCapital)}',
+          );
           return;
         }
-        if (tradesPerDay == null) {
+        if (_effectiveTradesPerDay == null) {
           AppToast.showToast('Please select trades per day (1 or 2 trades)');
           return;
         }
@@ -698,11 +1159,12 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     );
   }
 
-  Widget _capitalField() {
-    final hasError = capitalErrorText != null;
+  Widget _capitalField({bool signalStyle = false}) {
+    final hasError =
+        capitalErrorText != null && (!signalStyle || tradingCapital > 0);
 
     return Container(
-      height: 46,
+      height: signalStyle ? 49 : 46,
       padding: const EdgeInsets.symmetric(horizontal: 11),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -710,13 +1172,15 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         border: Border.all(
           color: hasError
               ? red
-              : (_isCapitalEditable ? purple : const Color(0xFFD5D2E1)),
+              : (signalStyle || _isCapitalEditable
+                    ? purple
+                    : const Color(0xFFD5D2E1)),
           width: hasError || _isCapitalEditable ? 1.2 : 1,
         ),
       ),
       child: Row(
         children: [
-          const Text(
+          Text(
             '₹',
             style: TextStyle(
               fontSize: _Type.value,
@@ -739,8 +1203,9 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                 FilteringTextInputFormatter.digitsOnly,
                 _IndianCurrencyInputFormatter(max: maxCapital),
               ],
-              style: const TextStyle(
-                fontSize: _Type.value,
+              style: TextStyle(
+                fontFamily: signalStyle ? 'Roboto' : null,
+                fontSize: signalStyle ? 18 : _Type.value,
                 fontWeight: FontWeight.w700,
                 color: ink,
               ),
@@ -785,11 +1250,13 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
             child: Padding(
               padding: const EdgeInsets.all(4),
               child: Icon(
-                _isCapitalEditable
+                (_isCapitalEditable || (signalStyle && isCapitalValid))
                     ? Icons.check_circle_rounded
                     : Icons.edit_outlined,
-                size: 16,
-                color: _isCapitalEditable ? green : ink,
+                size: signalStyle ? 21 : 16,
+                color: _isCapitalEditable || (signalStyle && isCapitalValid)
+                    ? green
+                    : ink,
               ),
             ),
           ),
@@ -804,10 +1271,13 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     setState(() => tradingCapital = parsed);
   }
 
-  Widget _wordsCard() {
+  Widget _wordsCard({bool signalStyle = false}) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: EdgeInsets.symmetric(
+        horizontal: 11,
+        vertical: signalStyle ? 10 : 8,
+      ),
       decoration: BoxDecoration(
         color: lightGreen,
         borderRadius: BorderRadius.circular(9),
@@ -816,15 +1286,18 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'In words:',
-            style: TextStyle(fontSize: _Type.micro, color: grey),
+            style: TextStyle(
+              fontSize: signalStyle ? 11 : _Type.micro,
+              color: grey,
+            ),
           ),
           const SizedBox(height: 2),
           Text(
             capitalInWords,
-            style: const TextStyle(
-              fontSize: _Type.body,
+            style: TextStyle(
+              fontSize: signalStyle ? 14 : _Type.body,
               fontWeight: FontWeight.w700,
               color: Color(0xFF285B4A),
             ),
@@ -984,8 +1457,8 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
           const Expanded(
             child: Text(
               'A second trade raises the risk of overtrading and '
-                  'revenge trading. Only take it if your first trade '
-                  'followed your plan exactly.',
+              'revenge trading. Only take it if your first trade '
+              'followed your plan exactly.',
               style: TextStyle(
                 fontSize: _Type.caption,
                 height: 1.3,
@@ -1014,15 +1487,16 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
           children: [
             const Icon(Icons.access_time_rounded, color: purple, size: 18),
             const SizedBox(width: 8),
-            const Text(
-              'Market Entry Time',
-              style: TextStyle(
-                fontSize: _Type.body,
-                fontWeight: FontWeight.w600,
-                color: ink,
+            const Expanded(
+              child: Text(
+                'Market Entry Time',
+                style: TextStyle(
+                  fontSize: _Type.body,
+                  fontWeight: FontWeight.w600,
+                  color: ink,
+                ),
               ),
             ),
-            const Spacer(),
             Text(
               marketEntryTimeOfDay != null
                   ? marketEntryTimeOfDay!.format(context)
@@ -1064,7 +1538,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
           const Expanded(
             child: Text(
               'Smart rule: Trade only with 2% risk.\n'
-                  'Protect capital. Build consistency.',
+              'Protect capital. Build consistency.',
               style: TextStyle(
                 fontSize: _Type.caption,
                 height: 1.3,
@@ -1081,8 +1555,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   Future<void> _pickMarketTime() async {
     final picked = await showTimePicker(
       context: context,
-      initialTime:
-          marketEntryTimeOfDay ?? const TimeOfDay(hour: 9, minute: 15),
+      initialTime: marketEntryTimeOfDay ?? const TimeOfDay(hour: 9, minute: 15),
     );
 
     if (picked == null) return;
@@ -1095,9 +1568,10 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
 
   Widget _step4Screen() {
     return _normalStep(
-      step: 4,
+      step: 5,
       title: 'Select Your Broking App',
-      subtitle: 'Choose the app you will use\n'
+      subtitle:
+          'Choose the app you will use\n'
           'exclusively for Mind Control Trading.',
       onNext: () {
         if (brokerage == null) {
@@ -1231,8 +1705,8 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
           const Expanded(
             child: Text(
               'Use only this selected app for\n'
-                  'Mind Control Trading to unlock\n'
-                  'its full power over time.',
+              'Mind Control Trading to unlock\n'
+              'its full power over time.',
               style: TextStyle(
                 fontSize: _Type.caption,
                 height: 1.35,
@@ -1253,7 +1727,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   Widget _permissionStep1Screen() {
     return _permissionPageLayout(
       key: const ValueKey('perm1'),
-      step: 5,
+      step: 6,
       title: 'Enable Permission 1',
       subtitle: '[ Display over the Top ]',
       description:
@@ -1472,125 +1946,134 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   // ============================================================
 
   Widget _permissionStep2Screen() {
-    return _page(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _header(6),
-          const SizedBox(height: 14),
-          const Center(
-            child: Text(
-              'Enable Usage Access',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 21,
-                fontWeight: FontWeight.w800,
-                color: ink,
-                letterSpacing: -0.3,
-              ),
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+          child: _header(7),
+        ),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 14),
+                const Center(
+                  child: Text(
+                    'Enable Usage Access',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w800,
+                      color: ink,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                // Top Phone & Floating Notification Graphic
+                _buildUsageGraphic(),
+                const SizedBox(height: 14),
+                // "Why we need this" card
+                _buildWhyWeNeedThisCard(),
+                const SizedBox(height: 16),
+                // "── What we track ──"
+                _buildWhatWeTrackSection(),
+                const SizedBox(height: 16),
+                // "✦ This helps Zeno AI provide"
+                _buildThisHelpsZenoProvideSection(),
+                const SizedBox(height: 14),
+                // "Your privacy is important" card
+                _buildPrivacyCard(),
+                const SizedBox(height: 18),
+                const Text(
+                  "You're in control. You can change this anytime in Settings.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 11, color: grey),
+                ),
+                const SizedBox(height: 16),
+              ],
             ),
           ),
-          const SizedBox(height: 14),
-          // Top Phone & Floating Notification Graphic
-          _buildUsageGraphic(),
-          const SizedBox(height: 14),
-          // "Why we need this" card
-          _buildWhyWeNeedThisCard(),
-          const SizedBox(height: 16),
-          // "── What we track ──"
-          _buildWhatWeTrackSection(),
-          const SizedBox(height: 16),
-          // "✦ This helps Zeno AI provide"
-          _buildThisHelpsZenoProvideSection(),
-          const SizedBox(height: 14),
-          // "Your privacy is important" card
-          _buildPrivacyCard(),
-          const SizedBox(height: 18),
-          // Primary button: Enable Permission
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: Opacity(
-              opacity: _permissionBusy ? 0.6 : 1,
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: primaryGradient,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(10),
-                    onTap: _permissionBusy
-                        ? null
-                        : (_hasUsage ? nextPage : _requestUsagePermission),
-                    child: Center(
-                      child: _permissionBusy
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Text(
-                              _hasUsage
-                                  ? 'Permission Granted'
-                                  : 'Enable Permission',
-                              style: const TextStyle(
-                                fontSize: _Type.buttonLabel,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
-                              ),
-                            ),
+        ),
+        Container(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(top: BorderSide(color: border)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Primary button: Enable Permission
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: Opacity(
+                  opacity: _permissionBusy ? 0.6 : 1,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: primaryGradient,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: _permissionBusy
+                            ? null
+                            : (_hasUsage ? nextPage : _requestUsagePermission),
+                        child: Center(
+                          child: _permissionBusy
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Text(
+                                  _hasUsage
+                                      ? 'Permission Granted'
+                                      : 'Enable Permission',
+                                  style: const TextStyle(
+                                    fontSize: _Type.buttonLabel,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          // Secondary button: I'll do this later
-          Center(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: nextPage,
-              child: const Padding(
-                padding: EdgeInsets.symmetric(vertical: 4, horizontal: 16),
-                child: Text(
-                  'Not Now',
-                  style: TextStyle(
-                    fontSize: _Type.label,
-                    fontWeight: FontWeight.w600,
-                    color: purple,
+              const SizedBox(height: 10),
+              // Secondary button: I'll do this later
+              Center(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: nextPage,
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 4, horizontal: 16),
+                    child: Text(
+                      'Not Now',
+                      style: TextStyle(
+                        fontSize: _Type.label,
+                        fontWeight: FontWeight.w600,
+                        color: purple,
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
+              const SizedBox(height: 10),
+            ],
           ),
-          const SizedBox(height: 10),
-          // Footer privacy lock note
-          const Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.lock_outline_rounded, size: 13, color: grey),
-                SizedBox(width: 5),
-                Text(
-                  "You're in control. You can change this anytime in Settings.",
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    color: grey,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 6),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -1666,28 +2149,30 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                     ),
                   ),
                   const SizedBox(width: 12),
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'Zeno AI',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: ink,
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Zeno AI',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: ink,
+                          ),
                         ),
-                      ),
-                      Text(
-                        'Stay Focused.\nFollow Your Process.',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          height: 1.2,
-                          fontWeight: FontWeight.w600,
-                          color: grey,
+                        Text(
+                          'Stay Focused.\nFollow Your Process.',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            height: 1.2,
+                            fontWeight: FontWeight.w600,
+                            color: grey,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -1735,7 +2220,11 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                 const SizedBox(height: 3),
                 RichText(
                   text: const TextSpan(
-                    style: TextStyle(fontSize: 12, height: 1.4, color: Color(0xFF3A3A4A)),
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.4,
+                      color: Color(0xFF3A3A4A),
+                    ),
                     children: [
                       TextSpan(
                         text:
@@ -1880,12 +2369,14 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
           children: [
             Icon(Icons.auto_awesome_rounded, color: purple, size: 16),
             SizedBox(width: 6),
-            Text(
-              'This helps Zeno AI provide',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-                color: ink,
+            Expanded(
+              child: Text(
+                'This helps Zeno AI provide',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: ink,
+                ),
               ),
             ),
           ],
@@ -2019,11 +2510,13 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                 const SizedBox(height: 3),
                 RichText(
                   text: const TextSpan(
-                    style: TextStyle(fontSize: 11.5, height: 1.35, color: Color(0xFF3A3A4A)),
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      height: 1.35,
+                      color: Color(0xFF3A3A4A),
+                    ),
                     children: [
-                      TextSpan(
-                        text: 'We use this information ',
-                      ),
+                      TextSpan(text: 'We use this information '),
                       TextSpan(
                         text: 'only',
                         style: TextStyle(
@@ -2089,13 +2582,9 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
           const SizedBox(height: 7),
           const Text(
             'Your Mind Control Trading Process\n'
-                'is ready to go.',
+            'is ready to go.',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: _Type.label,
-              height: 1.4,
-              color: grey,
-            ),
+            style: TextStyle(fontSize: _Type.label, height: 1.4, color: grey),
           ),
           const SizedBox(height: 15),
           _successItem('Discipline is your edge', Icons.shield_rounded),
@@ -2117,11 +2606,17 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                         color: termsAccepted ? purple : Colors.white,
                         borderRadius: BorderRadius.circular(5),
                         border: Border.all(
-                          color: termsAccepted ? purple : const Color(0xFFAAA7B5),
+                          color: termsAccepted
+                              ? purple
+                              : const Color(0xFFAAA7B5),
                         ),
                       ),
                       child: termsAccepted
-                          ? const Icon(Icons.check, color: Colors.white, size: 13)
+                          ? const Icon(
+                              Icons.check,
+                              color: Colors.white,
+                              size: 13,
+                            )
                           : null,
                     ),
                     const SizedBox(width: 8),
@@ -2160,10 +2655,12 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                 return;
               }
               if (tradingCapital < minCapital) {
-                AppToast.showToast('Minimum capital is ₹${_formatIndianNumber(minCapital)}');
+                AppToast.showToast(
+                  'Minimum capital is ₹${_formatIndianNumber(minCapital)}',
+                );
                 return;
               }
-              if (tradesPerDay == null) {
+              if (_effectiveTradesPerDay == null) {
                 AppToast.showToast('Please select trades per day');
                 return;
               }
@@ -2199,12 +2696,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       Offset(-49, -7),
     ];
 
-    const colors = [
-      purple,
-      violet,
-      Color(0xFF8AE1C5),
-      Color(0xFFD7B1FF),
-    ];
+    const colors = [purple, violet, Color(0xFF8AE1C5), Color(0xFFD7B1FF)];
 
     return List.generate(positions.length, (index) {
       return Align(
@@ -2257,7 +2749,8 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   String _getBrokingAppKey(String? name) {
     if (name == null) return 'zerodha_kite';
     final lower = name.toLowerCase().trim();
-    if (lower.contains('zerodha') || lower.contains('kite')) return 'zerodha_kite';
+    if (lower.contains('zerodha') || lower.contains('kite'))
+      return 'zerodha_kite';
     if (lower.contains('upstox')) return 'upstox';
     if (lower.contains('groww')) return 'groww';
     if (lower.contains('angel')) return 'angel_one';
@@ -2268,7 +2761,8 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   String _getBrokerPackageName(String? name) {
     if (name == null) return 'com.zerodha.kite3';
     final lower = name.toLowerCase().trim();
-    if (lower.contains('zerodha') || lower.contains('kite')) return 'com.zerodha.kite3';
+    if (lower.contains('zerodha') || lower.contains('kite'))
+      return 'com.zerodha.kite3';
     if (lower.contains('upstox')) return 'in.upstox.app';
     if (lower.contains('groww')) return 'com.nextbillion.groww';
     if (lower.contains('angel')) return 'com.msf.angelmobile';
@@ -2282,7 +2776,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         tradingSegment == null ||
         instrument == null ||
         brokerage == null ||
-        tradesPerDay == null ||
+        _effectiveTradesPerDay == null ||
         marketEntryTimeOfDay == null) {
       return;
     }
@@ -2294,7 +2788,10 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     final brokerPkg = _getBrokerPackageName(brokerage);
 
     if (Platform.isAndroid && (_hasOverlay || _hasUsage)) {
-      await _prefs.saveSelectedPackage(userId: widget.userId, packageName: brokerPkg);
+      await _prefs.saveSelectedPackage(
+        userId: widget.userId,
+        packageName: brokerPkg,
+      );
       await _blockService.saveUserIdForOverlay(widget.userId);
       await _blockService.blockApp(brokerPkg);
       await applyAndroidTradingAppBlock(explicitUserId: widget.userId);
@@ -2304,10 +2801,23 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     await storage.write('mct_trading_segment_${widget.userId}', tradingSegment);
     await storage.write('mct_instrument_${widget.userId}', instrument);
     await storage.write('mct_brokerage_${widget.userId}', brokerage);
-    await storage.write('mct_trades_per_day_${widget.userId}', tradesPerDay);
+    await storage.write(
+      'mct_trades_per_day_${widget.userId}',
+      _effectiveTradesPerDay,
+    );
+    await storage.write(
+      'mct_trading_setup_${widget.userId}',
+      _followsZenoSignals ? 'zeno_signals' : 'custom',
+    );
     await storage.write('mct_trading_capital_${widget.userId}', tradingCapital);
-    await storage.write('mct_max_risk_per_trade_${widget.userId}', maxRiskPerTrade);
-    await storage.write('mct_market_entry_time_${widget.userId}', formattedEntryTime);
+    await storage.write(
+      'mct_max_risk_per_trade_${widget.userId}',
+      maxRiskPerTrade,
+    );
+    await storage.write(
+      'mct_market_entry_time_${widget.userId}',
+      formattedEntryTime,
+    );
 
     final apiService = Get.isRegistered<ApiService>()
         ? Get.find<ApiService>()
@@ -2316,9 +2826,10 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     final fields = <String, String>{
       'user_id': widget.userId,
       'trading_segment': (tradingSegment ?? 'options').toLowerCase(),
+      'trading_setup_type': _followsZenoSignals ? 'zeno_ai_signals' : 'own_setup',
       'instrument': instrument ?? 'NIFTY 50',
       'trading_capital': tradingCapital.toString(),
-      'trades_per_day': (tradesPerDay ?? 1).toString(),
+      'trades_per_day': (_effectiveTradesPerDay ?? 1).toString(),
       'max_risk_percent': '2',
       'market_entry_time': formattedEntryTime,
       'broking_app': _getBrokingAppKey(brokerage),
@@ -2393,7 +2904,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     );
   }
 
-  Widget _header(int step) {
+  Widget _header(int step, {bool reference = false}) {
     return Column(
       children: [
         Row(
@@ -2413,11 +2924,12 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
             ),
             Expanded(
               child: Text(
-                'Step $step of 6',
+                'Step $step of 7',
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: _Type.sectionTitle,
-                  fontWeight: FontWeight.w700,
+                style: TextStyle(
+                  fontFamily: reference ? 'Roboto' : null,
+                  fontSize: reference ? 16 : _Type.sectionTitle,
+                  fontWeight: reference ? FontWeight.w500 : FontWeight.w700,
                   color: ink,
                 ),
               ),
@@ -2429,10 +2941,12 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: LinearProgressIndicator(
-            value: step / 6,
+            value: step / 7,
             minHeight: 5,
             backgroundColor: const Color(0xFFE4E2EB),
-            valueColor: const AlwaysStoppedAnimation<Color>(purple),
+            valueColor: AlwaysStoppedAnimation<Color>(
+              reference ? _referencePurple : purple,
+            ),
           ),
         ),
       ],
@@ -2450,7 +2964,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       onTap: onTap,
       child: Container(
         width: double.infinity,
-        height: 76,
+        constraints: const BoxConstraints(minHeight: 76),
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
         decoration: BoxDecoration(
@@ -2480,6 +2994,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
             const SizedBox(width: 11),
             Expanded(
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -2494,7 +3009,10 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                   const SizedBox(height: 3),
                   Text(
                     subtitle,
-                    style: const TextStyle(fontSize: _Type.caption, color: grey),
+                    style: const TextStyle(
+                      fontSize: _Type.caption,
+                      color: grey,
+                    ),
                   ),
                 ],
               ),
@@ -2622,33 +3140,32 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
             ),
           ),
           const SizedBox(width: 10),
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Master one instrument.',
-                style: TextStyle(
-                  fontSize: _Type.caption,
-                  fontWeight: FontWeight.w800,
-                  color: ink,
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Master one instrument.',
+                  style: TextStyle(
+                    fontSize: _Type.caption,
+                    fontWeight: FontWeight.w800,
+                    color: ink,
+                  ),
                 ),
-              ),
-              SizedBox(height: 3),
-              Text(
-                'Focus deeply. Execute better.',
-                style: TextStyle(fontSize: _Type.caption, color: ink),
-              ),
-            ],
+                SizedBox(height: 3),
+                Text(
+                  'Focus deeply. Execute better.',
+                  style: TextStyle(fontSize: _Type.caption, color: ink),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _gradientButton({
-    required String text,
-    required VoidCallback? onTap,
-  }) {
+  Widget _gradientButton({required String text, required VoidCallback? onTap}) {
     final enabled = onTap != null;
 
     return Container(
@@ -2668,7 +3185,9 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
           disabledForegroundColor: Colors.white.withOpacity(0.85),
           shadowColor: Colors.transparent,
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
         child: Text(
           text,
@@ -2711,13 +3230,38 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     if (number == 0) return 'Zero';
 
     const ones = [
-      '', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight',
-      'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen',
-      'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen',
+      '',
+      'One',
+      'Two',
+      'Three',
+      'Four',
+      'Five',
+      'Six',
+      'Seven',
+      'Eight',
+      'Nine',
+      'Ten',
+      'Eleven',
+      'Twelve',
+      'Thirteen',
+      'Fourteen',
+      'Fifteen',
+      'Sixteen',
+      'Seventeen',
+      'Eighteen',
+      'Nineteen',
     ];
     const tens = [
-      '', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy',
-      'Eighty', 'Ninety',
+      '',
+      '',
+      'Twenty',
+      'Thirty',
+      'Forty',
+      'Fifty',
+      'Sixty',
+      'Seventy',
+      'Eighty',
+      'Ninety',
     ];
 
     String twoDigits(int n) {
@@ -2765,17 +3309,18 @@ class _IndianCurrencyInputFormatter extends TextInputFormatter {
 
   @override
   TextEditingValue formatEditUpdate(
-      TextEditingValue oldValue,
-      TextEditingValue newValue,
-      ) {
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
     var digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
     digits = digits.replaceFirst(RegExp(r'^0+(?=\d)'), '');
 
     var value = digits.isEmpty ? 0 : int.tryParse(digits) ?? 0;
     if (value > max) value = max;
 
-    final formatted =
-    value == 0 ? '' : _TradingProcessScreenState._formatIndianNumber(value);
+    final formatted = value == 0
+        ? ''
+        : _TradingProcessScreenState._formatIndianNumber(value);
 
     return TextEditingValue(
       text: formatted,
@@ -2788,8 +3333,4 @@ class _IndianCurrencyInputFormatter extends TextInputFormatter {
 // ENUM
 // ================================================================
 
-enum InstrumentType {
-  nifty,
-  bank,
-  sensex,
-}
+enum InstrumentType { nifty, bank, sensex }

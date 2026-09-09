@@ -31,7 +31,7 @@ class ApiService extends GetxService {
   }) async {
     try {
       final uri = Uri.parse(
-        endpoint.startsWith('http') ? endpoint : "${ApiConfig.baseUrl}$endpoint",
+        endpoint.startsWith('http') ? endpoint : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
       ).replace(queryParameters: queryParameters);
 
       final response = await http.get(
@@ -53,7 +53,7 @@ class ApiService extends GetxService {
   }) async {
     try {
       final uri = Uri.parse(
-        endpoint.startsWith('http') ? endpoint : "${ApiConfig.baseUrl}$endpoint",
+        endpoint.startsWith('http') ? endpoint : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
       );
       final response = await http.post(
         uri,
@@ -75,17 +75,26 @@ class ApiService extends GetxService {
     String endpoint,
     Map<String, String> fields, {
     Map<String, String>? headers,
+    bool usePersistedSessionCookie = true,
   }) async {
     try {
       final uri = Uri.parse(
-        endpoint.startsWith('http') ? endpoint : "${ApiConfig.baseUrl}$endpoint",
+        endpoint.startsWith('http') ? endpoint : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
       );
       final request = http.MultipartRequest('POST', uri);
       if (headers != null) request.headers.addAll(headers);
+      final merged = {
+        if (usePersistedSessionCookie) ..._persistedSessionCookies(),
+      };
+      if (merged.isNotEmpty) {
+        request.headers['Cookie'] = merged.entries
+            .map((e) => "${e.key}=${e.value}")
+            .join("; ");
+      }
       for (final e in fields.entries) {
         request.fields[e.key] = e.value;
       }
-      final streamedResponse = await request.send();
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 15));
       final response = await http.Response.fromStream(streamedResponse);
       return _processResponse(response);
     } catch (e) {
@@ -103,7 +112,7 @@ class ApiService extends GetxService {
   }) async {
     try {
       final uri = Uri.parse(
-        endpoint.startsWith('http') ? endpoint : "${ApiConfig.baseUrl}$endpoint",
+        endpoint.startsWith('http') ? endpoint : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
       );
       final request = http.MultipartRequest('POST', uri);
       if (headers != null) request.headers.addAll(headers);
@@ -118,7 +127,7 @@ class ApiService extends GetxService {
       for (final e in fields.entries) {
         request.fields[e.key] = e.value;
       }
-      final streamedResponse = await request.send();
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 15));
       final response = await http.Response.fromStream(streamedResponse);
       persistSessionFromResponse(response);
       debugPrint("API Response: ${response.body}");
@@ -172,7 +181,7 @@ class ApiService extends GetxService {
       };
 
       final uri = Uri.parse(
-        endpoint.startsWith('http') ? endpoint : "${ApiConfig.baseUrl}$endpoint",
+        endpoint.startsWith('http') ? endpoint : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
       );
       final response = await http.post(
         uri,
@@ -197,7 +206,7 @@ class ApiService extends GetxService {
   }) async {
     try {
       final uri = Uri.parse(
-        endpoint.startsWith('http') ? endpoint : "${ApiConfig.baseUrl}$endpoint",
+        endpoint.startsWith('http') ? endpoint : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
       );
       final response = await http.patch(
         uri,
@@ -217,9 +226,13 @@ class ApiService extends GetxService {
     try {
       String body = response.body.trim();
       // Strip leading HTML/whitespace that breaks jsonDecode
-      final jsonStart = body.indexOf('{');
-      if (jsonStart > 0) {
-        body = body.substring(jsonStart);
+      if (!body.startsWith('{') && !body.startsWith('[')) {
+        final jsonStart = body.indexOf('{');
+        if (jsonStart >= 0) {
+          body = body.substring(jsonStart);
+        } else {
+          throw const FormatException('Response is not JSON');
+        }
       }
       final jsonResponse = jsonDecode(body);
 
