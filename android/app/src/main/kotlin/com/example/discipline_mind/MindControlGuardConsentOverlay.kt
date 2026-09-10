@@ -48,36 +48,11 @@ object MindControlGuardConsentOverlay {
         )
 
         val cbAll = root.findViewById<CheckBox>(R.id.overlay_consent_cb_all)
-        val cb1 = root.findViewById<CheckBox>(R.id.overlay_consent_cb_1)
-        val cb2 = root.findViewById<CheckBox>(R.id.overlay_consent_cb_2)
-        val cb3 = root.findViewById<CheckBox>(R.id.overlay_consent_cb_3)
         val btnAgree = root.findViewById<TextView>(R.id.overlay_consent_btn_agree)
         val btnCancel = root.findViewById<TextView>(R.id.overlay_consent_btn_cancel)
 
-        var isInternalCheck = false
-
-        fun updateAllState() {
-            if (isInternalCheck) return
-            val allChecked = cb1.isChecked && cb2.isChecked && cb3.isChecked
-            isInternalCheck = true
-            cbAll.isChecked = allChecked
-            isInternalCheck = false
-        }
-
-        cbAll.setOnCheckedChangeListener { _, isChecked ->
-            if (isInternalCheck) return@setOnCheckedChangeListener
-            isInternalCheck = true
-            cb1.isChecked = isChecked
-            cb2.isChecked = isChecked
-            cb3.isChecked = isChecked
-            isInternalCheck = false
-        }
-
-        cb1.setOnCheckedChangeListener { _, _ -> updateAllState() }
-        cb2.setOnCheckedChangeListener { _, _ -> updateAllState() }
-        cb3.setOnCheckedChangeListener { _, _ -> updateAllState() }
-
         btnAgree.setOnClickListener {
+            cbAll.isChecked = true
             onAgree()
         }
 

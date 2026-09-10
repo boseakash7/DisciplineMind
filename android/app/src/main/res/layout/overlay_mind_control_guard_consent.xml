@@ -245,51 +245,15 @@
                 android:orientation="vertical"
                 android:padding="12dp">
 
-                <!-- Master Agree All -->
+                <!-- Agree All Checkbox -->
                 <CheckBox
                     android:id="@+id/overlay_consent_cb_all"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="I agree to all 3 statements below"
+                    android:text="I agree to all statements above"
                     android:textColor="@color/overlay_purple"
                     android:textSize="13sp"
                     android:textStyle="bold" />
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginTop="6dp"
-                    android:layout_marginBottom="6dp"
-                    android:background="#E9DDFC" />
-
-                <!-- Checkbox 1 -->
-                <CheckBox
-                    android:id="@+id/overlay_consent_cb_1"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="I understand and voluntarily enable Mind Control Guard."
-                    android:textColor="@color/overlay_ink"
-                    android:textSize="12sp" />
-
-                <!-- Checkbox 2 -->
-                <CheckBox
-                    android:id="@+id/overlay_consent_cb_2"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="I understand that Zeno may temporarily delay or restrict access to selected trading functionality."
-                    android:textColor="@color/overlay_ink"
-                    android:textSize="12sp" />
-
-                <!-- Checkbox 3 -->
-                <CheckBox
-                    android:id="@+id/overlay_consent_cb_3"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="I understand that Zeno does not guarantee trading profits or loss prevention."
-                    android:textColor="@color/overlay_ink"
-                    android:textSize="12sp" />
             </LinearLayout>
 
         </LinearLayout>

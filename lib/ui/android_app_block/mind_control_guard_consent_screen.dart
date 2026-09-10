@@ -33,20 +33,7 @@ class _MindControlGuardConsentScreenState
     end: Alignment.centerRight,
   );
 
-  bool _check1 = false;
-  bool _check2 = false;
-  bool _check3 = false;
-
-  bool get _allChecked => _check1 && _check2 && _check3;
-
-  void _selectAll(bool? value) {
-    final v = value ?? false;
-    setState(() {
-      _check1 = v;
-      _check2 = v;
-      _check3 = v;
-    });
-  }
+  bool _agreeAll = false;
 
   @override
   Widget build(BuildContext context) {
@@ -313,96 +300,30 @@ class _MindControlGuardConsentScreenState
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: _border),
       ),
-      child: Column(
-        children: [
-          // Select All Checkbox
-          InkWell(
-            borderRadius: BorderRadius.circular(8),
-            onTap: () => _selectAll(!_allChecked),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-              child: Row(
-                children: [
-                  _customCheckbox(
-                    value: _allChecked,
-                    onChanged: _selectAll,
-                  ),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Text(
-                      'I agree to all 3 statements below',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: _purple,
-                      ),
-                    ),
-                  ),
-                ],
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => setState(() => _agreeAll = !_agreeAll),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+          child: Row(
+            children: [
+              _customCheckbox(
+                value: _agreeAll,
+                onChanged: (v) => setState(() => _agreeAll = v ?? false),
               ),
-            ),
-          ),
-          const Divider(height: 16, color: _border),
-          // Point 1
-          _checkboxRow(
-            value: _check1,
-            label: 'I understand and voluntarily enable Mind Control Guard.',
-            onChanged: (v) => setState(() => _check1 = v ?? false),
-          ),
-          const SizedBox(height: 8),
-          // Point 2
-          _checkboxRow(
-            value: _check2,
-            label:
-                'I understand that Zeno may temporarily delay or restrict access to selected trading functionality.',
-            onChanged: (v) => setState(() => _check2 = v ?? false),
-          ),
-          const SizedBox(height: 8),
-          // Point 3
-          _checkboxRow(
-            value: _check3,
-            label:
-                'I understand that Zeno does not guarantee trading profits or loss prevention.',
-            onChanged: (v) => setState(() => _check3 = v ?? false),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _checkboxRow({
-    required bool value,
-    required String label,
-    required ValueChanged<bool?> onChanged,
-  }) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(8),
-      onTap: () => onChanged(!value),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: _customCheckbox(
-                value: value,
-                onChanged: onChanged,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 12.5,
-                  height: 1.35,
-                  fontWeight: FontWeight.w600,
-                  color: _ink,
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'I agree to all statements above',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: _purple,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -461,8 +382,8 @@ class _MindControlGuardConsentScreenState
                 child: InkWell(
                   borderRadius: BorderRadius.circular(10),
                   onTap: () {
-                    if (!_allChecked) {
-                      _selectAll(true);
+                    if (!_agreeAll) {
+                      setState(() => _agreeAll = true);
                     }
                     widget.onAgree();
                   },

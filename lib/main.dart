@@ -59,6 +59,7 @@ void _onAppResumed() {
     const MethodChannel('com.discipline_mind/app_lifecycle')
         .invokeMethod<void>('hideBlockOverlay');
   } catch (_) {}
+  unawaited(checkAndStartTradingBlockIfPermitted());
 }
 
 void _refreshUserAlertsOnNotification({int attempt = 0}) {
@@ -159,6 +160,7 @@ Future<void> main() async {
     if (blocked.isNotEmpty) {
       await blockService.startBlockingService();
     }
+    unawaited(checkAndStartTradingBlockIfPermitted());
   }
 
   NotificationHandler.onNotificationReceived = _refreshUserAlertsOnNotification;

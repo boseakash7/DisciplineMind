@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
+import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
+import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:discipline_mind/ui/auth/phone_login_screen.dart';
 import 'package:discipline_mind/ui/main_home/main_home.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
@@ -61,6 +65,9 @@ class AuthController extends GetxController {
     Common.userData.value = model;
     storage.saveUserSession(model);
     GetStorage().write('user_id', id);
+    final blockService = NativeAppBlockService();
+    unawaited(blockService.saveUserIdForOverlay(id));
+    unawaited(checkAndStartTradingBlockIfPermitted(explicitUserId: id));
     if (Get.isRegistered<ChatController>()) {
       final chatCtrl = Get.find<ChatController>();
       chatCtrl.reset();
@@ -142,6 +149,9 @@ class AuthController extends GetxController {
       print("User ID (Auto Login): $id");
       Common.userData.value = session;
       GetStorage().write('user_id', id);
+      final blockService = NativeAppBlockService();
+      unawaited(blockService.saveUserIdForOverlay(id));
+      unawaited(checkAndStartTradingBlockIfPermitted(explicitUserId: id));
       try {
         await _syncFcmAndSubscribe(id);
       } catch (_) {}
@@ -220,6 +230,9 @@ class AuthController extends GetxController {
     GetStorage().remove('user_id');
     ApiService.clearPersistedSessionCookie();
     ApiConfig.activeSetupType = null;
+    try {
+      NativeAppBlockService().stopBlockingService();
+    } catch (_) {}
     if (Get.isRegistered<ChatController>()) {
       Get.delete<ChatController>(force: true);
     }

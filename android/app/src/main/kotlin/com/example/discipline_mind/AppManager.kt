@@ -27,19 +27,21 @@ object AppManager {
             .getString(USER_ID_KEY, null)
     }
 
-    var blockedApps: MutableSet<String> = mutableSetOf()
-        private set
+    val blockedApps: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     fun loadBlockedApps(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val loaded = prefs.getStringSet(BLOCKED_APPS_KEY, mutableSetOf())?.toMutableSet() ?: mutableSetOf()
-        blockedApps.clear()
-        blockedApps.addAll(loaded)
+        val loaded = prefs.getStringSet(BLOCKED_APPS_KEY, emptySet()) ?: emptySet()
+        synchronized(blockedApps) {
+            blockedApps.clear()
+            blockedApps.addAll(loaded)
+        }
     }
 
     private fun saveBlockedApps(context: Context) {
+        val copy = HashSet(blockedApps)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putStringSet(BLOCKED_APPS_KEY, blockedApps).apply()
+        prefs.edit().putStringSet(BLOCKED_APPS_KEY, copy).apply()
     }
 
     fun addBlockedApp(context: Context, packageName: String) {

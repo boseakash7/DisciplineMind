@@ -137,7 +137,7 @@ class AppBlockPlugin(private val activity: android.app.Activity) : MethodChannel
         }
     }
 
-    private fun isOverlayPermissionGranted(): Boolean {
+    fun isOverlayPermissionGranted(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             Settings.canDrawOverlays(activity)
         } else {
@@ -155,7 +155,7 @@ class AppBlockPlugin(private val activity: android.app.Activity) : MethodChannel
         }
     }
 
-    private fun isUsageStatsEnabled(): Boolean {
+    fun isUsageStatsEnabled(): Boolean {
         val appOps = activity.getSystemService(android.content.Context.APP_OPS_SERVICE) as AppOpsManager
         val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             appOps.unsafeCheckOpNoThrow(

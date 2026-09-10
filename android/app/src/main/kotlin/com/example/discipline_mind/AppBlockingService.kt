@@ -231,16 +231,22 @@ class AppBlockingService : Service() {
         }
     }
 
+    private var lastBlockedAppsLoadMs: Long = 0L
+
     private fun startAppMonitoring() {
         val ourPackageName = applicationContext.packageName
         executor.scheduleAtFixedRate({
-            AppManager.loadBlockedApps(applicationContext)
+            val now = System.currentTimeMillis()
+            if (now - lastBlockedAppsLoadMs >= 5000L) {
+                AppManager.loadBlockedApps(applicationContext)
+                lastBlockedAppsLoadMs = now
+            }
             val foregroundApp = getForegroundApp()
             lastObservedForegroundApp = foregroundApp ?: ""
             val monitoredPackages = AppManager.getMonitoredTradingApps(applicationContext)
             if (foregroundApp != null &&
                 foregroundApp != lastTrackedForegroundApp &&
-                monitoredPackages.contains(foregroundApp)
+                (monitoredPackages.contains(foregroundApp) || AppManager.blockedApps.contains(foregroundApp))
             ) {
                 AppUsageTracker.recordAppOpened(applicationContext, foregroundApp)
                 onMonitoredAppOpened(foregroundApp)
@@ -382,11 +388,13 @@ class AppBlockingService : Service() {
                     packageName in forceUnblockedByUser -> true
                     state.state == AppLockState.UNBLOCKED -> true
                     state.state == AppLockState.BLOCKED -> false
+                    // If network failed/timed out, but app is in blockedApps, default to BLOCKED
+                    AppManager.blockedApps.contains(packageName) -> false
                     else -> null // UNKNOWN — do not show overlay
                 }
                 stateDecisionInFlight = false
 
-                val stillForeground = lastObservedForegroundApp == packageName
+                val stillForeground = lastObservedForegroundApp == packageName || getForegroundApp() == packageName
                 when (stateDecisionUnlocked) {
                     true -> {
                         temporaryUnblocked.add(packageName)
@@ -434,7 +442,7 @@ class AppBlockingService : Service() {
             val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
             val time = System.currentTimeMillis()
             // When overlay is up, use shorter window (5s) to avoid stale PAUSED events
-            val windowMs = if (overlayShowing) 5_000L else 15_000L
+            val windowMs = if (overlayShowing) 5_000L else 30_000L
             val events = usm.queryEvents(time - windowMs, time)
             val usageEvent = UsageEvents.Event()
             var lastResumedPackage: String? = null
@@ -452,7 +460,7 @@ class AppBlockingService : Service() {
 
             // Fallback: queryUsageStats when no recent RESUMED events
             val stats = usm.queryUsageStats(
-                UsageStatsManager.INTERVAL_DAILY,
+                UsageStatsManager.INTERVAL_BEST,
                 time - 60_000,
                 time
             )

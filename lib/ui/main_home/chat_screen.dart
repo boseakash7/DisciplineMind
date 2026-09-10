@@ -20,6 +20,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
+import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key, this.onMonkkTap, this.isActive = true});
@@ -359,11 +360,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Future<void> _checkPermissions() async {
     final permissions = await _blockService.checkPermissions();
     if (!mounted) return;
+    final overlay = permissions['hasOverlayPermission'] ?? false;
+    final usage = permissions['hasUsageStatsPermission'] ?? false;
     setState(() {
-      _overlayGranted = permissions['hasOverlayPermission'] ?? false;
-      _usageGranted = permissions['hasUsageStatsPermission'] ?? false;
+      _overlayGranted = overlay;
+      _usageGranted = usage;
       _isCheckingPermissions = false;
     });
+    if (overlay && usage) {
+      unawaited(checkAndStartTradingBlockIfPermitted());
+    }
   }
 
   Future<void> _requestOverlay() async {

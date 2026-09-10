@@ -1,4 +1,5 @@
 import 'package:discipline_mind/services/native_app_block_service.dart';
+import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:flutter/material.dart';
 import 'app_block_page.dart';
 
@@ -23,10 +24,15 @@ class _PermissionGatePageState extends State<PermissionGatePage> {
 
   Future<void> _check() async {
     final permissions = await _blockService.checkPermissions();
+    final overlay = permissions['hasOverlayPermission'] ?? false;
+    final usage = permissions['hasUsageStatsPermission'] ?? false;
     setState(() {
-      overlayGranted = permissions['hasOverlayPermission'] ?? false;
-      usageGranted = permissions['hasUsageStatsPermission'] ?? false;
+      overlayGranted = overlay;
+      usageGranted = usage;
     });
+    if (overlay && usage) {
+      await checkAndStartTradingBlockIfPermitted();
+    }
   }
 
   Future<void> _requestOverlay() async {

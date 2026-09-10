@@ -234,6 +234,10 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         _hasUsage = newUsage;
       });
 
+      if (newOverlay && newUsage) {
+        checkAndStartTradingBlockIfPermitted(explicitUserId: widget.userId);
+      }
+
       if (!mounted) return;
 
       // Only advance / warn based on whichever permission step the user

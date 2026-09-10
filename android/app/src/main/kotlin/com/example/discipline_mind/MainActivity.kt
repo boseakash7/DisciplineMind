@@ -129,8 +129,16 @@ class MainActivity : FlutterActivity() {
         smsReceiver = null
     }
 
+    override fun onResume() {
+        super.onResume()
+        checkAndStartBlockingServiceIfPermitted()
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 1234 || requestCode == 1237) {
+            checkAndStartBlockingServiceIfPermitted()
+        }
         if (requestCode == SMS_CONSENT_REQUEST) {
             if (resultCode == RESULT_OK && data != null) {
                 val message = data.getStringExtra(SmsRetriever.EXTRA_SMS_MESSAGE)
@@ -139,6 +147,22 @@ class MainActivity : FlutterActivity() {
                 smsEventSink?.error("USER_DENIED", "User ने dialog पर Deny/Cancel किया", null)
             }
         }
+    }
+
+    private fun checkAndStartBlockingServiceIfPermitted() {
+        try {
+            if (appBlockPlugin?.isOverlayPermissionGranted() == true &&
+                appBlockPlugin?.isUsageStatsEnabled() == true
+            ) {
+                val userId = AppManager.loadUserIdForOverlay(this)
+                if (!userId.isNullOrEmpty()) {
+                    AppManager.loadBlockedApps(this)
+                    if (AppManager.blockedApps.isNotEmpty()) {
+                        AppManager.startBlockingService(this)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
     }
 
     override fun onDestroy() {
