@@ -52,6 +52,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _didInitialBottomSnap = false;
   String _previousFirstMessageId = '';
   String _previousLastMessageId = '';
+  final Set<String> _openedTradingAppMessageIds = <String>{};
+  final Set<String> _actionTakenMessageIds = <String>{};
+  final Set<String> _actionTakenTradeIds = <String>{};
 
   /// Voice recording & STT states
   AudioRecorder? _audioRecorder;
@@ -135,18 +138,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _amplitudeSubscription = _audioRecorder!
           .onAmplitudeChanged(const Duration(milliseconds: 70))
           .listen((amp) {
-        if (!mounted || !_isRecording) return;
-        final db = amp.current;
-        double norm;
-        if (db <= -45.0) {
-          norm = 0.0;
-        } else {
-          norm = ((db + 45.0) / 45.0).clamp(0.0, 1.0);
-        }
-        setState(() {
-          _currentAmplitude = norm;
-        });
-      });
+            if (!mounted || !_isRecording) return;
+            final db = amp.current;
+            double norm;
+            if (db <= -45.0) {
+              norm = 0.0;
+            } else {
+              norm = ((db + 45.0) / 45.0).clamp(0.0, 1.0);
+            }
+            setState(() {
+              _currentAmplitude = norm;
+            });
+          });
     } catch (e) {
       debugPrint('Error starting audio recording: $e');
       AppToast.showToast('Failed to start recording');
@@ -267,7 +270,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final istOffset = const Duration(hours: 5, minutes: 30);
     final nowIst = nowUtc.add(istOffset);
 
-    if (nowIst.weekday == DateTime.saturday || nowIst.weekday == DateTime.sunday) {
+    if (nowIst.weekday == DateTime.saturday ||
+        nowIst.weekday == DateTime.sunday) {
       return false;
     }
 
@@ -321,18 +325,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Color _tertiaryText(bool isDark) =>
       isDark ? Colors.white60 : Colors.grey.shade600;
 
-  /// Dialog / popup surface background (was Colors.white).
+  /// Dialog / popup surface background.
   Color _dialogBg(bool isDark) =>
-      isDark ? const Color(0xFF3C3C3A) : Colors.white;
+      isDark ? const Color(0xFF1E222A) : Colors.white;
 
-  /// Text field fill inside dialogs / input bar (was AppColors.backgroundGray
-  /// or Colors.grey.shade100).
+  /// Text field fill inside dialogs / input bar.
   Color _fieldFill(bool isDark) =>
-      isDark ? const Color(0xFF7B7B7A) : AppColors.backgroundGray;
+      isDark ? const Color(0xFF1E222A) : const Color(0xFFF7F6FB);
 
   /// Generic border color for fields/cards in dialogs.
   Color _fieldBorder(bool isDark) =>
-      isDark ? Colors.white24 : Colors.grey.shade400;
+      isDark ? Colors.white12 : const Color(0xFFE2E0E9);
 
   /// Divider color used inside the (always-white) trade card stays the same
   /// in both themes since the card itself stays white per design.
@@ -397,7 +400,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   void _syncOnTabFocus() {
     if (_chatController.isClosed) return;
-    _chatController.loadNewMessages(silent: _chatController.messages.isNotEmpty);
+    _chatController.loadNewMessages(
+      silent: _chatController.messages.isNotEmpty,
+    );
   }
 
   @override
@@ -651,10 +656,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       color: _secondaryText(isDark),
       height: 1.4,
     );
-    final timeStyle = TextStyle(
-      fontSize: 12,
-      color: _tertiaryText(isDark),
-    );
+    final timeStyle = TextStyle(fontSize: 12, color: _tertiaryText(isDark));
     final timeStr = _tradeSignalTime(DateTime.now().toUtc().toIso8601String());
 
     return Column(
@@ -693,10 +695,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Text(
-                        'Market is Open 🔔',
-                        style: titleStyle,
-                      ),
+                      Text('Market is Open 🔔', style: titleStyle),
                       const SizedBox(height: 8),
                       Text(
                         "It's time to activate your\nMind Control.",
@@ -746,7 +745,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       ),
                     ),
                     GestureDetector(
-                      onTap: () => _showMindControlInfoBottomSheet(context, isDark),
+                      onTap: () =>
+                          _showMindControlInfoBottomSheet(context, isDark),
                       child: Icon(
                         Icons.info_outline,
                         size: 20,
@@ -760,7 +760,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   children: [
                     Expanded(
                       child: GestureDetector(
-                        onTap: () => _showActivateMindControlBottomSheet(context, isDark),
+                        onTap: () => _showActivateMindControlBottomSheet(
+                          context,
+                          isDark,
+                        ),
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           decoration: BoxDecoration(
@@ -830,7 +833,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             color: _dialogBg(isDark),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           ),
-          padding: const EdgeInsets.only(top: 12, left: 24, right: 24, bottom: 32),
+          padding: const EdgeInsets.only(
+            top: 12,
+            left: 24,
+            right: 24,
+            bottom: 32,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -848,16 +856,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 height: 48,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  border: Border.all(
-                    color: const Color(0xFF5A4FCF),
-                    width: 1.5,
-                  ),
+                  color: isDark
+                      ? AppColors.primary.withOpacity(0.2)
+                      : const Color(0xFFEDE9FE),
+                  border: Border.all(color: AppColors.primary, width: 1.5),
                 ),
                 alignment: Alignment.center,
                 child: const Text(
                   '?',
                   style: TextStyle(
-                    color: Color(0xFF5A4FCF),
+                    color: AppColors.primary,
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
                   ),
@@ -910,7 +918,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         return Container(
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF5A4FCF),
+                            color: AppColors.primary,
                             borderRadius: BorderRadius.circular(12),
                           ),
                           alignment: Alignment.center,
@@ -919,7 +927,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                             height: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
                             ),
                           ),
                         );
@@ -935,7 +945,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF5A4FCF),
+                            color: AppColors.primary,
                             borderRadius: BorderRadius.circular(12),
                           ),
                           alignment: Alignment.center,
@@ -1035,9 +1045,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final items = <_ChatFeedItem>[];
     DateTime? lastDay;
     final newMessagesAt = _latestUnreadBurstStartIndex(messages);
+    final lastAiIndex = messages.lastIndexWhere(
+      (m) => m.type == ChatMessageType.aiWaiting,
+    );
 
     for (var i = 0; i < messages.length; i++) {
       final msg = messages[i];
+      if (msg.type == ChatMessageType.aiWaiting && i != lastAiIndex) {
+        continue; // Only show the latest/last AI message
+      }
       final day = _messageDay(msg);
 
       if (i == newMessagesAt) {
@@ -1156,7 +1172,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       autoRemove: false,
       builder: (controller) {
         final processController = Get.put(TradingProcessController());
-        
+
         return Obx(() {
           final process = processController.currentProcess.value;
           final isProcessLoading = processController.isLoading.value;
@@ -1192,247 +1208,275 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildMainChat(BuildContext context, bool isDark, ChatController controller) {
+  Widget _buildMainChat(
+    BuildContext context,
+    bool isDark,
+    ChatController controller,
+  ) {
     return Scaffold(
       backgroundColor: _screenBg(isDark),
       body: SafeArea(
-          child: Column(
-            children: [
-              // _buildHeader(context, controller),
-              Expanded(
-                child: Obx(() {
-                  if (controller.isLoading.value) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
+        child: Column(
+          children: [
+            // _buildHeader(context, controller),
+            Expanded(
+              child: Obx(() {
+                if (controller.isLoading.value) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-                  final processController = Get.put(TradingProcessController());
-                  final process = processController.currentProcess.value;
-                  if (process != null && process.isMindControllActive == 0 && _isMarketOpen && !_skippedMindControl) {
-                    return ListView(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      children: [
-                        _buildMarketOpenMindControlPrompt(context, isDark),
-                      ],
-                    );
-                  }
-
-                  final currentFirstId = _firstMessageId(controller.messages);
-                  final currentLastId = _lastMessageId(controller.messages);
-                  final wasNearBottom = _isNearBottom();
-                  if (_lastMessageCount != controller.messages.length) {
-                    _lastMessageCount = controller.messages.length;
-                    if (!_didInitialBottomSnap &&
-                        controller.messages.isNotEmpty) {
-                      _didInitialBottomSnap = true;
-                      _scheduleScrollToBottom();
-                    } else if (_skipNextAutoBottomScroll) {
-                      _skipNextAutoBottomScroll = false;
-                    } else if (_previousFirstMessageId.isNotEmpty &&
-                        currentFirstId.isNotEmpty &&
-                        _previousFirstMessageId != currentFirstId &&
-                        _previousLastMessageId == currentLastId) {
-                      // Older history prepended at top -> keep user's viewport.
-                    } else if (!_suppressAutoBottomScroll &&
-                        _previousLastMessageId.isNotEmpty &&
-                        currentLastId.isNotEmpty &&
-                        _previousLastMessageId != currentLastId) {
-                      // New messages appended at bottom -> always take user to latest.
-                      _scheduleScrollToBottom();
-                    } else if (!_suppressAutoBottomScroll &&
-                        wasNearBottom &&
-                        _previousLastMessageId.isEmpty &&
-                        currentLastId.isNotEmpty) {
-                      // Fallback: if IDs were absent previously but user was already at end.
-                      _scheduleScrollToBottom();
-                    }
-                  }
-                  _previousFirstMessageId = currentFirstId;
-                  _previousLastMessageId = currentLastId;
-
-                  // If user tapped a "DMT score" notification, auto-open the
-                  // unread DMT score popup for the matching (or latest) message.
-                  if (NotificationHandler.dmtScoreAutoOpenPending) {
-                    final pendingDate =
-                        NotificationHandler.dmtScoreAutoOpenScoreDate;
-                    DmtScoreMessage? target;
-                    for (var i = controller.messages.length - 1; i >= 0; i--) {
-                      final msg = controller.messages[i];
-                      if (msg is! DmtScoreMessage) continue;
-                      final id = msg.messageId.trim();
-                      if (id.isEmpty) continue;
-                      if (!msg.isUnread) continue;
-                      if (_dmtScorePopupAnimatedIds.contains(id)) continue;
-                      if (pendingDate != null && pendingDate.isNotEmpty) {
-                        if (msg.scoreDate.trim() != pendingDate.trim())
-                          continue;
-                      }
-                      target = msg;
-                      break;
-                    }
-
-                    if (target != null) {
-                      final t = target;
-                      NotificationHandler.clearDmtScoreAutoOpen();
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (!mounted) return;
-                        final id = t.messageId.trim();
-                        setState(() => _dmtScorePopupAnimatedIds.add(id));
-                        showDmtScorePopup(
-                          context,
-                          scoreDate: t.scoreDate,
-                          instructionsScore: t.instructionsScore,
-                          commitmentScore: t.commitmentScore,
-                          acceptanceScore: t.acceptanceScore,
-                          patienceScore: t.patienceScore,
-                          consistencyScore: t.consistencyScore,
-                          dmtTotalScore: t.dmtTotalScore,
-                          dmtMaxScore: t.dmtMaxScore,
-                          hasAcceptanceScore: t.hasAcceptanceScore,
-                          acceptanceIsNa: t.acceptanceIsNa,
-                          acceptanceNote: t.acceptanceNote,
-                          animateReveal: true,
-                        );
-                      });
-                    }
-                  }
-                  final feedItems = _buildChatFeedItems(controller.messages);
-                  return Stack(
+                final processController = Get.put(TradingProcessController());
+                final process = processController.currentProcess.value;
+                if (process != null &&
+                    process.isMindControllActive == 0 &&
+                    _isMarketOpen &&
+                    !_skippedMindControl) {
+                  return ListView(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     children: [
-                      controller.messages.isEmpty
-                          ? ListView(
-                              controller: _scrollController,
-                              children: [
-                                SizedBox(
-                                  height: 420,
-                                  child: Center(
-                                    child: Text(
-                                      'No messages yet.',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: _secondaryText(isDark),
-                                      ),
+                      _buildMarketOpenMindControlPrompt(context, isDark),
+                    ],
+                  );
+                }
+
+                final currentFirstId = _firstMessageId(controller.messages);
+                final currentLastId = _lastMessageId(controller.messages);
+                final wasNearBottom = _isNearBottom();
+                if (_lastMessageCount != controller.messages.length) {
+                  _lastMessageCount = controller.messages.length;
+                  if (!_didInitialBottomSnap &&
+                      controller.messages.isNotEmpty) {
+                    _didInitialBottomSnap = true;
+                    _scheduleScrollToBottom();
+                  } else if (_skipNextAutoBottomScroll) {
+                    _skipNextAutoBottomScroll = false;
+                  } else if (_previousFirstMessageId.isNotEmpty &&
+                      currentFirstId.isNotEmpty &&
+                      _previousFirstMessageId != currentFirstId &&
+                      _previousLastMessageId == currentLastId) {
+                    // Older history prepended at top -> keep user's viewport.
+                  } else if (!_suppressAutoBottomScroll &&
+                      _previousLastMessageId.isNotEmpty &&
+                      currentLastId.isNotEmpty &&
+                      _previousLastMessageId != currentLastId) {
+                    // New messages appended at bottom -> always take user to latest.
+                    _scheduleScrollToBottom();
+                  } else if (!_suppressAutoBottomScroll &&
+                      wasNearBottom &&
+                      _previousLastMessageId.isEmpty &&
+                      currentLastId.isNotEmpty) {
+                    // Fallback: if IDs were absent previously but user was already at end.
+                    _scheduleScrollToBottom();
+                  }
+                }
+                _previousFirstMessageId = currentFirstId;
+                _previousLastMessageId = currentLastId;
+
+                // If user tapped a "DMT score" notification, auto-open the
+                // unread DMT score popup for the matching (or latest) message.
+                if (NotificationHandler.dmtScoreAutoOpenPending) {
+                  final pendingDate =
+                      NotificationHandler.dmtScoreAutoOpenScoreDate;
+                  DmtScoreMessage? target;
+                  for (var i = controller.messages.length - 1; i >= 0; i--) {
+                    final msg = controller.messages[i];
+                    if (msg is! DmtScoreMessage) continue;
+                    final id = msg.messageId.trim();
+                    if (id.isEmpty) continue;
+                    if (!msg.isUnread) continue;
+                    if (_dmtScorePopupAnimatedIds.contains(id)) continue;
+                    if (pendingDate != null && pendingDate.isNotEmpty) {
+                      if (msg.scoreDate.trim() != pendingDate.trim()) continue;
+                    }
+                    target = msg;
+                    break;
+                  }
+
+                  if (target != null) {
+                    final t = target;
+                    NotificationHandler.clearDmtScoreAutoOpen();
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) return;
+                      final id = t.messageId.trim();
+                      setState(() => _dmtScorePopupAnimatedIds.add(id));
+                      showDmtScorePopup(
+                        context,
+                        scoreDate: t.scoreDate,
+                        instructionsScore: t.instructionsScore,
+                        commitmentScore: t.commitmentScore,
+                        acceptanceScore: t.acceptanceScore,
+                        patienceScore: t.patienceScore,
+                        consistencyScore: t.consistencyScore,
+                        dmtTotalScore: t.dmtTotalScore,
+                        dmtMaxScore: t.dmtMaxScore,
+                        hasAcceptanceScore: t.hasAcceptanceScore,
+                        acceptanceIsNa: t.acceptanceIsNa,
+                        acceptanceNote: t.acceptanceNote,
+                        animateReveal: true,
+                      );
+                    });
+                  }
+                }
+                final feedItems = _buildChatFeedItems(controller.messages);
+                return Stack(
+                  children: [
+                    controller.messages.isEmpty
+                        ? ListView(
+                            controller: _scrollController,
+                            children: [
+                              SizedBox(
+                                height: 420,
+                                child: Center(
+                                  child: Text(
+                                    'No messages yet.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: _secondaryText(isDark),
                                     ),
                                   ),
                                 ),
-                              ],
-                            )
-                          : ListView.builder(
-                              controller: _scrollController,
-                              cacheExtent: 500,
-                              addRepaintBoundaries: true,
-                              addAutomaticKeepAlives: true,
-                              physics: const AlwaysScrollableScrollPhysics(
-                                parent: BouncingScrollPhysics(),
                               ),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
-                              ),
-                              itemCount: feedItems.length,
-                              itemBuilder: (_, i) {
-                                final item = feedItems[i];
-                                Widget childWidget;
-                                if (item is _ChatFeedDateHeader) {
+                            ],
+                          )
+                        : ListView.builder(
+                            controller: _scrollController,
+                            cacheExtent: 500,
+                            addRepaintBoundaries: true,
+                            addAutomaticKeepAlives: true,
+                            physics: const AlwaysScrollableScrollPhysics(
+                              parent: BouncingScrollPhysics(),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            itemCount: feedItems.length,
+                            itemBuilder: (_, i) {
+                              final item = feedItems[i];
+                              Widget childWidget;
+                              if (item is _ChatFeedDateHeader) {
+                                childWidget = KeyedSubtree(
+                                  key: ValueKey('chat_date_${item.label}'),
+                                  child: _buildDateSeparator(
+                                    item.label,
+                                    isDark,
+                                  ),
+                                );
+                              } else if (item is _ChatFeedNewMessages) {
+                                childWidget = KeyedSubtree(
+                                  key: const ValueKey('chat_new_messages'),
+                                  child: _buildNewMessagesSeparator(),
+                                );
+                              } else {
+                                final msgItem = item as _ChatFeedMessage;
+                                final msg = msgItem.message;
+                                final bubble = _buildMessage(
+                                  context,
+                                  msg,
+                                  controller,
+                                );
+                                final rowKey = msg.messageId.trim().isNotEmpty
+                                    ? ValueKey(
+                                        'chat_row_${msg.messageId}_${msg.type.name}',
+                                      )
+                                    : ValueKey(
+                                        'chat_row_fallback_${msg.type.name}_${msgItem.index}',
+                                      );
+                                final id = msg.messageId.trim();
+                                if (!msg.isUnread || id.isEmpty) {
                                   childWidget = KeyedSubtree(
-                                    key: ValueKey('chat_date_${item.label}'),
-                                    child: _buildDateSeparator(item.label, isDark),
+                                    key: rowKey,
+                                    child: bubble,
                                   );
-                                } else if (item is _ChatFeedNewMessages) {
+                                } else if (_revealedUnreadMessageIds.contains(
+                                  id,
+                                )) {
                                   childWidget = KeyedSubtree(
-                                    key: const ValueKey('chat_new_messages'),
-                                    child: _buildNewMessagesSeparator(),
+                                    key: rowKey,
+                                    child: bubble,
                                   );
                                 } else {
-                                  final msgItem = item as _ChatFeedMessage;
-                                  final msg = msgItem.message;
-                                  final bubble = _buildMessage(
-                                    context,
-                                    msg,
-                                    controller,
-                                  );
-                                  final rowKey = msg.messageId.trim().isNotEmpty
-                                      ? ValueKey(
-                                          'chat_row_${msg.messageId}_${msg.type.name}',
-                                        )
-                                      : ValueKey(
-                                          'chat_row_fallback_${msg.type.name}_${msgItem.index}',
-                                        );
-                                  final id = msg.messageId.trim();
-                                  if (!msg.isUnread || id.isEmpty) {
-                                    childWidget = KeyedSubtree(key: rowKey, child: bubble);
-                                  } else if (_revealedUnreadMessageIds.contains(id)) {
-                                    childWidget = KeyedSubtree(key: rowKey, child: bubble);
-                                  } else {
-                                    childWidget = KeyedSubtree(
-                                      key: rowKey,
-                                      child: _UnreadRevealGate(
-                                        messageId: id,
-                                        onRevealed: (messageId) {
-                                          if (!mounted) return;
-                                          setState(() {
-                                            _revealedUnreadMessageIds.add(messageId);
-                                          });
-                                          _scheduleScrollAfterUnreadReveal(
+                                  childWidget = KeyedSubtree(
+                                    key: rowKey,
+                                    child: _UnreadRevealGate(
+                                      messageId: id,
+                                      onRevealed: (messageId) {
+                                        if (!mounted) return;
+                                        setState(() {
+                                          _revealedUnreadMessageIds.add(
                                             messageId,
-                                            controller,
                                           );
-                                        },
-                                      ),
-                                    );
-                                  }
+                                        });
+                                        _scheduleScrollAfterUnreadReveal(
+                                          messageId,
+                                          controller,
+                                        );
+                                      },
+                                    ),
+                                  );
                                 }
-                                return RepaintBoundary(child: childWidget);
-                              },
-                            ),
-                      ValueListenableBuilder<bool>(
-                        valueListenable: _showScrollToLatest,
-                        builder: (context, show, child) {
-                          if (!show) return const SizedBox.shrink();
-                          return Positioned(
-                            right: 16,
-                            bottom: 12,
-                            child: Material(
-                              elevation: 4,
-                              color: isDark ? const Color(0xFF1E222A) : Colors.white,
-                              shape: const CircleBorder(),
-                              shadowColor: Colors.black26,
-                              child: InkWell(
-                                customBorder: const CircleBorder(),
-                                onTap: _jumpToLatestMessages,
-                                child: const Padding(
-                                  padding: EdgeInsets.all(10),
-                                  child: Icon(
-                                    Icons.keyboard_arrow_down_rounded,
-                                    color: AppColors.primary,
-                                    size: 28,
-                                  ),
+                              }
+                              return RepaintBoundary(child: childWidget);
+                            },
+                          ),
+                    ValueListenableBuilder<bool>(
+                      valueListenable: _showScrollToLatest,
+                      builder: (context, show, child) {
+                        if (!show) return const SizedBox.shrink();
+                        return Positioned(
+                          right: 16,
+                          bottom: 12,
+                          child: Material(
+                            elevation: 4,
+                            color: isDark
+                                ? const Color(0xFF1E222A)
+                                : Colors.white,
+                            shape: const CircleBorder(),
+                            shadowColor: Colors.black26,
+                            child: InkWell(
+                              customBorder: const CircleBorder(),
+                              onTap: _jumpToLatestMessages,
+                              child: const Padding(
+                                padding: EdgeInsets.all(10),
+                                child: Icon(
+                                  Icons.keyboard_arrow_down_rounded,
+                                  color: AppColors.primary,
+                                  size: 28,
                                 ),
                               ),
                             ),
-                          );
-                        },
-                      ),
-                    ],
-                  );
-                }),
-              ),
-              Obx(() {
-                final processController = Get.put(TradingProcessController());
-                final process = processController.currentProcess.value;
-                final isPromptShowing = process != null && process.isMindControllActive == 0 && _isMarketOpen && !_skippedMindControl;
-                if (isPromptShowing) return const SizedBox.shrink();
-                return _buildInput(context, controller, _textController);
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                );
               }),
-            ],
-          ),
+            ),
+            Obx(() {
+              final processController = Get.put(TradingProcessController());
+              final process = processController.currentProcess.value;
+              final isPromptShowing =
+                  process != null &&
+                  process.isMindControllActive == 0 &&
+                  _isMarketOpen &&
+                  !_skippedMindControl;
+              if (isPromptShowing) return const SizedBox.shrink();
+              return _buildInput(context, controller, _textController);
+            }),
+          ],
         ),
-      );
+      ),
+    );
   }
 
   void _showMindControlInfoBottomSheet(BuildContext context, bool isDark) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: _screenBg(isDark),
+      backgroundColor: _dialogBg(isDark),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -1496,10 +1540,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   ),
                   child: const Text(
                     'Got it',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ),
               ),
@@ -1511,7 +1552,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildMindControlGateUI(bool isDark, TradingProcessController processController) {
+  Widget _buildMindControlGateUI(
+    bool isDark,
+    TradingProcessController processController,
+  ) {
     return Scaffold(
       backgroundColor: _screenBg(isDark),
       body: SafeArea(
@@ -1535,7 +1579,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     WidgetSpan(
                       alignment: PlaceholderAlignment.middle,
                       child: GestureDetector(
-                        onTap: () => _showMindControlInfoBottomSheet(context, isDark),
+                        onTap: () =>
+                            _showMindControlInfoBottomSheet(context, isDark),
                         child: Icon(
                           Icons.info_outline_rounded,
                           color: _headlineText(isDark),
@@ -1563,38 +1608,47 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 40),
-              Obx(() => SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: processController.isUpdating.value
-                      ? null
-                      : () async {
-                          final success = await processController.activateMindControl();
-                          if (success && Get.isRegistered<ChatController>()) {
-                            Get.find<ChatController>().loadMessages();
-                          }
-                        },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+              Obx(
+                () => SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: processController.isUpdating.value
+                        ? null
+                        : () async {
+                            final success = await processController
+                                .activateMindControl();
+                            if (success && Get.isRegistered<ChatController>()) {
+                              Get.find<ChatController>().loadMessages();
+                            }
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      elevation: 2,
                     ),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    elevation: 2,
+                    child: processController.isUpdating.value
+                        ? const SizedBox(
+                            height: 24,
+                            width: 24,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Text(
+                            'Activate Now',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                   ),
-                  child: processController.isUpdating.value
-                      ? const SizedBox(
-                          height: 24,
-                          width: 24,
-                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                        )
-                      : const Text(
-                          'Activate Now',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                        ),
                 ),
-              )),
+              ),
               const SizedBox(height: 16),
               TextButton(
                 onPressed: () {
@@ -1628,11 +1682,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Spacer(),
-              Icon(
-                Icons.security_rounded,
-                size: 80,
-                color: AppColors.primary,
-              ),
+              Icon(Icons.security_rounded, size: 80, color: AppColors.primary),
               const SizedBox(height: 24),
               Text(
                 'Permissions Required',
@@ -1733,10 +1783,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           padding: const EdgeInsets.only(top: 4.0),
           child: Text(
             description,
-            style: TextStyle(
-              fontSize: 13,
-              color: _secondaryText(isDark),
-            ),
+            style: TextStyle(fontSize: 13, color: _secondaryText(isDark)),
           ),
         ),
         trailing: isGranted
@@ -1749,7 +1796,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   elevation: 0,
                 ),
                 child: const Text(
@@ -1836,7 +1886,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       case ChatMessageType.dmtScore:
         return _buildDmtScore(context, msg as DmtScoreMessage);
       case ChatMessageType.tradeSignal:
-        return _buildTradeSignal(context, msg as TradeSignalMessage, controller);
+        return _buildTradeSignal(
+          context,
+          msg as TradeSignalMessage,
+          controller,
+        );
     }
   }
 
@@ -1844,11 +1898,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return AiWaitingStatusBubble(
       key: ValueKey('ai_waiting_${msg.messageId}_${msg.text}'),
       text: msg.text,
-      subtitle: msg.subtitle.isNotEmpty &&
-              msg.subtitle != 'Monkk is waiting' &&
-              msg.subtitle != 'AI is waiting'
-          ? msg.subtitle
-          : 'Zeno AI is analyzing',
+      subtitle: msg.subtitle,
       showAvatar: false,
     );
   }
@@ -1936,7 +1986,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ChatController controller,
   ) {
     final isDark = _isDark(context);
-    final hasPayloadData = msg.currentPrice.isNotEmpty ||
+    final hasPayloadData =
+        msg.currentPrice.isNotEmpty ||
         msg.dayLow.isNotEmpty ||
         msg.dayHigh.isNotEmpty ||
         msg.openPrice.isNotEmpty;
@@ -1969,8 +2020,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final currNum =
         double.tryParse(msg.currentPrice.replaceAll(',', '')) ?? lowNum;
     final diff = highNum - lowNum;
-    final ratio =
-        diff > 0 ? ((currNum - lowNum) / diff).clamp(0.0, 1.0) : 0.5;
+    final ratio = diff > 0 ? ((currNum - lowNum) / diff).clamp(0.0, 1.0) : 0.5;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -1978,574 +2028,565 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildRichMessageContent(
-            msg.headline.isNotEmpty
-                ? msg.headline
-                : 'Your Process Overview',
+            msg.headline.isNotEmpty ? msg.headline : 'Your Process Overview',
             isDark,
           ),
           const SizedBox(height: 12),
 
           // Top Process Overview Card
           Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF1E222A) : Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: isDark ? Colors.white12 : const Color(0xFFE8E6F0),
-                      width: 1,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E222A) : Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: isDark ? Colors.white12 : const Color(0xFFE8E6F0),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header Row (Icon + Symbol)
+                Row(
+                  children: [
+                    Container(
+                      width: 26,
+                      height: 26,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          colors: [Color(0xFF6C38FF), Color(0xFF4A22F4)],
+                        ),
                       ),
-                    ],
-                  ),
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Header Row (Icon + Symbol)
-                      Row(
-                        children: [
-                          Container(
-                            width: 26,
-                            height: 26,
-                            decoration: const BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: LinearGradient(
-                                colors: [Color(0xFF6C38FF), Color(0xFF4A22F4)],
-                              ),
-                            ),
-                            alignment: Alignment.center,
-                            child: Text(
-                              (msg.tradingsymbol.isNotEmpty
-                                      ? msg.tradingsymbol
-                                      : msg.instrument)
-                                  .substring(0, 1)
-                                  .toUpperCase(),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w900,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            msg.tradingsymbol.isNotEmpty
+                      alignment: Alignment.center,
+                      child: Text(
+                        (msg.tradingsymbol.isNotEmpty
                                 ? msg.tradingsymbol
-                                : msg.instrument,
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w800,
-                              color: _headlineText(isDark),
-                            ),
-                          ),
-                        ],
+                                : msg.instrument)
+                            .substring(0, 1)
+                            .toUpperCase(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 13,
+                        ),
                       ),
-                      const SizedBox(height: 12),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      msg.tradingsymbol.isNotEmpty
+                          ? msg.tradingsymbol
+                          : msg.instrument,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: _headlineText(isDark),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
 
-                      // Two column stats container
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? const Color(0xFF15181E)
-                              : const Color(0xFFFBFBFE),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: isDark
-                                ? Colors.white10
-                                : const Color(0xFFEEECF6),
-                          ),
-                        ),
-                        child: Row(
+                // Two column stats container
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF15181E)
+                        : const Color(0xFFFBFBFE),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: isDark ? Colors.white10 : const Color(0xFFEEECF6),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      // Left Column (Opens At)
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Left Column (Opens At)
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    '${msg.instrument} Opens At',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w500,
-                                      color: _secondaryText(isDark),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 3),
-                                  Text(
-                                    openPriceFormatted,
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w800,
-                                      color: _headlineText(isDark),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    '(${gapNum >= 0 ? "+$gapNum%" : "$gapNum%"} ${isGapDown ? "Gap Down" : "Gap Up"})',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                      color: isGapDown
-                                          ? const Color(0xFFE53935)
-                                          : const Color(0xFF2E7D32),
-                                    ),
-                                  ),
-                                ],
+                            Text(
+                              '${msg.instrument} Opens At',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: _secondaryText(isDark),
                               ),
                             ),
-
-                            // Vertical Divider
-                            Container(
-                              width: 1,
-                              height: 48,
-                              color: isDark
-                                  ? Colors.white12
-                                  : const Color(0xFFE8E6F0),
+                            const SizedBox(height: 3),
+                            Text(
+                              openPriceFormatted,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: _headlineText(isDark),
+                              ),
                             ),
-                            const SizedBox(width: 12),
-
-                            // Right Column (Current Status)
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Current Status',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w500,
-                                      color: _secondaryText(isDark),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 3),
-                                  Text(
-                                    currentPriceFormatted,
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w800,
-                                      color: _headlineText(isDark),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    '(${changeNum >= 0 ? "+$changeNum%" : "$changeNum%"})',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                      color: isChangeDown
-                                          ? const Color(0xFFE53935)
-                                          : const Color(0xFF2E7D32),
-                                    ),
-                                  ),
-                                ],
+                            const SizedBox(height: 2),
+                            Text(
+                              '(${gapNum >= 0 ? "+$gapNum%" : "$gapNum%"} ${isGapDown ? "Gap Down" : "Gap Up"})',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: isGapDown
+                                    ? const Color(0xFFE53935)
+                                    : const Color(0xFF2E7D32),
                               ),
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 14),
 
-                      // Day Low / Current / Day High Text Row
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Day Low',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                  color: _secondaryText(isDark),
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                dayLowFormatted,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
-                                  color: _headlineText(isDark),
-                                ),
-                              ),
-                            ],
-                          ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              Text(
-                                'Current',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                  color: _secondaryText(isDark),
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                currentPriceFormatted,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
-                                  color: Color(0xFF208052),
-                                ),
-                              ),
-                            ],
-                          ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text(
-                                'Day High',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                  color: _secondaryText(isDark),
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                dayHighFormatted,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
-                                  color: _headlineText(isDark),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                      // Vertical Divider
+                      Container(
+                        width: 1,
+                        height: 48,
+                        color: isDark
+                            ? Colors.white12
+                            : const Color(0xFFE8E6F0),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(width: 12),
 
-                      // Slider Track & Indicator Dots
-                      SizedBox(
-                        height: 18,
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            final totalWidth = constraints.maxWidth;
-                            final dotPos = (totalWidth * ratio).clamp(
-                              6.0,
-                              totalWidth - 6.0,
-                            );
-
-                            return Stack(
-                              alignment: Alignment.centerLeft,
-                              children: [
-                                // Background base track
-                                Container(
-                                  width: totalWidth,
-                                  height: 3,
-                                  decoration: BoxDecoration(
-                                    color: isDark
-                                        ? Colors.white12
-                                        : const Color(0xFFE2E0E9),
-                                    borderRadius: BorderRadius.circular(2),
-                                  ),
-                                ),
-
-                                // Active progress track from low to current
-                                Container(
-                                  width: dotPos,
-                                  height: 3,
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(
-                                      colors: [
-                                        Color(0xFF6C38FF),
-                                        Color(0xFF208052),
-                                      ],
-                                    ),
-                                    borderRadius: BorderRadius.circular(2),
-                                  ),
-                                ),
-
-                                // Left Dot (Low)
-                                Positioned(
-                                  left: 0,
-                                  child: Container(
-                                    width: 10,
-                                    height: 10,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: isDark
-                                          ? const Color(0xFF1E222A)
-                                          : Colors.white,
-                                      border: Border.all(
-                                        color: const Color(0xFF6C38FF),
-                                        width: 2.5,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-
-                                // Current Dot
-                                Positioned(
-                                  left: dotPos - 6,
-                                  child: Container(
-                                    width: 12,
-                                    height: 12,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: isDark
-                                          ? const Color(0xFF1E222A)
-                                          : Colors.white,
-                                      border: Border.all(
-                                        color: const Color(0xFF208052),
-                                        width: 3,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-
-                                // Right Dot (High)
-                                Positioned(
-                                  right: 0,
-                                  child: Container(
-                                    width: 10,
-                                    height: 10,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: isDark
-                                          ? const Color(0xFF1E222A)
-                                          : Colors.white,
-                                      border: Border.all(
-                                        color: isDark
-                                            ? Colors.white38
-                                            : const Color(0xFFB8B6C4),
-                                        width: 2.5,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            );
-                          },
+                      // Right Column (Current Status)
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Current Status',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: _secondaryText(isDark),
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              currentPriceFormatted,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: _headlineText(isDark),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '(${changeNum >= 0 ? "+$changeNum%" : "$changeNum%"})',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: isChangeDown
+                                    ? const Color(0xFFE53935)
+                                    : const Color(0xFF2E7D32),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
                 ),
+                const SizedBox(height: 14),
 
-                if (_showButtons(msg)) ...[
-                  const SizedBox(height: 18),
-
-                  // Mind Control Guard is Deactivated
-                  Text(
-                    'Mind Control Guard is Deactivated',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: _headlineText(isDark),
-                    ),
-                  ),
-
-                  const SizedBox(height: 14),
-
-                  // 1. Open Trading APP
-                  Text(
-                    '1. Open Trading APP',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: _headlineText(isDark),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Button: OPEN TRADING APP
-                  _tradePromptPrimaryButton(
-                    label: 'OPEN TRADING APP',
-                    enabled: true,
-                    onTap: () async {
-                      await controller.openTradingApp();
-                    },
-                  ),
-
-                  const SizedBox(height: 18),
-
-                  // 2. Select your Action
-                  Text(
-                    '2. Select your Action',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: _headlineText(isDark),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Custom Action Dropdown
-                  Container(
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? const Color(0xFF211D33)
-                          : const Color(0xFFFAF9FF),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: const Color(0xFF7C3AED),
-                        width: 1.3,
-                      ),
-                    ),
-                    child: Column(
+                // Day Low / Current / Day High Text Row
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        InkWell(
-                          borderRadius: BorderRadius.circular(8),
-                          onTap: () {
-                            setState(() {
-                              if (isDropdownExpanded) {
-                                _expandedSignalDropdowns.remove(msgKey);
-                              } else {
-                                _expandedSignalDropdowns.add(msgKey);
-                              }
-                            });
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 12,
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    selectedAction ?? 'Select an action',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: selectedAction != null
-                                          ? _headlineText(isDark)
-                                          : _secondaryText(isDark),
-                                    ),
-                                  ),
-                                ),
-                                Icon(
-                                  isDropdownExpanded
-                                      ? Icons.keyboard_arrow_up_rounded
-                                      : Icons.keyboard_arrow_down_rounded,
-                                  color: const Color(0xFF7C3AED),
-                                  size: 20,
-                                ),
-                              ],
-                            ),
+                        Text(
+                          'Day Low',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: _secondaryText(isDark),
                           ),
                         ),
-                        if (isDropdownExpanded) ...[
-                          const Divider(height: 1, color: Color(0xFFE2DCF7)),
-                          // Option 1: Set Levels
-                          InkWell(
-                            onTap: () {
-                              setState(() {
-                                _selectedSignalActions[msgKey] = 'Set Levels';
-                                _expandedSignalDropdowns.remove(msgKey);
-                              });
-                              _showSignalSetLevelsDialog(context, msg, controller);
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 12,
+                        const SizedBox(height: 2),
+                        Text(
+                          dayLowFormatted,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: _headlineText(isDark),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Current',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: _secondaryText(isDark),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          currentPriceFormatted,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF208052),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          'Day High',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: _secondaryText(isDark),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          dayHighFormatted,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: _headlineText(isDark),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+
+                // Slider Track & Indicator Dots
+                SizedBox(
+                  height: 18,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final totalWidth = constraints.maxWidth;
+                      final dotPos = (totalWidth * ratio).clamp(
+                        6.0,
+                        totalWidth - 6.0,
+                      );
+
+                      return Stack(
+                        alignment: Alignment.centerLeft,
+                        children: [
+                          // Background base track
+                          Container(
+                            width: totalWidth,
+                            height: 3,
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Colors.white12
+                                  : const Color(0xFFE2E0E9),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+
+                          // Active progress track from low to current
+                          Container(
+                            width: dotPos,
+                            height: 3,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF6C38FF), Color(0xFF208052)],
                               ),
-                              child: Row(
-                                children: [
-                                  const Icon(
-                                    Icons.adjust_rounded,
-                                    color: Color(0xFF7C3AED),
-                                    size: 18,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  const Expanded(
-                                    child: Text(
-                                      'Set Levels',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                                  if (selectedAction == 'Set Levels')
-                                    const Icon(
-                                      Icons.check_rounded,
-                                      color: Color(0xFF7C3AED),
-                                      size: 18,
-                                    ),
-                                ],
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+
+                          // Left Dot (Low)
+                          Positioned(
+                            left: 0,
+                            child: Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: isDark
+                                    ? const Color(0xFF1E222A)
+                                    : Colors.white,
+                                border: Border.all(
+                                  color: const Color(0xFF6C38FF),
+                                  width: 2.5,
+                                ),
                               ),
                             ),
                           ),
-                          const Divider(height: 1, color: Color(0xFFE2DCF7)),
-                          // Option 2: GTT
-                          InkWell(
-                            onTap: () {
-                              setState(() {
-                                _selectedSignalActions[msgKey] = 'GTT (Good Till Triggered)';
-                                _expandedSignalDropdowns.remove(msgKey);
-                              });
-                              _showSignalGttDialog(context, msg, controller);
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 12,
+
+                          // Current Dot
+                          Positioned(
+                            left: dotPos - 6,
+                            child: Container(
+                              width: 12,
+                              height: 12,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: isDark
+                                    ? const Color(0xFF1E222A)
+                                    : Colors.white,
+                                border: Border.all(
+                                  color: const Color(0xFF208052),
+                                  width: 3,
+                                ),
                               ),
-                              child: Row(
-                                children: [
-                                  const Icon(
-                                    Icons.access_time_rounded,
-                                    color: Color(0xFF7C3AED),
-                                    size: 18,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  const Expanded(
-                                    child: Text(
-                                      'GTT (Good Till Triggered)',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                                  if (selectedAction == 'GTT' || selectedAction == 'GTT (Good Till Triggered)')
-                                    const Icon(
-                                      Icons.check_rounded,
-                                      color: Color(0xFF7C3AED),
-                                      size: 18,
-                                    ),
-                                ],
+                            ),
+                          ),
+
+                          // Right Dot (High)
+                          Positioned(
+                            right: 0,
+                            child: Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: isDark
+                                    ? const Color(0xFF1E222A)
+                                    : Colors.white,
+                                border: Border.all(
+                                  color: isDark
+                                      ? Colors.white38
+                                      : const Color(0xFFB8B6C4),
+                                  width: 2.5,
+                                ),
                               ),
                             ),
                           ),
                         ],
-                      ],
-                    ),
+                      );
+                    },
                   ),
-                ] else ...[
-                  const SizedBox(height: 18),
-                  _tradePromptPrimaryButton(
-                    label: selectedAction != null &&
-                            selectedAction != 'Select Action'
-                        ? selectedAction!
-                        : 'Action Applied',
-                    icon: Icons.check_circle_outline_rounded,
-                    isCompleted: true,
-                    enabled: false,
-                  ),
-                ],
+                ),
               ],
             ),
-          );
+          ),
+
+          if (_showButtons(msg)) ...[
+            const SizedBox(height: 18),
+
+            // Mind Control Guard is Deactivated
+            Text(
+              'Mind Control Guard is Deactivated',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: _headlineText(isDark),
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            // 1. Open Trading APP
+            Text(
+              '1. Open Trading APP',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: _headlineText(isDark),
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // Button: OPEN TRADING APP
+            _tradePromptPrimaryButton(
+              label: 'OPEN TRADING APP',
+              enabled: true,
+              onTap: () async {
+                await controller.openTradingApp();
+              },
+            ),
+
+            const SizedBox(height: 18),
+
+            // 2. Select your Action
+            Text(
+              '2. Select your Action',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: _headlineText(isDark),
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // Custom Action Dropdown
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: isDark
+                    ? const Color(0xFF211D33)
+                    : const Color(0xFFFAF9FF),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFF7C3AED), width: 1.3),
+              ),
+              child: Column(
+                children: [
+                  InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () {
+                      setState(() {
+                        if (isDropdownExpanded) {
+                          _expandedSignalDropdowns.remove(msgKey);
+                        } else {
+                          _expandedSignalDropdowns.add(msgKey);
+                        }
+                      });
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              selectedAction ?? 'Select an action',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: selectedAction != null
+                                    ? _headlineText(isDark)
+                                    : _secondaryText(isDark),
+                              ),
+                            ),
+                          ),
+                          Icon(
+                            isDropdownExpanded
+                                ? Icons.keyboard_arrow_up_rounded
+                                : Icons.keyboard_arrow_down_rounded,
+                            color: const Color(0xFF7C3AED),
+                            size: 20,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (isDropdownExpanded) ...[
+                    const Divider(height: 1, color: Color(0xFFE2DCF7)),
+                    // Option 1: Set Levels
+                    InkWell(
+                      onTap: () {
+                        setState(() {
+                          _selectedSignalActions[msgKey] = 'Set Levels';
+                          _expandedSignalDropdowns.remove(msgKey);
+                        });
+                        _showSignalSetLevelsDialog(context, msg, controller);
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.adjust_rounded,
+                              color: Color(0xFF7C3AED),
+                              size: 18,
+                            ),
+                            const SizedBox(width: 10),
+                            const Expanded(
+                              child: Text(
+                                'Set Levels',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            if (selectedAction == 'Set Levels')
+                              const Icon(
+                                Icons.check_rounded,
+                                color: Color(0xFF7C3AED),
+                                size: 18,
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 1, color: Color(0xFFE2DCF7)),
+                    // Option 2: GTT
+                    InkWell(
+                      onTap: () {
+                        setState(() {
+                          _selectedSignalActions[msgKey] =
+                              'GTT (Good Till Triggered)';
+                          _expandedSignalDropdowns.remove(msgKey);
+                        });
+                        _showSignalGttDialog(context, msg, controller);
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.access_time_rounded,
+                              color: Color(0xFF7C3AED),
+                              size: 18,
+                            ),
+                            const SizedBox(width: 10),
+                            const Expanded(
+                              child: Text(
+                                'GTT (Good Till Triggered)',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            if (selectedAction == 'GTT' ||
+                                selectedAction == 'GTT (Good Till Triggered)')
+                              const Icon(
+                                Icons.check_rounded,
+                                color: Color(0xFF7C3AED),
+                                size: 18,
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: 18),
+            _tradePromptPrimaryButton(
+              label: selectedAction != null && selectedAction != 'Select Action'
+                  ? selectedAction!
+                  : 'Action Applied',
+              icon: Icons.check_circle_outline_rounded,
+              isCompleted: true,
+              enabled: false,
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   void _showSignalGttDialog(
@@ -2582,7 +2623,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     padding: const EdgeInsets.all(4),
                     child: Icon(
                       Icons.close_rounded,
-                      color: isDark ? Colors.white60 : const Color(0xFF4A22F4),
+                      color: isDark ? Colors.white60 : AppColors.primary,
                       size: 24,
                     ),
                   ),
@@ -2594,13 +2635,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 child: Container(
                   width: 58,
                   height: 58,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFEDE9FE),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.primary.withOpacity(0.2)
+                        : const Color(0xFFEDE9FE),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
                     Icons.gps_fixed_rounded,
-                    color: Color(0xFF4A22F4),
+                    color: AppColors.primary,
                     size: 30,
                   ),
                 ),
@@ -2633,9 +2676,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
               // Current Level Box
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
                 decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF6F5FF),
+                  color: isDark
+                      ? const Color(0xFF1E222A)
+                      : const Color(0xFFF6F5FF),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
@@ -2646,7 +2694,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
-                        color: isDark ? Colors.white70 : const Color(0xFF10122D),
+                        color: isDark
+                            ? Colors.white70
+                            : const Color(0xFF10122D),
                       ),
                     ),
                     Text(
@@ -2654,7 +2704,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w800,
-                        color: Color(0xFF4A22F4),
+                        color: AppColors.primary,
                       ),
                     ),
                   ],
@@ -2676,7 +2726,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               // TextField
               TextField(
                 controller: gttController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.bold,
@@ -2684,7 +2736,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 ),
                 decoration: InputDecoration(
                   filled: true,
-                  fillColor: isDark ? const Color(0xFF1E222A) : const Color(0xFFF7F6FB),
+                  fillColor: isDark
+                      ? const Color(0xFF1E222A)
+                      : const Color(0xFFF7F6FB),
                   hintText: 'Enter the GTT applied level',
                   hintStyle: TextStyle(
                     color: isDark ? Colors.white38 : const Color(0xFFB0B0B8),
@@ -2693,22 +2747,32 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   ),
                   suffixIcon: const Icon(
                     Icons.trending_up_rounded,
-                    color: Color(0xFF2B4BF2),
+                    color: AppColors.primary,
                     size: 22,
                   ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: isDark ? Colors.white12 : const Color(0xFFE2E0E9)),
+                    borderSide: BorderSide(
+                      color: isDark ? Colors.white12 : const Color(0xFFE2E0E9),
+                    ),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: isDark ? Colors.white12 : const Color(0xFFE2E0E9)),
+                    borderSide: BorderSide(
+                      color: isDark ? Colors.white12 : const Color(0xFFE2E0E9),
+                    ),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Color(0xFF2B4BF2), width: 1.5),
+                    borderSide: const BorderSide(
+                      color: AppColors.primary,
+                      width: 1.5,
+                    ),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 14,
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
@@ -2754,7 +2818,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     );
                   },
                   style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF2B4BF2),
+                    backgroundColor: AppColors.primary,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -2817,7 +2881,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     padding: const EdgeInsets.all(4),
                     child: Icon(
                       Icons.close_rounded,
-                      color: isDark ? Colors.white60 : const Color(0xFF4A22F4),
+                      color: isDark ? Colors.white60 : AppColors.primary,
                       size: 24,
                     ),
                   ),
@@ -2829,13 +2893,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 child: Container(
                   width: 58,
                   height: 58,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFEDE9FE),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.primary.withOpacity(0.2)
+                        : const Color(0xFFEDE9FE),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
                     Icons.notifications_none_rounded,
-                    color: Color(0xFF4A22F4),
+                    color: AppColors.primary,
                     size: 32,
                   ),
                 ),
@@ -2868,9 +2934,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
               // Current Level Box
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
                 decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF6F5FF),
+                  color: isDark
+                      ? const Color(0xFF1E222A)
+                      : const Color(0xFFF6F5FF),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
@@ -2881,7 +2952,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
-                        color: isDark ? Colors.white70 : const Color(0xFF10122D),
+                        color: isDark
+                            ? Colors.white70
+                            : const Color(0xFF10122D),
                       ),
                     ),
                     Text(
@@ -2889,7 +2962,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w800,
-                        color: Color(0xFF4A22F4),
+                        color: AppColors.primary,
                       ),
                     ),
                   ],
@@ -2909,7 +2982,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               const SizedBox(height: 6),
               TextField(
                 controller: upperController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.bold,
@@ -2917,7 +2992,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 ),
                 decoration: InputDecoration(
                   filled: true,
-                  fillColor: isDark ? const Color(0xFF1E222A) : const Color(0xFFF7F6FB),
+                  fillColor: isDark
+                      ? const Color(0xFF1E222A)
+                      : const Color(0xFFF7F6FB),
                   hintText: 'Enter upper level',
                   hintStyle: TextStyle(
                     color: isDark ? Colors.white38 : const Color(0xFFB0B0B8),
@@ -2931,17 +3008,27 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: isDark ? Colors.white12 : const Color(0xFFE2E0E9)),
+                    borderSide: BorderSide(
+                      color: isDark ? Colors.white12 : const Color(0xFFE2E0E9),
+                    ),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: isDark ? Colors.white12 : const Color(0xFFE2E0E9)),
+                    borderSide: BorderSide(
+                      color: isDark ? Colors.white12 : const Color(0xFFE2E0E9),
+                    ),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Color(0xFF2B4BF2), width: 1.5),
+                    borderSide: const BorderSide(
+                      color: AppColors.primary,
+                      width: 1.5,
+                    ),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 14,
+                  ),
                 ),
               ),
               const SizedBox(height: 14),
@@ -2958,7 +3045,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               const SizedBox(height: 6),
               TextField(
                 controller: lowerController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.bold,
@@ -2966,7 +3055,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 ),
                 decoration: InputDecoration(
                   filled: true,
-                  fillColor: isDark ? const Color(0xFF1E222A) : const Color(0xFFF7F6FB),
+                  fillColor: isDark
+                      ? const Color(0xFF1E222A)
+                      : const Color(0xFFF7F6FB),
                   hintText: 'Enter lower level',
                   hintStyle: TextStyle(
                     color: isDark ? Colors.white38 : const Color(0xFFB0B0B8),
@@ -2980,17 +3071,27 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: isDark ? Colors.white12 : const Color(0xFFE2E0E9)),
+                    borderSide: BorderSide(
+                      color: isDark ? Colors.white12 : const Color(0xFFE2E0E9),
+                    ),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: isDark ? Colors.white12 : const Color(0xFFE2E0E9)),
+                    borderSide: BorderSide(
+                      color: isDark ? Colors.white12 : const Color(0xFFE2E0E9),
+                    ),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Color(0xFF2B4BF2), width: 1.5),
+                    borderSide: const BorderSide(
+                      color: AppColors.primary,
+                      width: 1.5,
+                    ),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 14,
+                  ),
                 ),
               ),
               const SizedBox(height: 24),
@@ -3004,7 +3105,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     final upperVal = upperController.text.trim();
                     final lowerVal = lowerController.text.trim();
                     if (upperVal.isEmpty || lowerVal.isEmpty) {
-                      AppToast.showToast('Please enter both Upper and Lower values');
+                      AppToast.showToast(
+                        'Please enter both Upper and Lower values',
+                      );
                       return;
                     }
                     Navigator.pop(ctx);
@@ -3015,7 +3118,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     );
                   },
                   style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF2B4BF2),
+                    backgroundColor: AppColors.primary,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -3040,7 +3143,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   List<InlineSpan> _parseFormattedSpans(String text, Color textColor) {
     final List<InlineSpan> spans = [];
     final tagRegex = RegExp(
-      r'(?:<b>(.*?)<\/b>|<strong>(.*?)<\/strong>|\*\*(.*?)\*\*)',
+      r'(?:<b\b[^>]*>(.*?)<\/b>|<strong>(.*?)<\/strong>|\*\*(.*?)\*\*|<i\b[^>]*>(.*?)<\/i>|<em>(.*?)<\/em>|\*(.*?)\*|<u\b[^>]*>(.*?)<\/u>|<[^>]+>)',
       caseSensitive: false,
       dotAll: true,
     );
@@ -3048,9 +3151,74 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     int lastMatchEnd = 0;
     for (final match in tagRegex.allMatches(text)) {
       if (match.start > lastMatchEnd) {
+        final plain = text.substring(lastMatchEnd, match.start);
+        if (plain.isNotEmpty) {
+          spans.add(
+            TextSpan(
+              text: plain,
+              style: TextStyle(
+                fontSize: 14,
+                color: textColor,
+                fontWeight: FontWeight.normal,
+                height: 1.4,
+              ),
+            ),
+          );
+        }
+      }
+
+      final bold = match.group(1) ?? match.group(2) ?? match.group(3);
+      final italic = match.group(4) ?? match.group(5) ?? match.group(6);
+      final underline = match.group(7);
+
+      if (bold != null) {
         spans.add(
           TextSpan(
-            text: text.substring(lastMatchEnd, match.start),
+            text: bold.replaceAll(RegExp(r'<[^>]+>'), ''),
+            style: TextStyle(
+              fontSize: 14,
+              color: textColor,
+              fontWeight: FontWeight.w800,
+              height: 1.4,
+            ),
+          ),
+        );
+      } else if (italic != null) {
+        spans.add(
+          TextSpan(
+            text: italic.replaceAll(RegExp(r'<[^>]+>'), ''),
+            style: TextStyle(
+              fontSize: 14,
+              color: textColor,
+              fontStyle: FontStyle.italic,
+              height: 1.4,
+            ),
+          ),
+        );
+      } else if (underline != null) {
+        spans.add(
+          TextSpan(
+            text: underline.replaceAll(RegExp(r'<[^>]+>'), ''),
+            style: TextStyle(
+              fontSize: 14,
+              color: textColor,
+              decoration: TextDecoration.underline,
+              height: 1.4,
+            ),
+          ),
+        );
+      }
+      // Any other tag matched by `<[^>]+>` is safely stripped and not rendered as text
+
+      lastMatchEnd = match.end;
+    }
+
+    if (lastMatchEnd < text.length) {
+      final trailing = text.substring(lastMatchEnd);
+      if (trailing.isNotEmpty) {
+        spans.add(
+          TextSpan(
+            text: trailing,
             style: TextStyle(
               fontSize: 14,
               color: textColor,
@@ -3060,35 +3228,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ),
         );
       }
-
-      final boldText = match.group(1) ?? match.group(2) ?? match.group(3) ?? '';
-      spans.add(
-        TextSpan(
-          text: boldText,
-          style: TextStyle(
-            fontSize: 14,
-            color: textColor,
-            fontWeight: FontWeight.w800,
-            height: 1.4,
-          ),
-        ),
-      );
-
-      lastMatchEnd = match.end;
-    }
-
-    if (lastMatchEnd < text.length) {
-      spans.add(
-        TextSpan(
-          text: text.substring(lastMatchEnd),
-          style: TextStyle(
-            fontSize: 14,
-            color: textColor,
-            fontWeight: FontWeight.normal,
-            height: 1.4,
-          ),
-        ),
-      );
     }
 
     return spans;
@@ -3097,7 +3236,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Widget _buildRichMessageContent(String rawText, bool isDark) {
     final primaryTextColor = isDark ? Colors.white : const Color(0xFF10122D);
     final normalized = rawText
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll('&amp;', '&')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#39;', "'")
+        .replaceAll('&apos;', "'")
         .replaceAll(RegExp(r'<br\s*\/?>', caseSensitive: false), '\n')
+        .replaceAll(
+          RegExp(r'<\/?(?:p|div)\b[^>]*>', caseSensitive: false),
+          '\n',
+        )
         .replaceAll(r'\n', '\n');
     final lines = normalized.split('\n');
     final List<Widget> widgets = [];
@@ -3130,7 +3278,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 Expanded(
                   child: RichText(
                     text: TextSpan(
-                      children: _parseFormattedSpans(bulletText, primaryTextColor),
+                      children: _parseFormattedSpans(
+                        bulletText,
+                        primaryTextColor,
+                      ),
                     ),
                   ),
                 ),
@@ -3167,7 +3318,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           margin: const EdgeInsets.only(bottom: 12),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
-            color: const Color(0xFF2B4BF2),
+            color: AppColors.primary,
             borderRadius: BorderRadius.circular(16),
           ),
           child: Text(
@@ -3248,7 +3399,47 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final a = msg.action.toLowerCase();
     return a == 'edit' || a == 'editgtt';
   }
-  bool _showButtons(ChatMessage msg) => msg.actionTaken == null;
+
+  bool _isEditTradeButton(NewTradeOpportunityMessage msg) {
+    final btn = msg.buttonType.toLowerCase();
+    return btn == 'edit_button' || btn == 'edit_gtt_button';
+  }
+
+  bool _isEditTrade(NewTradeOpportunityMessage msg) {
+    if (_isEditTradeAction(msg)) return true;
+    if (_isEditTradeButton(msg)) return true;
+    if (msg.slChanged || msg.tpChanged) return true;
+    if (msg.oldStopLoss.trim().isNotEmpty ||
+        msg.oldTakeProfit.trim().isNotEmpty)
+      return true;
+    final b = msg.buttonType.toLowerCase();
+    if (b.contains('edit')) return true;
+    return false;
+  }
+
+  bool _isActionTaken(ChatMessage msg) {
+    if (_chatController.isActionTakenFor(msg)) return true;
+    final mId = msg.messageId.trim();
+    if (mId.isNotEmpty && _actionTakenMessageIds.contains(mId)) return true;
+    if (msg is NewTradeOpportunityMessage) {
+      final tId = msg.tradeId.trim();
+      if (tId.isNotEmpty && _actionTakenTradeIds.contains(tId)) return true;
+    }
+    if (msg is TradeExecutionPromptMessage) {
+      final tId = msg.tradeData.tradeId.trim();
+      if (tId.isNotEmpty && _actionTakenTradeIds.contains(tId)) return true;
+    }
+    return false;
+  }
+
+  bool _sameTradeCardPrice(String a, String b) {
+    final pa = double.tryParse(a.trim());
+    final pb = double.tryParse(b.trim());
+    if (pa != null && pb != null) return (pa - pb).abs() < 0.0000001;
+    return a.trim() == b.trim();
+  }
+
+  bool _showButtons(ChatMessage msg) => !_isActionTaken(msg);
 
   String _tradeDeleteStepLine(int n, String api, String fallback) {
     final t = api.trim();
@@ -3293,7 +3484,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ChatController controller,
   ) {
     final isDark = _isDark(context);
-    if (_isEditTradeAction(msg) && (msg.buttonType == 'edit_button' || msg.buttonType == 'edit_gtt_button')) {
+    if (_isEditTrade(msg)) {
       return _buildTradeEditCombinedMessage(context, msg, controller);
     }
     if (_isDeleteTradeAction(msg) &&
@@ -3307,21 +3498,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
+          _buildRichMessageContent(
             msg.apiMessage.isNotEmpty
                 ? msg.apiMessage
                 : 'New Trade Opportunity is spotted for you',
-            style: TextStyle(
-              color: _headlineText(isDark),
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-            ),
+            isDark,
           ),
           const SizedBox(height: 8),
           _buildTradeOpportunityCard(
             context,
             msg,
             showInvalidOverlay: false,
+            hideMarketPrice:
+                _isActionTaken(msg) || !_showButtons(msg) || _isEditTrade(msg),
           ),
         ],
       ),
@@ -3363,6 +3552,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             context,
             msg,
             showInvalidOverlay: true,
+            hideMarketPrice: true,
           ),
           const SizedBox(height: 16),
           Text('Mind Control Guard is Deactivated', style: titleStyle),
@@ -3379,10 +3569,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           const SizedBox(height: 8),
           _tradePromptPrimaryButton(
             label: 'Trade Deleted',
-            icon: !_showButtons(msg) ? Icons.check_circle_outline_rounded : null,
+            icon: !_showButtons(msg)
+                ? Icons.check_circle_outline_rounded
+                : null,
             isCompleted: !_showButtons(msg),
             enabled: _showButtons(msg),
-            onTap: () => controller.acknowledgeTradeDeleted(msg),
+            onTap: () {
+              final mId = msg.messageId.trim();
+              final tId = msg.tradeId.trim();
+              if (mId.isNotEmpty)
+                setState(() => _actionTakenMessageIds.add(mId));
+              if (tId.isNotEmpty) setState(() => _actionTakenTradeIds.add(tId));
+              controller.acknowledgeTradeDeleted(msg);
+            },
           ),
         ],
       ),
@@ -3406,7 +3605,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       fontSize: 14,
       fontWeight: FontWeight.bold,
     );
-    final isGttEdit = msg.buttonType == 'edit_gtt_button' || msg.action.toLowerCase() == 'editgtt';
+    final isGttEdit =
+        msg.buttonType == 'edit_gtt_button' ||
+        msg.action.toLowerCase() == 'editgtt';
     String titlePrefix = 'SL';
     if (!isGttEdit) {
       if (msg.slChanged && msg.tpChanged) {
@@ -3419,10 +3620,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final backendText = msg.apiMessage.trim().isNotEmpty
         ? msg.apiMessage.trim()
         : (isGttEdit
-            ? 'Open Trading App and update your pending GTT order.'
-            : 'Open Trading App and Trail your $titlePrefix to reduce risk.');
-    final step2Text = isGttEdit 
-        ? '2. Intimate me once you update the GTT' 
+              ? 'Open Trading App and update your pending GTT order.'
+              : 'Open Trading App and Trail your $titlePrefix to reduce risk.');
+    final step2Text = isGttEdit
+        ? '2. Intimate me once you update the GTT'
         : '2. Intimate me once you Trail your $titlePrefix';
     final btnLabel = isGttEdit ? 'GTT Updated' : '$titlePrefix Trailed';
 
@@ -3437,6 +3638,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             context,
             msg,
             showInvalidOverlay: false,
+            hideMarketPrice: true,
           ),
           const SizedBox(height: 16),
           Text('Mind Control Guard is Deactivated', style: titleStyle),
@@ -3456,7 +3658,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           const SizedBox(height: 8),
           _tradePromptPrimaryButton(
             label: btnLabel,
-            icon: !_showButtons(msg) ? Icons.check_circle_outline_rounded : null,
+            icon: !_showButtons(msg)
+                ? Icons.check_circle_outline_rounded
+                : null,
             isCompleted: !_showButtons(msg),
             enabled: _showButtons(msg),
             onTap: () => _showTrailSlDialog(context, msg, controller),
@@ -3470,13 +3674,26 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     BuildContext context,
     NewTradeOpportunityMessage msg, {
     required bool showInvalidOverlay,
+    bool hideMarketPrice = false,
   }) {
     final isDark = _isDark(context);
 
-    final cardBg = isDark ? const Color(0xFF1B1F27) : Colors.white;
-    final cardBorder = isDark ? AppColors.primary.withOpacity(.4) : Colors.grey.shade300;
-    final shadowColor = isDark 
-        ? Colors.black.withOpacity(0.35) 
+    final isEdit = _isEditTrade(msg);
+    final isActionCompleted =
+        _isActionTaken(msg) || msg.actionTaken != null || !_showButtons(msg);
+
+    final effectiveHideMarketPrice =
+        hideMarketPrice ||
+        isActionCompleted ||
+        showInvalidOverlay ||
+        _isDeleteTradeAction(msg) ||
+        isEdit;
+
+    final cardBorder = isDark
+        ? AppColors.primary.withOpacity(.4)
+        : Colors.grey.shade300;
+    final shadowColor = isDark
+        ? Colors.black.withOpacity(0.35)
         : Colors.black.withOpacity(0.08);
 
     final tradeName = msg.tradeName.trim().isNotEmpty
@@ -3486,16 +3703,96 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ? msg.tradeSymbol.trim()
         : msg.contract;
 
+    final inner = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (msg.analystInfo.trim().isNotEmpty) ...[
+          SizedBox(
+            width: double.infinity,
+            child: Text(
+              msg.analystInfo,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 11,
+                color: isDark ? Colors.white60 : Colors.grey.shade600,
+                height: 1.25,
+              ),
+            ),
+          ),
+          Divider(
+            height: 18,
+            color: isDark ? Colors.white12 : Colors.grey.shade300,
+            thickness: 1,
+          ),
+        ],
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: AppColors.primary.withOpacity(0.2),
+              child: Text(
+                tradeName.isEmpty ? '?' : tradeName[0].toUpperCase(),
+                style: const TextStyle(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    tradeName,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : Colors.grey.shade800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    tradeSymbol,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: isDark ? Colors.white70 : Colors.grey.shade700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _buildTradeTimeline(
+          context,
+          msg,
+          hideMarketPrice: effectiveHideMarketPrice,
+          showOldNew: isEdit,
+        ),
+        if (!effectiveHideMarketPrice && msg.rtt.trim().isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: _BlinkingCurrentPriceBadge(
+              price: _formatTradeCardPrice(msg.rtt),
+            ),
+          ),
+        ],
+      ],
+    );
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        // color: cardBg,
-        gradient: LinearGradient(colors: isDark?[
-          Colors.black,Colors.white.withOpacity(.002)
-        ]:[
-          Colors.white,
-          Colors.white,
-        ]),
+        gradient: LinearGradient(
+          colors: isDark
+              ? [Colors.black, Colors.white.withOpacity(.002)]
+              : [Colors.white, Colors.white],
+        ),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: cardBorder),
         boxShadow: [
@@ -3510,7 +3807,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ? Stack(
               clipBehavior: Clip.hardEdge,
               children: [
-                _buildCardContent(context, msg, tradeName, tradeSymbol),
+                inner,
                 Positioned.fill(
                   child: CustomPaint(
                     painter: _InvalidTradeCrossPainter(isDark: isDark),
@@ -3518,187 +3815,164 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 ),
               ],
             )
-          : _buildCardContent(context, msg, tradeName, tradeSymbol),
+          : inner,
     );
   }
 
-  Widget _buildCardContent(
+  Widget _buildTradeTimeline(
     BuildContext context,
-    NewTradeOpportunityMessage msg,
-    String tradeName,
-    String tradeSymbol,
-  ) {
+    NewTradeOpportunityMessage msg, {
+    bool hideMarketPrice = false,
+    bool showOldNew = false,
+  }) {
     final isDark = _isDark(context);
+    const dotRadius = 6.0;
+    final labels = ['SL', 'Entry', 'Target'];
+    final newRaw = [msg.stopLoss, msg.entryRange, msg.frr];
+    final oldRaw = showOldNew
+        ? [
+            msg.slChanged ? msg.oldStopLoss : '',
+            '',
+            msg.tpChanged ? msg.oldTakeProfit : '',
+          ]
+        : const ['', '', ''];
+    final values = newRaw.map(_formatTradeCardPrice).toList();
+    final showOld = List<bool>.generate(3, (i) {
+      final old = oldRaw[i].trim();
+      return old.isNotEmpty && !_sameTradeCardPrice(old, newRaw[i]);
+    });
+    final hasAnyOld = showOld.contains(true);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Header
-        Row(
-          children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundImage: const NetworkImage(
-                'https://i.pravatar.cc/150?u=analyst',
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              'SEBI REG ANALYST',
-              style: TextStyle(
-                color: isDark ? Colors.white70 : Colors.grey.shade700,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const Spacer(),
-            if (msg.rtt.trim().isNotEmpty && msg.actionTaken == null && !_isDeleteTradeAction(msg))
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: !isDark ? const Color(0xFF2A2F3A) : Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color:!isDark ? Colors.white24 : Colors.grey.shade300,
-                  ),
-                ),
-                child: Text(
-                  'CMP : ${_formatTradeCardPrice(msg.rtt)}',
-                  style: TextStyle(
-                    color: !isDark ? Colors.white : Colors.black87,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 12),
-
-        // Symbol Section
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: isDark ? Colors.white10 : Colors.grey.shade100,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: isDark ? Colors.white24 : Colors.grey.shade300,
-                ),
-              ),
-              child: Center(
-                child: Text(
-                  tradeName.isNotEmpty ? tradeName[0].toUpperCase() : 'S',
-                  style: TextStyle(
-                    color: isDark ? Colors.white : Colors.black87,
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    tradeName,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.white : Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    msg.apiMessage.isNotEmpty ? msg.apiMessage : tradeSymbol,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: isDark ? Colors.white70 : Colors.grey.shade700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-
-        // Timeline
-        _buildImageStyleTimeline(context, msg),
-      ],
-    );
-  }
-
-  Widget _buildImageStyleTimeline(
-    BuildContext context,
-    NewTradeOpportunityMessage msg,
-  ) {
-    final isDark = _isDark(context);
-
-    final lineColor = isDark ? Colors.white24 : Colors.grey.shade400;
-    final dotColor = isDark ? Colors.white38 : Colors.grey.shade500;
-    final activeDotColor = const Color(0xFF8B5CF6);
-    final labelColor = isDark ? Colors.white60 : Colors.grey.shade700;
-    final valueColor = isDark ? Colors.white : Colors.black87;
-
-    final sl = _formatTradeCardPrice(msg.stopLoss);
-    final entry = _formatTradeCardPrice(msg.entryRange);
-    final target = _formatTradeCardPrice(msg.frr);
-    final current = msg.rtt.trim().isNotEmpty ? _formatTradeCardPrice(msg.rtt) : null;
-
-    double parseNum(String raw) {
+    double parseNumeric(String raw) {
       final matches = RegExp(r'[\d.]+').allMatches(raw);
       final nums = matches
-          .map((m) => double.tryParse(m.group(0) ?? '0'))
+          .map((m) => double.tryParse(m.group(0) ?? ''))
           .whereType<double>()
           .toList();
-      return nums.isEmpty ? 0 : nums.reduce((a, b) => a + b) / nums.length;
+      if (nums.isEmpty) return 0.0;
+      final sum = nums.fold<double>(0.0, (a, b) => a + b);
+      return sum / nums.length;
     }
 
-    final numeric = [parseNum(sl), parseNum(entry), parseNum(target)];
+    final numeric = [
+      parseNumeric(msg.stopLoss),
+      parseNumeric(msg.entryRange),
+      parseNumeric(msg.frr),
+    ];
     final minV = numeric.reduce((a, b) => a < b ? a : b);
     final maxV = numeric.reduce((a, b) => a > b ? a : b);
-    final denom = maxV - minV;
+    final denom = (maxV - minV).abs();
 
-    final fractions = denom < 0.0001
-        ? const [0.0, 0.5, 1.0]
-        : numeric.map((v) => ((v - minV) / denom).clamp(0.0, 1.0)).toList();
-
-    final currentFrac = current != null && denom > 0.0001
-        ? ((parseNum(current) - minV) / denom).clamp(0.0, 1.0)
-        : null;
+    final rttTrim = msg.rtt.trim();
+    final hasCurrent = !hideMarketPrice && rttTrim.isNotEmpty;
+    final currentNumeric = hasCurrent ? parseNumeric(rttTrim) : null;
 
     return LayoutBuilder(
-      builder: (context, constraints) {
+      builder: (ctx, constraints) {
         final w = constraints.maxWidth;
-        final positions = fractions.map((f) => w * f).toList();
+        final usableW = w.clamp(0.0, double.infinity);
+
+        List<double> fractions;
+        if (denom < 0.000001) {
+          fractions = const [0.0, 0.5, 1.0];
+        } else {
+          fractions = numeric
+              .map((v) => ((v - minV) / denom).clamp(0.0, 1.0))
+              .toList();
+        }
+
+        final lW = hasAnyOld ? 64.0 : 56.0;
+        const minGap = 2.0;
+
+        List<double> lx = List.generate(3, (i) => usableW * fractions[i]);
+        lx = _spreadTimelineAnchorsByPrice(lx, numeric, lW + minGap, w);
+
+        double? lxCurrent;
+        if (hasCurrent && currentNumeric != null) {
+          if (denom < 0.000001) {
+            lxCurrent = usableW * 0.5;
+          } else {
+            final frac = ((currentNumeric - minV) / denom).clamp(0.0, 1.0);
+            lxCurrent = usableW * frac;
+          }
+        }
 
         return Column(
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('SL', style: TextStyle(color: labelColor, fontSize: 12)),
-                Text('ENTRY', style: TextStyle(color: labelColor, fontSize: 12)),
-                Text('TARGET', style: TextStyle(color: labelColor, fontSize: 12)),
-              ],
-            ),
-            const SizedBox(height: 8),
-
             SizedBox(
               height: 28,
+              child: Stack(
+                children: List.generate(3, (i) {
+                  double left;
+                  if (i == 0) {
+                    left = lx[i].clamp(0.0, w - lW);
+                  } else if (i == 2) {
+                    left = (lx[i] - lW).clamp(0.0, w - lW);
+                  } else {
+                    left = (lx[i] - lW / 2).clamp(0.0, w - lW);
+                  }
+
+                  return Positioned(
+                    left: left,
+                    width: lW,
+                    child: Align(
+                      alignment: i == 0
+                          ? Alignment.centerLeft
+                          : (i == 2 ? Alignment.centerRight : Alignment.center),
+                      child: Text(
+                        labels[i],
+                        textAlign: i == 0
+                            ? TextAlign.left
+                            : (i == 2 ? TextAlign.right : TextAlign.center),
+                        style: TextStyle(
+                          height: 1.1,
+                          fontSize: 11,
+                          color: isDark ? Colors.white60 : Colors.grey.shade700,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ),
+            ),
+            const SizedBox(height: 2),
+            if (lxCurrent != null)
+              SizedBox(
+                height: 16,
+                width: w,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Positioned(
+                      left: (lxCurrent - 22).clamp(0.0, w - 44),
+                      width: 44,
+                      top: 0,
+                      child: const Text(
+                        'LTP',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primary,
+                          height: 1,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            SizedBox(
+              height: dotRadius * 2 + 4,
+              width: w,
               child: Stack(
                 clipBehavior: Clip.none,
                 children: [
                   Positioned(
-                    top: 11,
                     left: 0,
                     right: 0,
+                    top: dotRadius,
+                    height: 2,
                     child: CustomPaint(
                       size: Size(w, 2),
                       painter: _DottedLinePainter(isDark: isDark),
@@ -3706,49 +3980,140 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   ),
                   ...List.generate(3, (i) {
                     return Positioned(
-                      left: (positions[i] - 6).clamp(0.0, w - 12),
-                      top: 5,
+                      left: (lx[i] - dotRadius).clamp(0.0, w - dotRadius * 2),
+                      top: 1,
                       child: Container(
-                        width: 12,
-                        height: 12,
+                        width: dotRadius * 2,
+                        height: dotRadius * 2,
                         decoration: BoxDecoration(
-                          color: i == 1 ? activeDotColor : dotColor,
+                          color: isDark
+                              ? Colors.white38
+                              : const Color(0xFF616161),
                           shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white24, width: 1.5),
                         ),
                       ),
                     );
                   }),
-                  if (currentFrac != null)
+                  if (lxCurrent != null)
                     Positioned(
-                      left: (w * currentFrac - 6).clamp(0.0, w - 12),
-                      top: 5,
-                      child: Container(
-                        width: 12,
-                        height: 12,
-                        decoration: BoxDecoration(
-                          color: activeDotColor,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
+                      left: (lxCurrent - dotRadius).clamp(
+                        0.0,
+                        w - dotRadius * 2,
+                      ),
+                      top: 1,
+                      child: Tooltip(
+                        message: 'Current market price (LTP)',
+                        child: Container(
+                          width: dotRadius * 2,
+                          height: dotRadius * 2,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
                         ),
                       ),
                     ),
                 ],
               ),
             ),
+            const SizedBox(height: 4),
+            SizedBox(
+              height: hasAnyOld ? 42 : 32,
+              child: Stack(
+                children: List.generate(3, (i) {
+                  double left;
+                  if (i == 0) {
+                    left = lx[i].clamp(0.0, w - lW);
+                  } else if (i == 2) {
+                    left = (lx[i] - lW).clamp(0.0, w - lW);
+                  } else {
+                    left = (lx[i] - lW / 2).clamp(0.0, w - lW);
+                  }
 
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(sl, style: TextStyle(color: valueColor, fontSize: 13, fontWeight: FontWeight.w600)),
-                Text(entry, style: TextStyle(color: valueColor, fontSize: 13, fontWeight: FontWeight.w600)),
-                Text(target, style: TextStyle(color: valueColor, fontSize: 13, fontWeight: FontWeight.w600)),
-              ],
+                  final align = i == 0
+                      ? Alignment.centerLeft
+                      : (i == 2 ? Alignment.centerRight : Alignment.center);
+                  final textAlign = i == 0
+                      ? TextAlign.left
+                      : (i == 2 ? TextAlign.right : TextAlign.center);
+                  final cross = i == 0
+                      ? CrossAxisAlignment.start
+                      : (i == 2
+                            ? CrossAxisAlignment.end
+                            : CrossAxisAlignment.center);
+
+                  return Positioned(
+                    left: left,
+                    width: lW,
+                    child: Align(
+                      alignment: align,
+                      child: showOld[i]
+                          ? Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: cross,
+                              children: [
+                                Text(
+                                  _formatTradeCardPrice(oldRaw[i]),
+                                  textAlign: textAlign,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    height: 1.1,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark
+                                        ? Colors.white38
+                                        : Colors.grey.shade500,
+                                    decoration: TextDecoration.lineThrough,
+                                  ),
+                                ),
+                                Text(
+                                  values[i],
+                                  textAlign: textAlign,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    height: 1.1,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: isDark
+                                        ? Colors.white
+                                        : const Color(0xFF424242),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Text(
+                              values[i],
+                              textAlign: textAlign,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                height: 1.1,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: isDark
+                                    ? Colors.white
+                                    : const Color(0xFF424242),
+                              ),
+                            ),
+                    ),
+                  );
+                }),
+              ),
             ),
           ],
         );
       },
     );
+  }
+
+  Widget _buildImageStyleTimeline(
+    BuildContext context,
+    NewTradeOpportunityMessage msg,
+  ) {
+    return _buildTradeTimeline(context, msg);
   }
 
   Widget _buildTradeExecutionPrompt(
@@ -3785,17 +4150,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Text(
-                  text ?? 'Trading App is unlocked.',
-                  style: bodyStyle,
-                ),
-              ),
-            ],
-          ),
+          _buildRichMessageContent(text ?? 'Trading App is unlocked.', isDark),
           if (_showButtons(actionSource)) ...[
             const SizedBox(height: 14),
             Text('1. Go to Trading APP and apply Levels', style: stepStyle),
@@ -3803,14 +4158,21 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             _tradePromptPrimaryButton(
               label: 'Open Trading APP',
               enabled: true,
-              onTap: () => controller.openTradingApp(),
+              onTap: () {
+                setState(
+                  () => _openedTradingAppMessageIds.add(actionSource.messageId),
+                );
+                controller.openTradingApp();
+              },
             ),
             const SizedBox(height: 14),
             Text('2. Intimate me once you apply the GTT', style: stepStyle),
             const SizedBox(height: 8),
             _tradePromptPrimaryButton(
               label: 'GTT / Levels Applied',
-              enabled: true,
+              enabled: _openedTradingAppMessageIds.contains(
+                actionSource.messageId,
+              ),
               onTap: () => _showGttDialog(context, msg, controller),
             ),
           ] else ...[
@@ -3848,12 +4210,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     IconData getFallbackIcon() {
       final l = label.toUpperCase();
       if (isCompleted) return Icons.check_circle_outline_rounded;
-      if (l.contains('PROCESS') || l.contains('CREATE')) return Icons.add_circle_outline_rounded;
-      if (l.contains('OPEN') || l.contains('TRADING APP') || l.contains('APP')) return Icons.open_in_new_rounded;
-      if (l.contains('GTT') || l.contains('LEVELS') || l.contains('APPLIED')) return Icons.check_circle_outline_rounded;
+      if (l.contains('PROCESS') || l.contains('CREATE'))
+        return Icons.add_circle_outline_rounded;
+      if (l.contains('OPEN') || l.contains('TRADING APP') || l.contains('APP'))
+        return Icons.open_in_new_rounded;
+      if (l.contains('GTT') || l.contains('LEVELS') || l.contains('APPLIED'))
+        return Icons.check_circle_outline_rounded;
       if (l.contains('DELETE')) return Icons.delete_outline_rounded;
-      if (l.contains('TRAIL') || l.contains('SL')) return Icons.trending_up_rounded;
-      if (l.contains('SCORE') || l.contains('DMT') || l.contains('ANALYSIS') || l.contains('VIEW')) return Icons.analytics_outlined;
+      if (l.contains('TRAIL') || l.contains('SL'))
+        return Icons.trending_up_rounded;
+      if (l.contains('SCORE') ||
+          l.contains('DMT') ||
+          l.contains('ANALYSIS') ||
+          l.contains('VIEW'))
+        return Icons.analytics_outlined;
       if (l.contains('HIT') || l.contains('TARGET')) return Icons.flag_outlined;
       return Icons.check_circle_outline_rounded;
     }
@@ -3868,10 +4238,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1E222A) : Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: borderColor,
-          width: 1.8,
-        ),
+        border: Border.all(color: borderColor, width: 1.8),
       ),
       alignment: Alignment.center,
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -3951,7 +4318,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     padding: const EdgeInsets.all(4),
                     child: Icon(
                       Icons.close_rounded,
-                      color: isDark ? Colors.white60 : const Color(0xFF4A22F4),
+                      color: isDark ? Colors.white60 : AppColors.primary,
                       size: 24,
                     ),
                   ),
@@ -3963,13 +4330,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 child: Container(
                   width: 58,
                   height: 58,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFEDE9FE),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.primary.withOpacity(0.2)
+                        : const Color(0xFFEDE9FE),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
                     Icons.gps_fixed_rounded,
-                    color: Color(0xFF4A22F4),
+                    color: AppColors.primary,
                     size: 30,
                   ),
                 ),
@@ -4002,9 +4371,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
               // Current Level Box
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
                 decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF6F5FF),
+                  color: isDark
+                      ? const Color(0xFF1E222A)
+                      : const Color(0xFFF6F5FF),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
@@ -4015,7 +4389,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
-                        color: isDark ? Colors.white70 : const Color(0xFF10122D),
+                        color: isDark
+                            ? Colors.white70
+                            : const Color(0xFF10122D),
                       ),
                     ),
                     Text(
@@ -4025,7 +4401,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w800,
-                        color: Color(0xFF4A22F4),
+                        color: AppColors.primary,
                       ),
                     ),
                   ],
@@ -4046,7 +4422,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 const SizedBox(height: 8),
                 TextField(
                   controller: gttPriceController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.bold,
@@ -4054,7 +4432,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   ),
                   decoration: InputDecoration(
                     filled: true,
-                    fillColor: isDark ? const Color(0xFF1E222A) : const Color(0xFFF7F6FB),
+                    fillColor: isDark
+                        ? const Color(0xFF1E222A)
+                        : const Color(0xFFF7F6FB),
                     hintText: 'Enter the GTT applied level',
                     hintStyle: TextStyle(
                       color: isDark ? Colors.white38 : const Color(0xFFB0B0B8),
@@ -4063,22 +4443,36 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     ),
                     suffixIcon: const Icon(
                       Icons.trending_up_rounded,
-                      color: Color(0xFF2B4BF2),
+                      color: AppColors.primary,
                       size: 22,
                     ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: isDark ? Colors.white12 : const Color(0xFFE2E0E9)),
+                      borderSide: BorderSide(
+                        color: isDark
+                            ? Colors.white12
+                            : const Color(0xFFE2E0E9),
+                      ),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: isDark ? Colors.white12 : const Color(0xFFE2E0E9)),
+                      borderSide: BorderSide(
+                        color: isDark
+                            ? Colors.white12
+                            : const Color(0xFFE2E0E9),
+                      ),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFF2B4BF2), width: 1.5),
+                      borderSide: const BorderSide(
+                        color: AppColors.primary,
+                        width: 1.5,
+                      ),
                     ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 14,
+                    ),
                   ),
                 ),
               ] else ...[
@@ -4128,12 +4522,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     await controller.createGttAlert(
                       msg,
                       gttPriceController.text,
-                      stopLoss: useExtendedFields ? stopLossController.text : null,
-                      takeProfit: useExtendedFields ? takeProfitController.text : null,
+                      stopLoss: useExtendedFields
+                          ? stopLossController.text
+                          : null,
+                      takeProfit: useExtendedFields
+                          ? takeProfitController.text
+                          : null,
                     );
                   },
                   style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF2B4BF2),
+                    backgroundColor: AppColors.primary,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -4161,8 +4559,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ChatController controller,
   ) {
     final isDark = _isDark(context);
-    final isGttEdit = msg.buttonType == 'edit_gtt_button' || msg.action.toLowerCase() == 'editgtt';
-    
+    final isGttEdit =
+        msg.buttonType == 'edit_gtt_button' ||
+        msg.action.toLowerCase() == 'editgtt';
+
     String dialogTitle = 'Trail Stop Loss';
     if (isGttEdit) {
       dialogTitle = 'Update GTT';
@@ -4178,138 +4578,192 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     showChatFadeDialog(
       context: context,
       builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: _dialogBg(isDark),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: Container(
-          constraints: const BoxConstraints(maxWidth: 340),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            color: _dialogBg(isDark),
-          ),
+          constraints: const BoxConstraints(maxWidth: 380),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(16),
+              // Top Close button
+              Align(
+                alignment: Alignment.topRight,
+                child: InkWell(
+                  onTap: () => Navigator.pop(ctx),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.close_rounded,
+                      color: isDark ? Colors.white60 : AppColors.primary,
+                      size: 24,
+                    ),
                   ),
                 ),
-                alignment: Alignment.centerLeft,
-                child: Row(
-                  children: [
-                    Icon(Icons.close,color: Colors.white,),
-                    Text(
-                      dialogTitle,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+              ),
+
+              // Center Icon
+              Center(
+                child: Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.primary.withOpacity(0.2)
+                        : const Color(0xFFEDE9FE),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.tune_rounded,
+                    color: AppColors.primary,
+                    size: 30,
+                  ),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              const SizedBox(height: 14),
+
+              // Title
+              Text(
+                dialogTitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: _headlineText(isDark),
+                ),
+              ),
+              const SizedBox(height: 6),
+
+              // Subtitle
+              Text(
+                'Please update your trade parameters.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: _secondaryText(isDark),
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              // Instrument / Trade Info Box
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF1E222A)
+                      : const Color(0xFFF6F5FF),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        CircleAvatar(
-                          radius: 22,
-                          backgroundColor: AppColors.primary.withOpacity(0.2),
-                          child: Text(
+                    CircleAvatar(
+                      radius: 18,
+                      backgroundColor: AppColors.primary.withOpacity(0.15),
+                      child: Text(
+                        (msg.tradeName.trim().isNotEmpty
+                                ? msg.tradeName.trim()
+                                : msg.instrument)
+                            .substring(0, 1)
+                            .toUpperCase(),
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
                             (msg.tradeName.trim().isNotEmpty
                                     ? msg.tradeName.trim()
                                     : msg.instrument)
-                                .substring(0, 1)
                                 .toUpperCase(),
-                            style: const TextStyle(
-                              color: AppColors.primary,
+                            style: TextStyle(
+                              fontSize: 14,
                               fontWeight: FontWeight.bold,
-                              fontSize: 20,
+                              color: _bubbleText(isDark),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                (msg.tradeName.trim().isNotEmpty
-                                        ? msg.tradeName.trim()
-                                        : msg.instrument)
-                                    .toUpperCase(),
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: _bubbleText(isDark),
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                msg.tradeSymbol.trim().isNotEmpty
-                                    ? msg.tradeSymbol.trim()
-                                    : msg.contract,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: _secondaryText(isDark),
-                                ),
-                              ),
-                            ],
+                          Text(
+                            msg.tradeSymbol.trim().isNotEmpty
+                                ? msg.tradeSymbol.trim()
+                                : msg.contract,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: _secondaryText(isDark),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 18),
-                    if (isGttEdit)
-                      _popupField('New GTT', gttController, '', isDark)
-                    else ...[
-                      if (msg.slChanged || (!msg.slChanged && !msg.tpChanged))
-                        _popupField('New Stop Loss', slController, '', isDark),
-                      if (msg.slChanged && msg.tpChanged)
-                        const SizedBox(height: 16),
-                      if (msg.tpChanged)
-                        _popupField('New Target', tpController, '', isDark),
-                    ],
                   ],
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: () async {
-                      final vGtt = gttController.text.trim();
-                      final vSl = slController.text.trim();
-                      final vTp = tpController.text.trim();
-                      Navigator.pop(ctx);
-                      if (isGttEdit) {
-                        await controller.acknowledgeSlTrailed(msg, newEntry: vGtt, isGttEdit: true);
-                      } else {
-                        await controller.acknowledgeSlTrailed(msg, newSl: vSl, newTp: vTp);
-                      }
-                    },
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
+              const SizedBox(height: 18),
+
+              if (isGttEdit)
+                _popupField('New GTT', gttController, '', isDark)
+              else ...[
+                if (msg.slChanged || (!msg.slChanged && !msg.tpChanged))
+                  _popupField('New Stop Loss', slController, '', isDark),
+                if (msg.slChanged && msg.tpChanged) const SizedBox(height: 12),
+                if (msg.tpChanged)
+                  _popupField('New Target', tpController, '', isDark),
+              ],
+              const SizedBox(height: 24),
+
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: FilledButton(
+                  onPressed: () async {
+                    final vGtt = gttController.text.trim();
+                    final vSl = slController.text.trim();
+                    final vTp = tpController.text.trim();
+                    final mId = msg.messageId.trim();
+                    final tId = msg.tradeId.trim();
+                    if (mId.isNotEmpty)
+                      setState(() => _actionTakenMessageIds.add(mId));
+                    if (tId.isNotEmpty)
+                      setState(() => _actionTakenTradeIds.add(tId));
+                    Navigator.pop(ctx);
+                    if (isGttEdit) {
+                      await controller.acknowledgeSlTrailed(
+                        msg,
+                        newEntry: vGtt,
+                        isGttEdit: true,
+                      );
+                    } else {
+                      await controller.acknowledgeSlTrailed(
+                        msg,
+                        newSl: vSl,
+                        newTp: vTp,
+                      );
+                    }
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Text(
-                      'SUBMIT',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.5,
-                      ),
+                  ),
+                  child: const Text(
+                    'Submit',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
                     ),
                   ),
                 ),
@@ -4321,460 +4775,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildTradeTimeline(BuildContext context, NewTradeOpportunityMessage msg) {
-    final isDark = _isDark(context);
-    final labelColor = isDark ? Colors.white60 : Colors.grey.shade700;
-    final valueColor = isDark ? Colors.white : const Color(0xFF424242);
-    final dotColor = isDark ? Colors.white38 : const Color(0xFF616161);
-    const dotRadius = 6.0;
-    final labels = ['SL', 'Entry', 'Target'];
-    final values = [
-      _formatTradeCardPrice(msg.stopLoss),
-      _formatTradeCardPrice(msg.entryRange),
-      _formatTradeCardPrice(msg.frr),
-    ];
-
-    double parseNumeric(String raw) {
-      final matches = RegExp(r'[\d.]+').allMatches(raw);
-      final nums = matches
-          .map((m) => double.tryParse(m.group(0) ?? ''))
-          .whereType<double>()
-          .toList();
-      if (nums.isEmpty) return 0.0;
-      final sum = nums.fold<double>(0.0, (a, b) => a + b);
-      return sum / nums.length;
-    }
-
-    final numeric = [
-      parseNumeric(msg.stopLoss),
-      parseNumeric(msg.entryRange),
-      parseNumeric(msg.frr),
-    ];
-    final minV = numeric.reduce((a, b) => a < b ? a : b);
-    final maxV = numeric.reduce((a, b) => a > b ? a : b);
-    final denom = (maxV - minV).abs();
-
-    final rttTrim = msg.rtt.trim();
-    final hasCurrent = rttTrim.isNotEmpty;
-    final currentNumeric = hasCurrent ? parseNumeric(rttTrim) : null;
-
-    return LayoutBuilder(
-      builder: (ctx, constraints) {
-        final w = constraints.maxWidth;
-        final usableW = w.clamp(0.0, double.infinity);
-
-        List<double> fractions;
-        if (denom < 0.000001) {
-          fractions = const [0.0, 0.5, 1.0];
-        } else {
-          fractions = numeric
-              .map((v) => ((v - minV) / denom).clamp(0.0, 1.0))
-              .toList();
-        }
-
-        const lW = 56.0;
-        const minGap = 2.0;
-
-        List<double> lx = List.generate(3, (i) => usableW * fractions[i]);
-        lx = _spreadTimelineAnchorsByPrice(lx, numeric, lW + minGap, w);
-
-        double? lxCurrent;
-        if (hasCurrent && currentNumeric != null) {
-          if (denom < 0.000001) {
-            lxCurrent = usableW * 0.5;
-          } else {
-            final frac = ((currentNumeric - minV) / denom).clamp(0.0, 1.0);
-            lxCurrent = usableW * frac;
-          }
-        }
-
-        return Column(
-          children: [
-            SizedBox(
-              height: 28,
-              child: Stack(
-                children: List.generate(3, (i) {
-                  double left;
-                  if (i == 0) {
-                    left = lx[i].clamp(0.0, w - lW);
-                  } else if (i == 2) {
-                    left = (lx[i] - lW).clamp(0.0, w - lW);
-                  } else {
-                    left = (lx[i] - lW / 2).clamp(0.0, w - lW);
-                  }
-
-                  return Positioned(
-                    left: left,
-                    width: lW,
-                    child: Align(
-                      alignment: i == 0
-                          ? Alignment.centerLeft
-                          : (i == 2 ? Alignment.centerRight : Alignment.center),
-                      child: Text(
-                        labels[i],
-                        textAlign: i == 0
-                            ? TextAlign.left
-                            : (i == 2 ? TextAlign.right : TextAlign.center),
-                        style: TextStyle(
-                          height: 1.1,
-                          fontSize: 11,
-                          color: labelColor,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  );
-                }),
-              ),
-            ),
-            const SizedBox(height: 2),
-            if (lxCurrent != null)
-              SizedBox(
-                height: 16,
-                width: w,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Positioned(
-                      left: (lxCurrent - 22).clamp(0.0, w - 44),
-                      width: 44,
-                      top: 0,
-                      child: Text(
-                        'LTP',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.primary,
-                          height: 1,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            SizedBox(
-              height: dotRadius * 2 + 4,
-              width: w,
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    top: dotRadius,
-                    height: 2,
-                    child: CustomPaint(
-                      size: Size(w, 2),
-                      painter: _DottedLinePainter(isDark: isDark),
-                    ),
-                  ),
-                  ...List.generate(3, (i) {
-                    return Positioned(
-                      left: (lx[i] - dotRadius).clamp(0.0, w - dotRadius * 2),
-                      top: 1,
-                      child: Container(
-                        width: dotRadius * 2,
-                        height: dotRadius * 2,
-                        decoration: BoxDecoration(
-                          color: dotColor,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                    );
-                  }),
-                  if (lxCurrent != null)
-                    Positioned(
-                      left: (lxCurrent - dotRadius).clamp(
-                        0.0,
-                        w - dotRadius * 2,
-                      ),
-                      top: 1,
-                      child: Tooltip(
-                        message: 'Current market price (LTP)',
-                        child: Container(
-                          width: dotRadius * 2,
-                          height: dotRadius * 2,
-                          decoration: BoxDecoration(
-                            color: AppColors.primary,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 2),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 4),
-            SizedBox(
-              height: 32,
-              child: Stack(
-                children: List.generate(3, (i) {
-                  double left;
-                  if (i == 0) {
-                    left = lx[i].clamp(0.0, w - lW);
-                  } else if (i == 2) {
-                    left = (lx[i] - lW).clamp(0.0, w - lW);
-                  } else {
-                    left = (lx[i] - lW / 2).clamp(0.0, w - lW);
-                  }
-
-                  return Positioned(
-                    left: left,
-                    width: lW,
-                    child: Align(
-                      alignment: i == 0
-                          ? Alignment.centerLeft
-                          : (i == 2 ? Alignment.centerRight : Alignment.center),
-                      child: Text(
-                        values[i],
-                        textAlign: i == 0
-                            ? TextAlign.left
-                            : (i == 2 ? TextAlign.right : TextAlign.center),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          height: 1.1,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: valueColor,
-                        ),
-                      ),
-                    ),
-                  );
-                }),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildTradeTimelineForEdit(BuildContext context, NewTradeOpportunityMessage msg) {
-    final isDark = _isDark(context);
-    final dimLabelColor = isDark ? Colors.white38 : Colors.grey.shade500;
-    final labelColor = isDark ? Colors.white60 : Colors.grey.shade700;
-    final dimValueColor = isDark ? Colors.white38 : Colors.grey.shade500;
-    final valueColor = isDark ? Colors.white : const Color(0xFF424242);
-    final dimDotColor = isDark ? Colors.white24 : Colors.grey.shade400;
-    final dotColor = isDark ? Colors.white38 : const Color(0xFF616161);
-    const dotRadius = 6.0;
-    final oldSl = msg.oldStopLoss.trim().isNotEmpty ? msg.oldStopLoss : msg.stopLoss;
-    final oldTp = msg.oldTakeProfit.trim().isNotEmpty ? msg.oldTakeProfit : msg.frr;
-
-    List<String> labels;
-    List<String> values;
-    List<String> numericRaw;
-
-    if (msg.slChanged && msg.tpChanged) {
-      labels = ['Trail SL', 'Entry', 'New Target'];
-      numericRaw = [msg.stopLoss, msg.entryRange, msg.frr];
-      values = [
-        _formatTradeCardPrice(msg.stopLoss),
-        _formatTradeCardPrice(msg.entryRange),
-        _formatTradeCardPrice(msg.frr),
-      ];
-    } else if (msg.tpChanged) {
-      labels = ['Stop Loss', 'Old Target', 'New Target'];
-      numericRaw = [msg.stopLoss, oldTp, msg.frr];
-      values = [
-        _formatTradeCardPrice(msg.stopLoss),
-        _formatTradeCardPrice(oldTp),
-        _formatTradeCardPrice(msg.frr),
-      ];
-    } else {
-      labels = ['Stop Loss', 'Trail SL', 'Target'];
-      numericRaw = [oldSl, msg.stopLoss, msg.frr];
-      values = [
-        _formatTradeCardPrice(oldSl),
-        _formatTradeCardPrice(msg.stopLoss),
-        _formatTradeCardPrice(msg.frr),
-      ];
-    }
-
-    double parseNumeric(String raw) {
-      final matches = RegExp(r'[\d.]+').allMatches(raw);
-      final nums = matches
-          .map((m) => double.tryParse(m.group(0) ?? ''))
-          .whereType<double>()
-          .toList();
-      if (nums.isEmpty) return 0.0;
-      final sum = nums.fold<double>(0.0, (a, b) => a + b);
-      return sum / nums.length;
-    }
-
-    final numeric = numericRaw.map(parseNumeric).toList();
-    final minV = numeric.reduce((a, b) => a < b ? a : b);
-    final maxV = numeric.reduce((a, b) => a > b ? a : b);
-    final denom = (maxV - minV).abs();
-
-    final rttTrim = msg.rtt.trim();
-    final hasCurrent = rttTrim.isNotEmpty;
-    final currentNumeric = hasCurrent ? parseNumeric(rttTrim) : null;
-
-    return LayoutBuilder(
-      builder: (ctx, constraints) {
-        final w = constraints.maxWidth;
-        final usableW = w.clamp(0.0, double.infinity);
-        List<double> fractions;
-        if (denom < 0.000001) {
-          fractions = const [0.0, 0.5, 1.0];
-        } else {
-          fractions = numeric
-              .map((v) => ((v - minV) / denom).clamp(0.0, 1.0))
-              .toList();
-        }
-
-        // Wider slots for "Stop Loss" / "Trail SL"; anchors need >= 1.5*lW apart
-        // because slot 0 is left-aligned, 1 centered, 2 right-aligned (64px boxes
-        // would overlap with the old lW + minGap rule).
-        const lW = 76.0;
-        const minGap = 4.0;
-        final minAnchorSep = lW * 1.5 + minGap;
-        List<double> lx = List.generate(3, (i) => usableW * fractions[i]);
-        lx = _spreadTimelineAnchorsByPrice(lx, numeric, minAnchorSep, w);
-
-        double? lxCurrent;
-        if (hasCurrent && currentNumeric != null) {
-          if (denom < 0.000001) {
-            lxCurrent = usableW * 0.5;
-          } else {
-            lxCurrent =
-                usableW * ((currentNumeric - minV) / denom).clamp(0.0, 1.0);
-          }
-        }
-
-        return Column(
-          children: [
-            SizedBox(
-              height: 34,
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: List.generate(3, (i) {
-                  final left = i == 0
-                      ? lx[i].clamp(0.0, w - lW)
-                      : (i == 2
-                            ? (lx[i] - lW).clamp(0.0, w - lW)
-                            : (lx[i] - lW / 2).clamp(0.0, w - lW));
-                  return Positioned(
-                    left: left,
-                    width: lW,
-                    child: Align(
-                      alignment: i == 0
-                          ? Alignment.centerLeft
-                          : (i == 2 ? Alignment.centerRight : Alignment.center),
-                      child: Text(
-                        labels[i],
-                        textAlign: i == 0
-                            ? TextAlign.left
-                            : (i == 2 ? TextAlign.right : TextAlign.center),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          height: 1.15,
-                          fontSize: 11,
-                          color: i == 0 ? dimLabelColor : labelColor,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  );
-                }),
-              ),
-            ),
-            const SizedBox(height: 2),
-            SizedBox(
-              height: dotRadius * 2 + 4,
-              width: w,
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    top: dotRadius,
-                    height: 2,
-                    child: CustomPaint(
-                      size: Size(w, 2),
-                      painter: _DottedLinePainter(isDark: isDark),
-                    ),
-                  ),
-                  ...List.generate(3, (i) {
-                    final color = i == 0 ? dimDotColor : dotColor;
-                    return Positioned(
-                      left: (lx[i] - dotRadius).clamp(0.0, w - dotRadius * 2),
-                      top: 1,
-                      child: Container(
-                        width: dotRadius * 2,
-                        height: dotRadius * 2,
-                        decoration: BoxDecoration(
-                          color: color,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                    );
-                  }),
-                  if (lxCurrent != null)
-                    Positioned(
-                      left: (lxCurrent - dotRadius).clamp(
-                        0.0,
-                        w - dotRadius * 2,
-                      ),
-                      top: 1,
-                      child: Container(
-                        width: dotRadius * 2,
-                        height: dotRadius * 2,
-                        decoration: BoxDecoration(
-                          color: AppColors.primary,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 4),
-            SizedBox(
-              height: 32,
-              child: Stack(
-                children: List.generate(3, (i) {
-                  final left = i == 0
-                      ? lx[i].clamp(0.0, w - lW)
-                      : (i == 2
-                            ? (lx[i] - lW).clamp(0.0, w - lW)
-                            : (lx[i] - lW / 2).clamp(0.0, w - lW));
-                  return Positioned(
-                    left: left,
-                    width: lW,
-                    child: Align(
-                      alignment: i == 0
-                          ? Alignment.centerLeft
-                          : (i == 2 ? Alignment.centerRight : Alignment.center),
-                      child: Text(
-                        values[i],
-                        textAlign: i == 0
-                            ? TextAlign.left
-                            : (i == 2 ? TextAlign.right : TextAlign.center),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: i == 0 ? dimValueColor : valueColor,
-                        ),
-                      ),
-                    ),
-                  );
-                }),
-              ),
-            ),
-          ],
-        );
-      },
-    );
+  Widget _buildTradeTimelineForEdit(
+    BuildContext context,
+    NewTradeOpportunityMessage msg,
+  ) {
+    return _buildTradeTimeline(context, msg, showOldNew: true);
   }
 
   void _showTradeParamsPopup(
@@ -4791,121 +4796,207 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     showChatFadeDialog(
       context: context,
       builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: _dialogBg(isDark),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: Container(
-          constraints: const BoxConstraints(maxWidth: 340),
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: _dialogBg(isDark),
-            borderRadius: BorderRadius.circular(16),
-          ),
+          constraints: const BoxConstraints(maxWidth: 380),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    radius: 22,
-                    backgroundColor: AppColors.primary.withOpacity(0.15),
-                    child: Text(
-                      msg.instrument.trim().isNotEmpty
-                          ? msg.instrument.trim()[0].toUpperCase()
-                          : (msg.contract.trim().isNotEmpty
-                              ? msg.contract.trim()[0].toUpperCase()
-                              : 'T'),
-                      style: const TextStyle(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 20,
+              // Top Close button
+              Align(
+                alignment: Alignment.topRight,
+                child: InkWell(
+                  onTap: () => Navigator.pop(ctx),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.close_rounded,
+                      color: isDark ? Colors.white60 : AppColors.primary,
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ),
+
+              // Center Icon
+              Center(
+                child: Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.primary.withOpacity(0.2)
+                        : const Color(0xFFEDE9FE),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.candlestick_chart_rounded,
+                    color: AppColors.primary,
+                    size: 30,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Title
+              Text(
+                'Trade Details',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: _headlineText(isDark),
+                ),
+              ),
+              const SizedBox(height: 6),
+
+              // Subtitle
+              Text(
+                'Please verify and submit trade levels.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: _secondaryText(isDark),
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              // Instrument Box
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF1E222A)
+                      : const Color(0xFFF6F5FF),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      msg.instrument.isNotEmpty ? msg.instrument : msg.contract,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: isDark
+                            ? Colors.white70
+                            : const Color(0xFF10122D),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          msg.instrument.isNotEmpty ? msg.instrument : msg.contract,
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: _bubbleText(isDark),
-                          ),
-                        ),
-                        Text(
-                          msg.contract,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: _tertiaryText(isDark),
-                          ),
-                        ),
-                      ],
+                    Text(
+                      msg.contract,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 18),
               _popupField(
                 'Entry Price',
                 entryPriceController,
                 '${msg.lotNumbers.length > 1 ? msg.lotNumbers[1] : 1} Lots',
                 isDark,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               _popupField(
                 'Stop Loss',
                 stopLossController,
                 '${msg.lotNumbers.isNotEmpty ? msg.lotNumbers[0] : 1} Lots',
                 isDark,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               _popupField(
                 'Take Profit',
                 takeProfitController,
                 '${msg.lotNumbers.length > 2 ? msg.lotNumbers[2] : 1} Lots',
                 isDark,
               ),
-              const SizedBox(height: 14),
-              Text(
-                '1 lot is preferred to be under RTT mode',
-                style: TextStyle(fontSize: 12, color: _tertiaryText(isDark)),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 16,
+                    color: isDark ? Colors.white60 : const Color(0xFF70717F),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '1 lot is preferred to be under RTT mode',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _secondaryText(isDark),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
               Row(
                 children: [
                   Expanded(
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      child: const Text('Cancel'),
+                    child: SizedBox(
+                      height: 48,
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: _fieldBorder(isDark)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: Text(
+                          'Cancel',
+                          style: TextStyle(
+                            color: _headlineText(isDark),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     flex: 2,
-                    child: FilledButton(
-                      onPressed: () async {
-                        Navigator.pop(ctx);
-                        await controller.submitTradeExecuted(
-                          msg: msg,
-                          entryPrice: entryPriceController.text,
-                          stopLoss: stopLossController.text,
-                          takeProfit: takeProfitController.text,
-                        );
-                      },
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                    child: SizedBox(
+                      height: 48,
+                      child: FilledButton(
+                        onPressed: () async {
+                          Navigator.pop(ctx);
+                          await controller.submitTradeExecuted(
+                            msg: msg,
+                            entryPrice: entryPriceController.text,
+                            stopLoss: stopLossController.text,
+                            takeProfit: takeProfitController.text,
+                          );
+                        },
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                         ),
-                      ),
-                      child: const Text(
-                        'SUBMIT',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.5,
+                        child: const Text(
+                          'Submit',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
                         ),
                       ),
                     ),
@@ -4931,7 +5022,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         Text(
           label,
           style: TextStyle(
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.w700,
             fontSize: 13,
             color: _headlineText(isDark),
           ),
@@ -4942,14 +5033,31 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             Expanded(
               child: TextField(
                 controller: controller,
-                keyboardType: TextInputType.number,
-                style: TextStyle(color: _bubbleText(isDark)),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: _bubbleText(isDark),
+                ),
                 decoration: InputDecoration(
                   filled: true,
                   fillColor: _fieldFill(isDark),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide.none,
+                    borderSide: BorderSide(color: _fieldBorder(isDark)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: _fieldBorder(isDark)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(
+                      color: AppColors.primary,
+                      width: 1.5,
+                    ),
                   ),
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 14,
@@ -4958,11 +5066,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 ),
               ),
             ),
-            const SizedBox(width: 10),
-            Text(
-              suffix,
-              style: TextStyle(fontSize: 13, color: _tertiaryText(isDark)),
-            ),
+            if (suffix.isNotEmpty) ...[
+              const SizedBox(width: 10),
+              Text(
+                suffix,
+                style: TextStyle(fontSize: 13, color: _tertiaryText(isDark)),
+              ),
+            ],
           ],
         ),
       ],
@@ -5006,7 +5116,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             _tradePromptPrimaryButton(
               label: 'Open Trading APP',
               enabled: _showButtons(msg),
-              onTap: () => controller.openTradingApp(),
+              onTap: () {
+                setState(() => _openedTradingAppMessageIds.add(msg.messageId));
+                controller.openTradingApp();
+              },
             ),
             const SizedBox(height: 10),
           ],
@@ -5015,40 +5128,39 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             icon: !_showButtons(msg)
                 ? Icons.check_circle_outline_rounded
                 : (msg.isSlHit
-                    ? Icons.error_outline_rounded
-                    : Icons.flag_outlined),
+                      ? Icons.error_outline_rounded
+                      : Icons.flag_outlined),
             isCompleted: !_showButtons(msg),
-            enabled: _showButtons(msg),
+            enabled:
+                _showButtons(msg) &&
+                (!msg.isGttHit ||
+                    _openedTradingAppMessageIds.contains(msg.messageId)),
             onTap: () {
-              final setupType = ApiConfig.activeSetupType ?? Common.userData.value?.payload?.tradingSetupType ?? 'own_setup';
+              final setupType =
+                  ApiConfig.activeSetupType ??
+                  Common.userData.value?.payload?.tradingSetupType ??
+                  'own_setup';
               final isZenoAi = setupType == 'zeno_ai_signals';
-              
+
               if (msg.buttonType == 'trade_executed' || msg.isSlHit) {
-                _showTargetHitConfirmDialog(
-                  context,
-                  msg,
-                  controller,
-                );
+                _showTargetHitConfirmDialog(context, msg, controller);
               } else if (msg.isGttHit) {
                 if (isZenoAi && msg.tradeData != null) {
-                  _showTradeParamsPopup(
-                    context,
-                    msg.tradeData!,
-                    controller,
-                  );
+                  _showTradeParamsPopup(context, msg.tradeData!, controller);
                 } else {
-                  _showTargetHitConfirmDialog(
-                    context,
-                    msg,
-                    controller,
-                  );
+                  _showTargetHitConfirmDialog(context, msg, controller);
                 }
               } else {
                 controller.onTradeExecuted();
               }
             },
           ),
-          if (msg.isGttHit && msg.tradeData != null && (ApiConfig.activeSetupType ?? Common.userData.value?.payload?.tradingSetupType ?? 'own_setup') == 'zeno_ai_signals') ...[
+          if (msg.isGttHit &&
+              msg.tradeData != null &&
+              (ApiConfig.activeSetupType ??
+                      Common.userData.value?.payload?.tradingSetupType ??
+                      'own_setup') ==
+                  'zeno_ai_signals') ...[
             const SizedBox(height: 10),
             _tradePromptPrimaryButton(
               label: 'GTT Missed',
@@ -5077,10 +5189,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            msg.text,
-            style: TextStyle(fontSize: 14, color: _headlineText(isDark)),
-          ),
+          _buildRichMessageContent(msg.text, isDark),
           if (_showButtons(msg)) ...[
             const SizedBox(height: 14),
             Text('1. Go to Trading APP and apply Levels', style: stepStyle),
@@ -5088,14 +5197,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             _tradePromptPrimaryButton(
               label: 'Open Trading APP',
               enabled: true,
-              onTap: () => controller.openTradingApp(),
+              onTap: () {
+                setState(() => _openedTradingAppMessageIds.add(msg.messageId));
+                controller.openTradingApp();
+              },
             ),
             const SizedBox(height: 14),
             Text('2. Intimate me once you apply the GTT', style: stepStyle),
             const SizedBox(height: 8),
             _tradePromptPrimaryButton(
               label: msg.buttonLabel,
-              enabled: true,
+              enabled: _openedTradingAppMessageIds.contains(msg.messageId),
               onTap: () {
                 controller.markActionTaken(messageId: msg.messageId);
                 AppToast.showToast('Thanks for confirming');
@@ -5204,7 +5316,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   width: 34,
                   height: 34,
                   decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF2C3240) : Colors.grey.shade300,
+                    color: isDark
+                        ? const Color(0xFF2C3240)
+                        : Colors.grey.shade300,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Center(
@@ -5371,41 +5485,95 @@ class _TargetHitConfirmDialogState extends State<_TargetHitConfirmDialog> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final dialogBg = isDark ? const Color(0xFF1B1F27) : Colors.white;
-    final titleColor = isDark ? Colors.white : Colors.black87;
-    final bodyColor = isDark ? Colors.white70 : Colors.grey.shade700;
-    final fieldFill = isDark ? const Color(0xFF22262F) : AppColors.backgroundGray;
+    final dialogBg = isDark ? const Color(0xFF1E222A) : Colors.white;
+    final titleColor = isDark ? Colors.white : const Color(0xFF10122D);
+    final bodyColor = isDark ? Colors.white70 : const Color(0xFF70717F);
+    final fieldFill = isDark
+        ? const Color(0xFF1E222A)
+        : const Color(0xFFF7F6FB);
+    final fieldBorder = isDark ? Colors.white12 : const Color(0xFFE2E0E9);
 
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       backgroundColor: dialogBg,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: Container(
-        constraints: const BoxConstraints(maxWidth: 340),
-        padding: const EdgeInsets.all(20),
+        constraints: const BoxConstraints(maxWidth: 380),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Top Close button
+            Align(
+              alignment: Alignment.topRight,
+              child: InkWell(
+                onTap: () => Navigator.of(context).pop(),
+                borderRadius: BorderRadius.circular(16),
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    Icons.close_rounded,
+                    color: isDark ? Colors.white60 : AppColors.primary,
+                    size: 24,
+                  ),
+                ),
+              ),
+            ),
+
+            // Center Icon
+            Center(
+              child: Container(
+                width: 58,
+                height: 58,
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? AppColors.primary.withOpacity(0.2)
+                      : const Color(0xFFEDE9FE),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  widget.msg.isSlHit
+                      ? Icons.shield_outlined
+                      : (widget.msg.isGttHit
+                            ? Icons.gps_fixed_rounded
+                            : Icons.flag_rounded),
+                  color: AppColors.primary,
+                  size: 30,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            // Title
             Text(
               widget.msg.isSlHit
-                  ? 'Confirm SL hit'
-                  : (widget.msg.isGttHit ? 'Confirm GTT hit' : 'Confirm target hit'),
+                  ? 'Confirm SL Hit'
+                  : (widget.msg.isGttHit
+                        ? 'Confirm GTT Hit'
+                        : 'Confirm Target Hit'),
+              textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 18,
-                fontWeight: FontWeight.bold,
+                fontWeight: FontWeight.w800,
                 color: titleColor,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 6),
+
+            // Subtitle
             Text(
               widget.msg.isSlHit
                   ? 'SL hit on this price'
                   : (widget.msg.isGttHit
-                      ? 'GTT hit on this price'
-                      : 'Target hit on this price'),
-              style: TextStyle(fontSize: 14, color: bodyColor),
+                        ? 'GTT hit on this price'
+                        : 'Target hit on this price'),
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13, color: bodyColor, height: 1.35),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
+
+            // Price Field
             TextField(
               controller: _priceController,
               keyboardType: const TextInputType.numberWithOptions(
@@ -5413,17 +5581,32 @@ class _TargetHitConfirmDialogState extends State<_TargetHitConfirmDialog> {
               ),
               style: const TextStyle(
                 fontSize: 20,
-                fontWeight: FontWeight.bold,
+                fontWeight: FontWeight.w800,
                 color: AppColors.primary,
               ),
               textAlign: TextAlign.center,
               decoration: InputDecoration(
                 hintText: 'Enter price',
+                hintStyle: TextStyle(
+                  color: isDark ? Colors.white38 : const Color(0xFFB0B0B8),
+                  fontSize: 15,
+                ),
                 filled: true,
                 fillColor: fieldFill,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide.none,
+                  borderSide: BorderSide(color: fieldBorder),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: fieldBorder),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(
+                    color: AppColors.primary,
+                    width: 1.5,
+                  ),
                 ),
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 14,
@@ -5432,31 +5615,51 @@ class _TargetHitConfirmDialogState extends State<_TargetHitConfirmDialog> {
               ),
             ),
             const SizedBox(height: 24),
+
+            // Action Buttons
             Row(
               children: [
                 Expanded(
-                  child: TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Cancel'),
+                  child: SizedBox(
+                    height: 48,
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: fieldBorder),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: Text(
+                        'Cancel',
+                        style: TextStyle(
+                          color: titleColor,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   flex: 2,
-                  child: FilledButton(
-                    onPressed: _onConfirm,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                  child: SizedBox(
+                    height: 48,
+                    child: FilledButton(
+                      onPressed: _onConfirm,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
-                    ),
-                    child: const Text(
-                      'CONFIRM',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.5,
+                      child: const Text(
+                        'Confirm',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
                       ),
                     ),
                   ),
@@ -5572,10 +5775,7 @@ class _TypingDotsState extends State<_TypingDots>
           child: Container(
             width: 6,
             height: 6,
-            decoration: BoxDecoration(
-              color: dotColor,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
           ),
         );
 

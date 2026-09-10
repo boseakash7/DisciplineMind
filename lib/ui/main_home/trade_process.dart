@@ -737,12 +737,12 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         _setupOptionCard(
           setup: _TradingSetup.zenoSignals,
           title: 'Follow Zeno AI Signals',
-          subtitle: 'Trade ready setups by SEBI\nRegistered Analyst',
+          subtitle: 'Trade ready setups by Registered Analyst',
           icon: Icons.bar_chart_rounded,
           features: const [
             'Pre-defined, researched setups',
             'Clear entry, exit and stop loss levels',
-            'Backed by SEBI Registered Analyst',
+            'Backed by Registered Analyst',
             'Designed for disciplined trading',
           ],
         ),
@@ -760,13 +760,55 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
           ],
         ),
         const SizedBox(height: 14),
-        _setupInfoCard(
-          icon: Icons.lightbulb_outline_rounded,
-          title: 'Recommended for Most Traders',
-          compact: true,
-          description:
-              'To build discipline and consistency, we recommend '
-              'using Zeno AI signals by SEBI Registered Analyst.',
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF7F5FE),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEDE8FF),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.lightbulb_outline_rounded,
+                  color: _referencePurple,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Recommended for Most Traders',
+                      style: TextStyle(
+                        color: Color(0xFF5124FF),
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'To build discipline and consistency, we recommend using Zeno AI signals by Registered Analyst.',
+                      style: TextStyle(
+                        color: Color(0xFF6C697D),
+                        fontSize: 12.5,
+                        height: 1.45,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 20),
       ],
@@ -781,127 +823,174 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     required List<String> features,
   }) {
     final selected = _tradingSetup == setup;
-    return Semantics(
-      selected: selected,
-      inMutuallyExclusiveGroup: true,
-      child: Material(
-        color: const Color(0xFFFAF7FE),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(9),
-          side: BorderSide(color: selected ? _referencePurple : border),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => setState(() => _tradingSetup = setup),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 46,
-                      height: 46,
-                      decoration: BoxDecoration(
-                        gradient: selected ? _referenceGradient : null,
-                        color: selected ? null : const Color(0xFFEEE8FF),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(
-                        icon,
-                        color: selected ? Colors.white : _referencePurple,
-                      ),
+    final cardContent = Material(
+      color: selected ? const Color(0xFFFAF7FE) : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: selected
+            ? const BorderSide(color: _referencePurple, width: 1.5)
+            : BorderSide.none,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => setState(() => _tradingSetup = setup),
+        child: Padding(
+          padding: const EdgeInsets.all(13),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 46,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      gradient: selected ? _referenceGradient : null,
+                      color: selected ? null : const Color(0xFFEDE8FF),
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    const SizedBox(width: 11),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            title,
-                            style: const TextStyle(
-                              color: ink,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            subtitle,
-                            style: const TextStyle(
-                              color: Color(0xFF9695A1),
-                              fontSize: 11,
-                              height: 1.15,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Icon(
-                      selected
-                          ? Icons.radio_button_checked
-                          : Icons.radio_button_off,
-                      color: selected
-                          ? _referencePurple
-                          : const Color(0xFFB2B0BD),
-                      size: 18,
-                    ),
-                  ],
-                ),
-                if (setup == _TradingSetup.zenoSignals) ...[
-                  const SizedBox(height: 9),
-                  Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 9,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: lightGreen,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: const Text(
-                        '\u2713 SEBI Registered Analyst',
-                        style: TextStyle(color: green, fontSize: 9),
-                      ),
+                    child: Icon(
+                      icon,
+                      size: 24,
+                      color: selected ? Colors.white : _referencePurple,
                     ),
                   ),
-                ],
-                const SizedBox(height: 10),
-                for (final feature in features)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 3),
-                    child: Row(
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(
-                          Icons.check_circle,
-                          size: 14,
-                          color: selected
-                              ? _referencePurple
-                              : const Color(0xFFB2B0BD),
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            color: ink,
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            feature,
-                            style: const TextStyle(
-                              color: Color(0xFF9695A1),
-                              fontSize: 11,
-                              height: 1.3,
-                            ),
+                        const SizedBox(height: 4),
+                        Text(
+                          subtitle,
+                          style: const TextStyle(
+                            color: Color(0xFF7A798A),
+                            fontSize: 12.5,
+                            height: 1.25,
                           ),
                         ),
                       ],
                     ),
                   ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    selected
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
+                    color: selected
+                        ? _referencePurple
+                        : const Color(0xFFCCCAD8),
+                    size: 21,
+                  ),
+                ],
+              ),
+              if (setup == _TradingSetup.zenoSignals) ...[
+                const SizedBox(height: 10),
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4.5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD4F5E4),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Container(
+                              width: 7,
+                              height: 7,
+                              decoration: const BoxDecoration(
+                                color: Colors.white,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const Icon(
+                              Icons.verified_user_rounded,
+                              color: Color(0xFF0E874E),
+                              size: 15,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(width: 5),
+                        const Text(
+                          'Registered Analyst',
+                          style: TextStyle(
+                            color: Color(0xFF0E7A46),
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ],
-            ),
+              const SizedBox(height: 12),
+              for (final feature in features)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3.5),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.check_circle_rounded,
+                        size: 16,
+                        color: selected
+                            ? _referencePurple
+                            : const Color(0xFFCCCAD8),
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Text(
+                          feature,
+                          style: TextStyle(
+                            color: selected
+                                ? const Color(0xFF565466)
+                                : const Color(0xFF8E8D9E),
+                            fontSize: 12.5,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
           ),
         ),
       ),
+    );
+
+    return Semantics(
+      selected: selected,
+      inMutuallyExclusiveGroup: true,
+      child: selected
+          ? cardContent
+          : CustomPaint(
+              foregroundPainter: const _DottedBorderPainter(
+                color: Color(0xFFCCCAD8),
+                radius: 10,
+                strokeWidth: 1.2,
+                dashLength: 4.0,
+                gapLength: 3.5,
+              ),
+              child: cardContent,
+            ),
     );
   }
 
@@ -3334,3 +3423,61 @@ class _IndianCurrencyInputFormatter extends TextInputFormatter {
 // ================================================================
 
 enum InstrumentType { nifty, bank, sensex }
+
+class _DottedBorderPainter extends CustomPainter {
+  final Color color;
+  final double strokeWidth;
+  final double radius;
+  final double dashLength;
+  final double gapLength;
+
+  const _DottedBorderPainter({
+    required this.color,
+    this.strokeWidth = 1.2,
+    this.radius = 10.0,
+    this.dashLength = 4.0,
+    this.gapLength = 3.5,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = strokeWidth
+      ..style = PaintingStyle.stroke;
+
+    final rrect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        strokeWidth / 2,
+        strokeWidth / 2,
+        size.width - strokeWidth,
+        size.height - strokeWidth,
+      ),
+      Radius.circular(radius),
+    );
+
+    final path = Path()..addRRect(rrect);
+    final dashPath = Path();
+
+    for (final metric in path.computeMetrics()) {
+      double distance = 0.0;
+      while (distance < metric.length) {
+        final length = math.min(dashLength, metric.length - distance);
+        dashPath.addPath(
+          metric.extractPath(distance, distance + length),
+          Offset.zero,
+        );
+        distance += dashLength + gapLength;
+      }
+    }
+    canvas.drawPath(dashPath, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _DottedBorderPainter oldDelegate) =>
+      oldDelegate.color != color ||
+      oldDelegate.strokeWidth != strokeWidth ||
+      oldDelegate.radius != radius ||
+      oldDelegate.dashLength != dashLength ||
+      oldDelegate.gapLength != gapLength;
+}

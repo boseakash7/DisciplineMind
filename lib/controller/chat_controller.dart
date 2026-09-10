@@ -98,6 +98,62 @@ class ChatController extends GetxController {
     return '';
   }
 
+  /// Ensures there is AT MOST ONE AI waiting message in the list (the latest/newest one).
+  /// Any older AI messages are dropped so only the last active AI message is displayed.
+  List<ChatMessage> _keepOnlyLatestAiMessage(List<ChatMessage> list) {
+    final lastAiIndex = list.lastIndexWhere((m) => m.type == ChatMessageType.aiWaiting);
+    if (lastAiIndex == -1) return list;
+
+    final result = <ChatMessage>[];
+    for (var i = 0; i < list.length; i++) {
+      final m = list[i];
+      if (m.type == ChatMessageType.aiWaiting && i != lastAiIndex) {
+        continue; // drop older AI message
+      }
+      result.add(m);
+    }
+    return result;
+  }
+
+  final Set<String> _takenActionMessageIds = <String>{};
+  final Set<String> _takenActionTradeIds = <String>{};
+
+  bool isActionTakenFor(ChatMessage msg) {
+    if (msg.actionTaken != null &&
+        msg.actionTaken != 0 &&
+        msg.actionTaken != '0' &&
+        msg.actionTaken != false &&
+        msg.actionTaken != 'false') {
+      return true;
+    }
+    final mId = msg.messageId.trim();
+    if (mId.isNotEmpty && _takenActionMessageIds.contains(mId)) return true;
+    final tId = msg is NewTradeOpportunityMessage
+        ? msg.tradeId.trim()
+        : (msg is TradeExecutionPromptMessage ? msg.tradeData.tradeId.trim() : '');
+    if (tId.isNotEmpty && _takenActionTradeIds.contains(tId)) return true;
+    return false;
+  }
+
+  List<ChatMessage> _applyLocallyTakenActions(List<ChatMessage> list) {
+    if (_takenActionMessageIds.isEmpty && _takenActionTradeIds.isEmpty) return list;
+    final result = list.toList();
+    for (int i = 0; i < result.length; i++) {
+      final m = result[i];
+      if (m.actionTaken == null) {
+        final mId = m.messageId.trim();
+        final tId = m is NewTradeOpportunityMessage
+            ? m.tradeId.trim()
+            : (m is TradeExecutionPromptMessage ? m.tradeData.tradeId.trim() : '');
+        if ((mId.isNotEmpty && _takenActionMessageIds.contains(mId)) ||
+            (tId.isNotEmpty && _takenActionTradeIds.contains(tId))) {
+          result[i] = _withActionTaken(m, 1);
+        }
+      }
+    }
+    return result;
+  }
+
   List<ChatMessage> _parseDisplayMessages(dynamic payload) {
     if (payload is! List) return const <ChatMessage>[];
     final parsed = <ChatMessage>[];
@@ -109,7 +165,8 @@ class ChatController extends GetxController {
         parsed.addAll(chatMessagesFromJson(item));
       }
     }
-    return _dedupeRedundantDeleteTradeButtons(parsed);
+    final deduped = _keepOnlyLatestAiMessage(_dedupeRedundantDeleteTradeButtons(parsed));
+    return _applyLocallyTakenActions(deduped);
   }
 
   List<ChatMessage> _mergeUniqueMessages({
@@ -128,10 +185,18 @@ class ChatController extends GetxController {
       return !existingIds.contains(id);
     }).toList();
 
+    List<ChatMessage> combined;
     if (prepend) {
-      return [...filteredIncoming, ...base];
+      combined = [...filteredIncoming, ...base];
+    } else {
+      // If new messages contain an AI message, immediately purge older AI messages from base
+      final incomingHasAi = filteredIncoming.any((m) => m.type == ChatMessageType.aiWaiting);
+      final adjustedBase = incomingHasAi
+          ? base.where((m) => m.type != ChatMessageType.aiWaiting).toList()
+          : base;
+      combined = [...adjustedBase, ...filteredIncoming];
     }
-    return [...base, ...filteredIncoming];
+    return _keepOnlyLatestAiMessage(combined);
   }
 
   bool _isDeleteTradeRequestMessage(ChatMessage m) {
@@ -533,6 +598,9 @@ class ChatController extends GetxController {
   }
 
   void addMessage(ChatMessage msg) {
+    if (msg.type == ChatMessageType.aiWaiting) {
+      messages.removeWhere((m) => m.type == ChatMessageType.aiWaiting);
+    }
     messages.add(msg);
   }
 
@@ -896,6 +964,9 @@ class ChatController extends GetxController {
     final cleanTradeId = (tradeId ?? '').trim();
     final cleanMsgId = (messageId ?? '').trim();
     if (cleanTradeId.isEmpty && cleanMsgId.isEmpty) return;
+
+    if (cleanTradeId.isNotEmpty) _takenActionTradeIds.add(cleanTradeId);
+    if (cleanMsgId.isNotEmpty) _takenActionMessageIds.add(cleanMsgId);
 
     for (int i = 0; i < messages.length; i++) {
       final m = messages[i];

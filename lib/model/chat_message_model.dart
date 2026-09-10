@@ -64,17 +64,7 @@ class AiWaitingMessage extends ChatMessage {
 
   /// Presentation-only subtitle for the waiting bubble UI.
   String get subtitle {
-    final t = text.toLowerCase();
-    if (t.contains('waiting for your action') ||
-        t.contains('confirm sl') ||
-        t.contains('confirm target') ||
-        t.contains('confirm the hit')) {
-      return 'Waiting for your action';
-    }
-    if (t.contains('monitoring')) {
-      return 'Monkk is monitoring';
-    }
-    return 'Monkk is waiting';
+    return text;
   }
 }
 
@@ -396,7 +386,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       messageType.toLowerCase() == 'ai_msg') {
     return [
       AiWaitingMessage(
-        text: message.isNotEmpty ? message : 'Monkk is waiting',
+        text: message,
         tradeId: relatedTradeId,
         messageId: messageId,
         isUnread: isUnread,

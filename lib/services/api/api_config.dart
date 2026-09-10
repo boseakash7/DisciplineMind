@@ -7,6 +7,17 @@ class ApiConfig {
   
   static String? activeSetupType;
 
+  static bool get isZenoAi {
+    String? setupType = activeSetupType ?? Common.userData.value?.payload?.tradingSetupType;
+    if (setupType == null) {
+      final storedData = GetStorage().read<Map<String, dynamic>>('userData');
+      if (storedData != null && storedData['payload'] != null) {
+        setupType = storedData['payload']['trading_setup_type']?.toString();
+      }
+    }
+    return setupType == 'zeno_ai_signals';
+  }
+
   static String getBaseUrl(String endpoint) {
     // These APIs are core to the new flow and must ALWAYS use v2test
     const v2Endpoints = [
@@ -24,17 +35,6 @@ class ApiConfig {
     final isV2 = v2Endpoints.any((e) => endpoint.contains(e));
     if (isV2) return _v2TestUrl;
 
-    // For all other bottom-nav and data APIs, check if Zeno AI
-    String? setupType = activeSetupType ?? Common.userData.value?.payload?.tradingSetupType;
-    
-    if (setupType == null) {
-      final storedData = GetStorage().read<Map<String, dynamic>>('userData');
-      if (storedData != null && storedData['payload'] != null) {
-        setupType = storedData['payload']['trading_setup_type']?.toString();
-      }
-    }
-    
-    final isZenoAi = setupType == 'zeno_ai_signals';
     return isZenoAi ? _phase5Url : _v2TestUrl;
   }
 

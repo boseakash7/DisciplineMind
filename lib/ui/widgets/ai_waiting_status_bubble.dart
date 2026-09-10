@@ -60,18 +60,88 @@ class _AiWaitingStatusBubbleState extends State<AiWaitingStatusBubble>
 
   List<InlineSpan> _parseFormattedSpans(String raw, Color textColor) {
     final List<InlineSpan> spans = [];
+    final decoded = raw
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll('&amp;', '&')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#39;', "'")
+        .replaceAll('&apos;', "'");
     final tagRegex = RegExp(
-      r'(?:<b>(.*?)<\/b>|<strong>(.*?)<\/strong>|\*\*(.*?)\*\*)',
+      r'(?:<b\b[^>]*>(.*?)<\/b>|<strong>(.*?)<\/strong>|\*\*(.*?)\*\*|<i\b[^>]*>(.*?)<\/i>|<em>(.*?)<\/em>|\*(.*?)\*|<u\b[^>]*>(.*?)<\/u>|<[^>]+>)',
       caseSensitive: false,
       dotAll: true,
     );
 
     int lastMatchEnd = 0;
-    for (final match in tagRegex.allMatches(raw)) {
+    for (final match in tagRegex.allMatches(decoded)) {
       if (match.start > lastMatchEnd) {
+        final plain = decoded.substring(lastMatchEnd, match.start);
+        if (plain.isNotEmpty) {
+          spans.add(
+            TextSpan(
+              text: plain,
+              style: TextStyle(
+                fontSize: 13.5,
+                color: textColor,
+                fontWeight: FontWeight.w500,
+                height: 1.4,
+              ),
+            ),
+          );
+        }
+      }
+
+      final bold = match.group(1) ?? match.group(2) ?? match.group(3);
+      final italic = match.group(4) ?? match.group(5) ?? match.group(6);
+      final underline = match.group(7);
+
+      if (bold != null) {
         spans.add(
           TextSpan(
-            text: raw.substring(lastMatchEnd, match.start),
+            text: bold.replaceAll(RegExp(r'<[^>]+>'), ''),
+            style: TextStyle(
+              fontSize: 13.5,
+              color: textColor,
+              fontWeight: FontWeight.w800,
+              height: 1.4,
+            ),
+          ),
+        );
+      } else if (italic != null) {
+        spans.add(
+          TextSpan(
+            text: italic.replaceAll(RegExp(r'<[^>]+>'), ''),
+            style: TextStyle(
+              fontSize: 13.5,
+              color: textColor,
+              fontStyle: FontStyle.italic,
+              height: 1.4,
+            ),
+          ),
+        );
+      } else if (underline != null) {
+        spans.add(
+          TextSpan(
+            text: underline.replaceAll(RegExp(r'<[^>]+>'), ''),
+            style: TextStyle(
+              fontSize: 13.5,
+              color: textColor,
+              decoration: TextDecoration.underline,
+              height: 1.4,
+            ),
+          ),
+        );
+      }
+
+      lastMatchEnd = match.end;
+    }
+
+    if (lastMatchEnd < decoded.length) {
+      final trailing = decoded.substring(lastMatchEnd);
+      if (trailing.isNotEmpty) {
+        spans.add(
+          TextSpan(
+            text: trailing,
             style: TextStyle(
               fontSize: 13.5,
               color: textColor,
@@ -81,35 +151,6 @@ class _AiWaitingStatusBubbleState extends State<AiWaitingStatusBubble>
           ),
         );
       }
-
-      final boldText = match.group(1) ?? match.group(2) ?? match.group(3) ?? '';
-      spans.add(
-        TextSpan(
-          text: boldText,
-          style: TextStyle(
-            fontSize: 13.5,
-            color: textColor,
-            fontWeight: FontWeight.w800,
-            height: 1.4,
-          ),
-        ),
-      );
-
-      lastMatchEnd = match.end;
-    }
-
-    if (lastMatchEnd < raw.length) {
-      spans.add(
-        TextSpan(
-          text: raw.substring(lastMatchEnd),
-          style: TextStyle(
-            fontSize: 13.5,
-            color: textColor,
-            fontWeight: FontWeight.w500,
-            height: 1.4,
-          ),
-        ),
-      );
     }
 
     return spans;
@@ -124,12 +165,7 @@ class _AiWaitingStatusBubbleState extends State<AiWaitingStatusBubble>
     final primaryTextColor = isDark ? Colors.white : const Color(0xFF1F2937);
     final subTextColor = isDark ? Colors.white60 : Colors.grey.shade600;
 
-    String cleanSubtitle = widget.subtitle.trim();
-    if (cleanSubtitle.isEmpty ||
-        cleanSubtitle.toLowerCase() == 'monkk is waiting' ||
-        cleanSubtitle.toLowerCase() == 'ai is waiting') {
-      cleanSubtitle = 'Zeno AI is analyzing';
-    }
+    String cleanSubtitle = widget.subtitle.replaceAll(RegExp(r'<[^>]+>'), '').trim();
 
     return FadeTransition(
       opacity: CurvedAnimation(parent: _enter, curve: Curves.easeOut),
