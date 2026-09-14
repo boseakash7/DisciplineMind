@@ -505,7 +505,7 @@ class _DmtScoreScreenState extends State<DmtScoreScreen>
                               const SizedBox(height: 12),
                               SizeTransition(
                                 sizeFactor: _bonusCardAnim,
-                                alignment: Alignment.topCenter,
+                                // alignment: Alignment.topCenter,
                                 child: FadeTransition(
                                   opacity: _bonusCardAnim,
                                   child: _BonusParametersCard(

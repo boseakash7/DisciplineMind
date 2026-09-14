@@ -7,6 +7,8 @@ import 'package:discipline_mind/services/app_url_launcher.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
+import 'mct_lessons_screen.dart';
+
 class MoreScreen extends StatelessWidget {
   const MoreScreen({super.key});
 
@@ -60,7 +62,18 @@ class MoreScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-
+                _buildTile(
+                  icon: Icons.play_lesson_outlined,
+                  title: 'MCT Lessons',
+                  subtitle: '5 Non-Negotiable Rules for discipline',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const MctLessonsScreen(),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
                 _buildTile(
                   icon: Icons.notifications_outlined,
                   title: 'Price Alerts',
