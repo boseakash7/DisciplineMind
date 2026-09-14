@@ -1,0 +1,28 @@
+PODS:
+  - app_limiter (0.0.1):
+    - Flutter
+  - Flutter (1.0.0)
+  - fluttertoast (0.0.2):
+    - Flutter
+
+DEPENDENCIES:
+  - app_limiter (from `.symlinks/plugins/app_limiter/ios`)
+  - Flutter (from `Flutter`)
+  - fluttertoast (from `.symlinks/plugins/fluttertoast/ios`)
+
+EXTERNAL SOURCES:
+  app_limiter:
+    :path: ".symlinks/plugins/app_limiter/ios"
+  Flutter:
+    :path: Flutter
+  fluttertoast:
+    :path: ".symlinks/plugins/fluttertoast/ios"
+
+SPEC CHECKSUMS:
+  app_limiter: 98f11b431bb74c07bf530f8695cf91efed1ff9a2
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  fluttertoast: 2c67e14dce98bbdb200df9e1acf610d7a6264ea1
+
+PODFILE CHECKSUM: 53a6aebc29ccee84c41f92f409fc20cd4ca011f1
+
+COCOAPODS: 1.16.2

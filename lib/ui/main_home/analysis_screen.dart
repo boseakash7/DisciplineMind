@@ -1,0 +1,1051 @@
+import 'package:discipline_mind/common/app_colors.dart';
+import 'package:discipline_mind/common/common.dart';
+import 'package:discipline_mind/services/api/api_config.dart';
+import 'package:discipline_mind/model/dmt_level_model.dart';
+import 'package:discipline_mind/model/dmt_score_history_model.dart';
+import 'package:discipline_mind/model/dmt_user_return_percentages_model.dart';
+import 'package:discipline_mind/services/dmt_levels_service.dart';
+import 'package:discipline_mind/services/dmt_score_history_service.dart';
+import 'package:discipline_mind/services/dmt_user_levels_summary_service.dart';
+import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:shimmer/shimmer.dart';
+
+class AnalysisScreen extends StatefulWidget {
+  const AnalysisScreen({super.key, this.onMonkkTap, this.isActive = true});
+
+  final VoidCallback? onMonkkTap;
+  final bool isActive;
+
+  @override
+  State<AnalysisScreen> createState() => _AnalysisScreenState();
+}
+
+class _AnalysisScreenState extends State<AnalysisScreen>
+    with TickerProviderStateMixin {
+  late final DmtScoreHistoryService _service;
+  late final DmtLevelsService _levelsService;
+  late final DmtUserLevelsSummaryService _levelsSummaryService;
+  late final AnimationController _entranceController;
+  late final AnimationController _chartRevealController;
+  Worker? _historyLoadWorker;
+  bool _skipNextLoadReplay = true;
+  int? _touchedScoreIndex;
+  int? _touchedProfitIndex;
+
+  // ---- Custom dropdown (always opens BELOW the field) ----
+  final LayerLink _dropdownLayerLink = LayerLink();
+  final GlobalKey _dropdownFieldKey = GlobalKey();
+  OverlayEntry? _dropdownOverlayEntry;
+
+  static const Duration _entranceDuration = Duration(milliseconds: 1200);
+  static const Duration _chartRevealDuration = Duration(milliseconds: 900);
+  static const double _sectionSpan = 0.16;
+  static const double _staggerStep = 0.08;
+
+  static const double _chartHeight = 175.0;
+  static const Color _scoreLineColor = Color(0xFF00ACC1);
+  static const Color _profitLineColor = Color(0xFF00B36B);
+
+  @override
+  void initState() {
+    super.initState();
+    _service = Get.isRegistered<DmtScoreHistoryService>()
+        ? Get.find<DmtScoreHistoryService>()
+        : Get.put(DmtScoreHistoryService(), permanent: true);
+    _levelsService = Get.isRegistered<DmtLevelsService>()
+        ? Get.find<DmtLevelsService>()
+        : Get.put(DmtLevelsService(), permanent: true);
+    _levelsSummaryService = Get.isRegistered<DmtUserLevelsSummaryService>()
+        ? Get.find<DmtUserLevelsSummaryService>()
+        : Get.put(DmtUserLevelsSummaryService(), permanent: true);
+
+    _entranceController = AnimationController(
+      vsync: this,
+      duration: _entranceDuration,
+    );
+    _chartRevealController = AnimationController(
+      vsync: this,
+      duration: _chartRevealDuration,
+    );
+
+    _historyLoadWorker = ever<bool>(_service.isLoading, (loading) {
+      if (loading || !mounted) return;
+      if (_skipNextLoadReplay) {
+        _skipNextLoadReplay = false;
+        _replayChartReveal();
+        return;
+      }
+      _replayEntrance();
+    });
+
+    _entranceController.forward();
+    _service.ensureLoaded();
+    _levelsSummaryService.ensureLoaded();
+  }
+
+  @override
+  void dispose() {
+    _historyLoadWorker?.dispose();
+    _entranceController.dispose();
+    _chartRevealController.dispose();
+    _removeDropdownOverlay();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(AnalysisScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      _onAnalysisTabActivated();
+    }
+  }
+
+  void _onAnalysisTabActivated() {
+    _replayEntrance();
+    _skipNextLoadReplay = true;
+    _service.refreshTabData();
+    _levelsSummaryService.refreshTabData();
+  }
+
+  bool _isSelectedLevelReachable(DmtScoreHistoryPayload? payload) {
+    final selectedId = _service.selectedLevel.value?.id ??
+        payload?.requestedLevel?.id ??
+        payload?.currentLevel?.id;
+    if (selectedId == null || selectedId <= 0) return true;
+
+    final summary = _levelsSummaryService.summaryPayload.value;
+    if (summary != null) {
+      final item = summary.levelById(selectedId);
+      if (item != null) {
+        return item.isUnlocked || item.isCurrent;
+      }
+    }
+
+    final currentId = summary?.currentLevel?.id ?? payload?.currentLevel?.id;
+    if (currentId == null || currentId <= 0) return true;
+
+    final levels = _levelsService.levels;
+    final currentIdx = levels.indexWhere((l) => l.id == currentId);
+    final selectedIdx = levels.indexWhere((l) => l.id == selectedId);
+    if (currentIdx < 0 || selectedIdx < 0) return true;
+    return selectedIdx <= currentIdx;
+  }
+
+  void _replayEntrance() {
+    _entranceController.reset();
+    _entranceController.forward();
+    _replayChartReveal();
+  }
+
+  void _replayChartReveal() {
+    _chartRevealController.reset();
+    _chartRevealController.forward();
+  }
+
+  double _sectionProgress(int index) {
+    final start = (index * _staggerStep).clamp(0.0, 0.75);
+    final end = (start + _sectionSpan).clamp(0.0, 1.0);
+    if (end <= start) return _entranceController.value;
+    final t = Interval(start, end, curve: Curves.easeOutCubic)
+        .transform(_entranceController.value);
+    return t.clamp(0.0, 1.0);
+  }
+
+  Widget _entranceSection(int index, Widget child) {
+    return AnimatedBuilder(
+      animation: _entranceController,
+      builder: (context, child) {
+        final t = _sectionProgress(index);
+        return Opacity(
+          opacity: t,
+          child: Transform.translate(
+            offset: Offset(0, 20 * (1 - t)),
+            child: Transform.scale(
+              scale: 0.96 + (0.04 * t),
+              alignment: Alignment.topCenter,
+              child: child,
+            ),
+          ),
+        );
+      },
+      child: child,
+    );
+  }
+
+  double _chartReveal({double delay = 0}) {
+    final start = delay.clamp(0.0, 0.85);
+    final end = (start + 0.85).clamp(0.0, 1.0);
+    if (end <= start) return _chartRevealController.value;
+    return Interval(start, end, curve: Curves.easeOutCubic)
+        .transform(_chartRevealController.value)
+        .clamp(0.0, 1.0);
+  }
+
+  static Color levelColorForCode(String code) {
+    switch (code.toUpperCase()) {
+      case 'BM':
+        return AppColors.primary;
+      case 'AP':
+        return Colors.purple;
+      case 'AO':
+        return const Color(0xFF6B8E23);
+      case 'AA':
+        return Colors.orange;
+      case 'AI':
+        return Colors.indigo;
+      default:
+        return AppColors.primary;
+    }
+  }
+
+  // Theme Helpers
+  bool get _isDark => Theme.of(context).brightness == Brightness.dark;
+
+  Color get _cardColor => Theme.of(context).cardColor;
+  Color get _textColor => (_isDark ? Colors.white : Colors.black87);
+  Color get _secondaryTextColor => (_isDark ? Colors.grey.shade400 : Colors.grey.shade600);
+  Color get _axisColor => _isDark ? Colors.grey.shade300 : const Color(0xFF424242);
+  Color get _gridColor => _isDark ? Colors.grey.shade700 : const Color(0xFFE0E0E0);
+  Color get _shadowColor => Colors.black.withOpacity(_isDark ? 0.4 : 0.06);
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        children: [
+          const SizedBox(height: 8),
+          // _entranceSection(0, _buildHeader()),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: _buildLevelDropdown(),
+          ),
+          const SizedBox(height: 4),
+          Expanded(
+            child: Obx(() {
+              if (_service.isLoading.value && _service.historyPayload.value == null && _service.returnsPayload.value == null) {
+                return _entranceSection(1, _buildShimmer());
+              }
+
+              final payload = _service.historyPayload.value ??
+                  DmtScoreHistoryPayload(
+                    currentLevel: _service.selectedLevel.value ?? _levelsService.levels.firstOrNull,
+                    requestedLevel: _service.selectedLevel.value ?? _levelsService.levels.firstOrNull,
+                    history: const [],
+                  );
+
+              final selectedLevel = _service.selectedLevel.value ?? payload.displayLevel;
+              final isLocked = !_isSelectedLevelReachable(payload);
+
+              if (isLocked && selectedLevel != null) {
+                return RefreshIndicator(
+                  color: AppColors.primary,
+                  onRefresh: () async {
+                    await _service.refreshTabData();
+                    await _levelsSummaryService.refreshTabData();
+                  },
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                    children: [
+                      _entranceSection(1, _buildLockedLevelMessage(selectedLevel, payload)),
+                    ],
+                  ),
+                );
+              }
+
+              final returns = _service.returnsPayload.value;
+              final setupType = ApiConfig.activeSetupType ?? Common.userData.value?.payload?.tradingSetupType ?? 'own_setup';
+              final isZenoAi = setupType == 'zeno_ai_signals';
+
+              return RefreshIndicator(
+                color: AppColors.primary,
+                onRefresh: () async {
+                  await _service.refreshTabData();
+                  await _levelsSummaryService.refreshTabData();
+                },
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                  children: [
+                    if (isZenoAi) ...[
+                      _entranceSection(1, _buildAnimatedScoreChartCard(payload)),
+                      const SizedBox(height: 16),
+                    ],
+                    _entranceSection(isZenoAi ? 2 : 1, _buildAnimatedProfitChartCard(returns)),
+                  ],
+                ),
+              );
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==================== CUSTOM DROPDOWN (opens below only) ====================
+
+  void _toggleDropdownOverlay() {
+    if (_dropdownOverlayEntry != null) {
+      _removeDropdownOverlay();
+    } else {
+      _showDropdownOverlay();
+    }
+  }
+
+  void _showDropdownOverlay() {
+    final renderBox = _dropdownFieldKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null || !renderBox.hasSize) return;
+    final fieldSize = renderBox.size;
+
+    _dropdownOverlayEntry = OverlayEntry(
+      builder: (overlayContext) {
+        return Stack(
+          children: [
+            // Invisible barrier: tap anywhere outside to close
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: _removeDropdownOverlay,
+                child: const SizedBox.shrink(),
+              ),
+            ),
+            // Always attaches BELOW the field via positive y-offset
+            CompositedTransformFollower(
+              link: _dropdownLayerLink,
+              showWhenUnlinked: false,
+              offset: Offset(0, fieldSize.height + 6),
+              child: Material(
+                elevation: 6,
+                borderRadius: BorderRadius.circular(8),
+                color: _cardColor,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: fieldSize.width,
+                    maxHeight: 260,
+                  ),
+                  child: SizedBox(
+                    width: fieldSize.width,
+                    child: Obx(() {
+                      final levels = _levelsService.levels;
+                      final isLoading = _levelsService.isLoadingLevels.value;
+                      final error = _levelsService.levelsError.value;
+
+                      if (levels.isEmpty) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                          child: Text(
+                            isLoading ? 'Loading levels...' : (error ?? 'No levels available'),
+                            style: TextStyle(color: _secondaryTextColor, fontSize: 13),
+                          ),
+                        );
+                      }
+
+                      return ListView.builder(
+                        padding: EdgeInsets.zero,
+                        shrinkWrap: true,
+                        itemCount: levels.length,
+                        itemBuilder: (context, index) {
+                          final level = levels[index];
+                          final isSelected = _service.selectedLevel.value?.id == level.id;
+                          return InkWell(
+                            onTap: () {
+                              _service.selectLevelById(level.id);
+                              _removeDropdownOverlay();
+                            },
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              color: isSelected ? AppColors.primary.withOpacity(0.08) : Colors.transparent,
+                              child: Text(
+                                level.displayLabel,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: isSelected ? AppColors.primary : _textColor,
+                                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w400,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    }),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    Overlay.of(context).insert(_dropdownOverlayEntry!);
+    setState(() {}); // taake arrow-icon rotate/refresh ho jaye
+  }
+
+  void _removeDropdownOverlay() {
+    if (_dropdownOverlayEntry == null) return;
+    _dropdownOverlayEntry!.remove();
+    _dropdownOverlayEntry = null;
+    if (mounted) setState(() {});
+  }
+
+  Widget _buildLevelDropdown() {
+    return Obx(() {
+      final isLoading = _levelsService.isLoadingLevels.value && _levelsService.levels.isEmpty;
+      final hasError = _levelsService.levelsError.value != null && _levelsService.levels.isEmpty;
+      final selected = _service.selectedLevel.value;
+      final canOpen = !isLoading && _levelsService.levels.isNotEmpty;
+      final isOpen = _dropdownOverlayEntry != null;
+
+      return CompositedTransformTarget(
+        link: _dropdownLayerLink,
+        child: GestureDetector(
+          onTap: canOpen ? _toggleDropdownOverlay : null,
+          child: Container(
+            key: _dropdownFieldKey,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            decoration: BoxDecoration(
+              border: Border.all(color: AppColors.primary),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    selected?.displayLabel ??
+                        (isLoading
+                            ? 'Loading levels...'
+                            : hasError
+                                ? 'Could not load levels'
+                                : 'Select level'),
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: selected != null ? _textColor : _secondaryTextColor,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                isLoading
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : AnimatedRotation(
+                        turns: isOpen ? 0.5 : 0.0,
+                        duration: const Duration(milliseconds: 180),
+                        child: Icon(Icons.keyboard_arrow_down, color: _textColor),
+                      ),
+              ],
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
+  Widget _buildLockedLevelMessage(DmtLevel lockedLevel, DmtScoreHistoryPayload payload) {
+    final color = levelColorForCode(lockedLevel.code);
+    final currentLevel = payload.currentLevel;
+    final summary = _levelsSummaryService.summaryPayload.value;
+    final summaryItem = summary?.levelById(lockedLevel.id);
+    final requiredScore = summaryItem?.minimumScore;
+    final nextLabel = currentLevel?.displayLabel ?? 'your current level';
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [color.withOpacity(0.12), _cardColor, color.withOpacity(0.06)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.22)),
+        boxShadow: [
+          BoxShadow(color: color.withOpacity(0.12), blurRadius: 20, offset: const Offset(0, 8)),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            height: 72,
+            width: 72,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(colors: [color.withOpacity(0.85), color]),
+              boxShadow: [
+                BoxShadow(color: color.withOpacity(0.35), blurRadius: 14, offset: const Offset(0, 6)),
+              ],
+            ),
+            child: const Icon(Icons.lock_rounded, color: Colors.white, size: 34),
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              lockedLevel.code,
+              style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 12, letterSpacing: 0.5),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            lockedLevel.displayLabel,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: _textColor),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'You have not reached this level yet',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: _secondaryTextColor, height: 1.35),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            requiredScore != null && requiredScore > 0
+                ? 'Keep building your score at $nextLabel. You need at least $requiredScore points to unlock ${lockedLevel.displayLabel}.'
+                : 'Keep progressing at $nextLabel to unlock ${lockedLevel.displayLabel} and view its analysis.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, color: _secondaryTextColor, height: 1.45),
+          ),
+          const SizedBox(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.emoji_events_outlined, size: 18, color: color),
+              const SizedBox(width: 8),
+              Text(
+                'Your focus: ${currentLevel?.displayLabel ?? 'Believe Mode'}',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: color),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          GestureDetector(
+            onTap: widget.onMonkkTap,
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.asset(
+                    "assets/logo.jpg",
+                    height: 24,
+                    width: 24,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Zeno AI',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: AppColors.primary),
+                ),
+              ],
+            ),
+          ),
+          Row(
+            children: [
+              Icon(Icons.bar_chart_rounded, color: AppColors.primary, size: 18),
+              const SizedBox(width: 4),
+              Text(
+                'Analysis',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: _secondaryTextColor),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNextLevelBanner(DmtScoreHistoryPayload payload) {
+    final next = payload.nextLevel!;
+    final color = levelColorForCode(next.code);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(0.22)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            height: 32,
+            width: 32,
+            decoration: BoxDecoration(color: color.withOpacity(0.15), shape: BoxShape.circle),
+            child: Center(
+              child: Text(next.code, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11)),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Next Level: ${next.displayLabel}',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _textColor)),
+                const SizedBox(height: 2),
+                Text('You need ${next.remainingScore} more points to reach ${next.displayLabel}',
+                    style: TextStyle(fontSize: 11, color: _secondaryTextColor, height: 1.3)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAnimatedScoreChartCard(DmtScoreHistoryPayload payload) {
+    return AnimatedBuilder(
+      animation: _chartRevealController,
+      builder: (context, _) => _buildScoreChartCard(payload, revealFactor: _chartReveal()),
+    );
+  }
+
+  Widget _buildScoreChartCard(DmtScoreHistoryPayload payload, {double revealFactor = 1}) {
+    final history = payload.sortedHistory;
+    final maxDaily = history.isEmpty
+        ? 60.0
+        : history.map((e) => e.dailyScore.toDouble()).reduce((a, b) => a > b ? a : b);
+    final yScale = _scoreYScale(history, maxDaily);
+
+    return _chartShell(
+      title: payload.displayLevel != null ? 'Daily Score (${payload.displayLevel!.displayLabel})' : 'Daily Score',
+      icon: Icons.show_chart_rounded,
+      lineColor: _scoreLineColor,
+      headerText: 'Current DMT Score - ${payload.displayScore}',
+      revealFactor: revealFactor,
+      child: history.isEmpty
+          ? _emptyChart('No daily scores yet')
+          : _classicLineChart(
+              values: history.map((e) => e.dailyScore.toDouble()).toList(),
+              xLabels: history.map(_shortDateLabel).toList(),
+              maxY: yScale.maxY,
+              yInterval: yScale.interval,
+              lineColor: _scoreLineColor,
+              touchedIndex: _touchedScoreIndex,
+              revealFactor: revealFactor,
+              formatYLabel: (v) => v.toInt().toString(),
+              onTouch: (i) => setState(() => _touchedScoreIndex = i),
+              tooltipBuilder: (i, v) {
+                final e = history[i];
+                return '${e.scoreDateFormatted.isNotEmpty ? e.scoreDateFormatted : e.scoreDate}\n${e.dailyScore} pts';
+              },
+            ),
+    );
+  }
+
+  Widget _buildAnimatedProfitChartCard(DmtUserReturnPercentagesPayload? returns) {
+    return AnimatedBuilder(
+      animation: _chartRevealController,
+      builder: (context, _) => _buildProfitChartCard(returns, revealFactor: _chartReveal(delay: 0.18)),
+    );
+  }
+
+  Widget _buildProfitChartCard(DmtUserReturnPercentagesPayload? returns, {double revealFactor = 1}) {
+    if (_service.isLoadingReturns.value && returns == null) {
+      return _chartShell(
+        title: 'Profit Returns',
+        icon: Icons.trending_up_rounded,
+        lineColor: _profitLineColor,
+        revealFactor: revealFactor,
+        child: SizedBox(
+          height: _chartHeight,
+          child: Center(
+            child: SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2, color: _profitLineColor.withOpacity(0.7)),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final err = _service.returnsError.value;
+    if (returns == null) {
+      return _chartShell(
+        title: 'Profit Returns',
+        icon: Icons.trending_up_rounded,
+        lineColor: _profitLineColor,
+        revealFactor: revealFactor,
+        child: _emptyChart(err ?? 'No return data yet'),
+      );
+    }
+
+    final items = returns.returnsByDate;
+    final values = items.map((e) => e.returnPercentage).toList();
+    final yScale = _profitYScale(values);
+
+    return _chartShell(
+      title: 'Profit Returns',
+      icon: Icons.trending_up_rounded,
+      lineColor: _profitLineColor,
+      revealFactor: revealFactor,
+      child: items.isEmpty
+          ? _emptyChart('No completed trades for this level')
+          : _classicLineChart(
+              values: values,
+              xLabels: items.map(_shortReturnDateLabel).toList(),
+              minY: yScale.minY,
+              maxY: yScale.maxY,
+              yInterval: yScale.interval,
+              lineColor: _profitLineColor,
+              touchedIndex: _touchedProfitIndex,
+              revealFactor: revealFactor,
+              emphasizeZeroLine: true,
+              formatYLabel: (v) {
+                final abs = v.abs();
+                final text = abs % 1 == 0 ? v.toInt().toString() : v.toStringAsFixed(1);
+                return '$text%';
+              },
+              onTouch: (i) => setState(() => _touchedProfitIndex = i),
+              tooltipBuilder: (i, v) {
+                final e = items[i];
+                final dateLabel = e.dateFormatted.isNotEmpty ? e.dateFormatted : e.date;
+                if (e.tradeCount > 1) {
+                  return '$dateLabel\n${v.toStringAsFixed(2)}% avg\n${e.tradeCount} trades';
+                }
+                return '$dateLabel\n${v.toStringAsFixed(2)}%';
+              },
+            ),
+    );
+  }
+
+  Widget _chartShell({
+    required String title,
+    required IconData icon,
+    required Color lineColor,
+    required Widget child,
+    String? headerText,
+    double revealFactor = 1,
+  }) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [BoxShadow(color: _shadowColor, blurRadius: 8, offset: const Offset(0, 2))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (headerText != null) ...[
+            SizedBox(
+              width: double.infinity,
+              child: Text(headerText, textAlign: TextAlign.center, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: _textColor)),
+            ),
+            const SizedBox(height: 6),
+          ],
+          Row(
+            children: [
+              Icon(icon, color: lineColor, size: 16),
+              const SizedBox(width: 6),
+              Text(title, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: _textColor)),
+              const Spacer(),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: _chartHeight,
+            child: AnimatedOpacity(opacity: revealFactor.clamp(0.0, 1.0), duration: Duration.zero, child: child),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyChart(String message) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Text(message, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: _secondaryTextColor)),
+      ),
+    );
+  }
+
+  Widget _classicLineChart({
+    required List<double> values,
+    required List<String> xLabels,
+    double minY = 0,
+    required double maxY,
+    required double yInterval,
+    required Color lineColor,
+    required int? touchedIndex,
+    required String Function(double value) formatYLabel,
+    required void Function(int? index) onTouch,
+    required String Function(int index, double value) tooltipBuilder,
+    double revealFactor = 1,
+    bool emphasizeZeroLine = false,
+  }) {
+    final reveal = revealFactor.clamp(0.0, 1.0);
+    final animatedValues = values.map((v) => v * reveal).toList();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 6, 36, 4),
+      child: LineChart(
+        _lineChartData(
+          values: animatedValues,
+          xLabels: xLabels,
+          minY: minY,
+          maxY: maxY,
+          yInterval: yInterval,
+          lineColor: lineColor,
+          touchedIndex: touchedIndex,
+          revealFactor: reveal,
+          emphasizeZeroLine: emphasizeZeroLine,
+          formatYLabel: formatYLabel,
+          onTouch: onTouch,
+          tooltipBuilder: tooltipBuilder,
+        ),
+        duration: Duration.zero,
+      ),
+    );
+  }
+
+  LineChartData _lineChartData({
+    required List<double> values,
+    required List<String> xLabels,
+    required double minY,
+    required double maxY,
+    required double yInterval,
+    required Color lineColor,
+    required int? touchedIndex,
+    required String Function(double value) formatYLabel,
+    required void Function(int? index) onTouch,
+    required String Function(int index, double value) tooltipBuilder,
+    double revealFactor = 1,
+    bool emphasizeZeroLine = false,
+  }) {
+    final maxX = values.length <= 1 ? 1.0 : (values.length - 1).toDouble();
+    final reveal = revealFactor.clamp(0.0, 1.0);
+
+    return LineChartData(
+      minX: 0,
+      maxX: maxX,
+      minY: minY,
+      maxY: maxY,
+      backgroundColor: _cardColor,
+      lineTouchData: LineTouchData(
+        enabled: true,
+        touchCallback: (event, response) {
+          if (!event.isInterestedForInteractions || response?.lineBarSpots == null || response!.lineBarSpots!.isEmpty) {
+            onTouch(null);
+            return;
+          }
+          onTouch(response.lineBarSpots!.first.x.toInt());
+        },
+        touchTooltipData: LineTouchTooltipData(
+          getTooltipColor: (_) => _axisColor.withOpacity(0.9),
+          tooltipPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          getTooltipItems: (touchedSpots) => touchedSpots.map((spot) {
+            final index = spot.x.toInt();
+            if (index < 0 || index >= values.length) return null;
+            return LineTooltipItem(tooltipBuilder(index, spot.y),
+                const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 11));
+          }).toList(),
+        ),
+      ),
+      titlesData: FlTitlesData(
+        show: true,
+        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false, reservedSize: 22)),
+        leftTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 34,
+            interval: yInterval,
+            getTitlesWidget: (value, meta) {
+              if (value < minY - 0.001 || value > maxY + 0.001) return const SizedBox.shrink();
+              final rem = (value / yInterval).roundToDouble() * yInterval;
+              if ((value - rem).abs() > yInterval * 0.15) return const SizedBox.shrink();
+              final isZero = emphasizeZeroLine && value.abs() < 0.001;
+              return Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: Text(formatYLabel(value),
+                    style: TextStyle(color: isZero ? lineColor : _axisColor, fontSize: 10, fontWeight: isZero ? FontWeight.w700 : FontWeight.w400)),
+              );
+            },
+          ),
+        ),
+        bottomTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 48,
+            interval: 1,
+            getTitlesWidget: (value, meta) {
+              final index = value.toInt();
+              if (index < 0 || index >= xLabels.length) return const SizedBox.shrink();
+              final isTouched = touchedIndex == index;
+              final isFirst = index == 0;
+              final isLast = index == xLabels.length - 1;
+              final label = Transform.rotate(
+                angle: -0.785398,
+                alignment: isLast ? Alignment.topRight : isFirst ? Alignment.topLeft : Alignment.topCenter,
+                child: Text(xLabels[index],
+                    textAlign: isLast ? TextAlign.right : isFirst ? TextAlign.left : TextAlign.center,
+                    style: TextStyle(color: isTouched ? lineColor : _axisColor, fontSize: 10, fontWeight: isTouched ? FontWeight.w700 : FontWeight.w500)),
+              );
+              return Padding(
+                padding: EdgeInsets.only(top: 8, left: isFirst ? 4 : 0, right: isLast ? 8 : 0),
+                child: isLast
+                    ? Align(alignment: Alignment.centerRight, widthFactor: 1, child: label)
+                    : isFirst
+                        ? Align(alignment: Alignment.centerLeft, widthFactor: 1, child: label)
+                        : label,
+              );
+            },
+          ),
+        ),
+      ),
+      gridData: FlGridData(
+        show: reveal > 0.05,
+        drawVerticalLine: true,
+        drawHorizontalLine: true,
+        horizontalInterval: yInterval,
+        verticalInterval: 1,
+        getDrawingHorizontalLine: (value) => emphasizeZeroLine && value.abs() < 0.001
+            ? FlLine(color: _axisColor.withOpacity(reveal * 0.85), strokeWidth: 1.5)
+            : FlLine(color: _gridColor.withOpacity(reveal), strokeWidth: 1),
+        getDrawingVerticalLine: (value) => FlLine(color: _gridColor.withOpacity(reveal), strokeWidth: 1),
+      ),
+      borderData: FlBorderData(
+        show: reveal > 0.05,
+        border: Border(
+          left: BorderSide(color: _axisColor.withOpacity(reveal), width: 1.5),
+          bottom: BorderSide(color: _axisColor.withOpacity(reveal), width: 1.5),
+          top: BorderSide.none,
+          right: BorderSide.none,
+        ),
+      ),
+      lineBarsData: [
+        LineChartBarData(
+          spots: [for (var i = 0; i < values.length; i++) FlSpot(i.toDouble(), values[i])],
+          isCurved: false,
+          color: lineColor.withOpacity(reveal),
+          barWidth: 3.5,
+          isStrokeCapRound: true,
+          dotData: FlDotData(
+            show: reveal > 0.15,
+            getDotPainter: (spot, percent, bar, index) {
+              final isTouched = touchedIndex == index;
+              return FlDotCirclePainter(
+                radius: isTouched ? 6 : 4.5,
+                color: _cardColor,
+                strokeWidth: isTouched ? 3 : 2.5,
+                strokeColor: lineColor,
+              );
+            },
+          ),
+          belowBarData: BarAreaData(show: false),
+        ),
+      ],
+    );
+  }
+
+  ({double maxY, double interval}) _scoreYScale(List<DmtScoreHistoryEntry> history, double maxDaily) {
+    final cap = history.isNotEmpty ? history.first.maxScore.toDouble() : 60.0;
+    final top = maxDaily > cap ? maxDaily : cap;
+    final maxY = ((top / 10).ceil() * 10).toDouble().clamp(10.0, double.infinity);
+    final interval = maxY <= 60 ? 10.0 : maxY / 5;
+    return (maxY: maxY, interval: interval);
+  }
+
+  ({double minY, double maxY, double interval}) _profitYScale(List<double> values) {
+    if (values.isEmpty) return (minY: -5.0, maxY: 5.0, interval: 2.5);
+    final minVal = values.reduce((a, b) => a < b ? a : b);
+    final maxVal = values.reduce((a, b) => a > b ? a : b);
+    final maxAbs = minVal.abs() > maxVal.abs() ? minVal.abs() : maxVal.abs();
+    final padded = maxAbs <= 0 ? 1.0 : ((maxAbs * 1.2) / 0.5).ceil() * 0.5;
+    final bound = padded < 1 ? 1.0 : padded;
+    final interval = bound <= 5 ? bound / 2 : bound / 2;
+    return (minY: -bound, maxY: bound, interval: interval);
+  }
+
+  String _shortReturnDateLabel(DmtDailyReturn entry) {
+    try {
+      final d = DateTime.parse(entry.date);
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return '${d.day} ${months[d.month - 1]}';
+    } catch (_) {
+      return entry.dateFormatted.isNotEmpty ? entry.dateFormatted : entry.date;
+    }
+  }
+
+  String _shortDateLabel(DmtScoreHistoryEntry entry) {
+    try {
+      final d = DateTime.parse(entry.scoreDate);
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return '${d.day} ${months[d.month - 1]}';
+    } catch (_) {
+      return entry.scoreDateFormatted.isNotEmpty ? entry.scoreDateFormatted : entry.scoreDate;
+    }
+  }
+
+  Widget _buildError(String message) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, size: 40, color: Colors.grey.shade400),
+            const SizedBox(height: 10),
+            Text(message, textAlign: TextAlign.center, style: TextStyle(color: _secondaryTextColor, fontSize: 13)),
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: _service.refreshTabData,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('Retry'),
+              style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShimmer() {
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: [
+        Shimmer.fromColors(
+          baseColor: _isDark ? Colors.grey.shade800 : Colors.grey.shade300,
+          highlightColor: _isDark ? Colors.grey.shade700 : Colors.grey.shade100,
+          child: Column(
+            children: [
+              Container(height: 88, decoration: BoxDecoration(color: _cardColor, borderRadius: BorderRadius.circular(12))),
+              const SizedBox(height: 10),
+              Container(height: 220, decoration: BoxDecoration(color: _cardColor, borderRadius: BorderRadius.circular(12))),
+              const SizedBox(height: 10),
+              Container(height: 220, decoration: BoxDecoration(color: _cardColor, borderRadius: BorderRadius.circular(12))),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}

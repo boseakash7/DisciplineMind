@@ -1,0 +1,5958 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:discipline_mind/common/app_colors.dart';
+import 'package:discipline_mind/common/common.dart';
+import 'package:discipline_mind/services/api/api_config.dart';
+import 'package:discipline_mind/controller/chat_controller.dart';
+import 'package:discipline_mind/controller/trading_process_controller.dart';
+import 'package:discipline_mind/model/chat_message_model.dart';
+import 'package:discipline_mind/services/notification/notification_handler.dart';
+import 'package:discipline_mind/services/openai_stt_service.dart';
+import 'package:discipline_mind/ui/main_home/trade_process.dart';
+import 'package:discipline_mind/ui/main_home/dmt_score_screen.dart';
+import 'package:discipline_mind/ui/widgets/ai_waiting_status_bubble.dart';
+import 'package:discipline_mind/ui/widgets/app_toast.dart';
+import 'package:discipline_mind/ui/widgets/audio_wave_visualizer.dart';
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:record/record.dart';
+import 'package:discipline_mind/services/native_app_block_service.dart';
+import 'package:discipline_mind/services/trading_block_bootstrap.dart';
+
+class ChatScreen extends StatefulWidget {
+  const ChatScreen({super.key, this.onMonkkTap, this.isActive = true});
+
+  final VoidCallback? onMonkkTap;
+
+  /// True when this tab is selected in `MainHomeScreen` bottom nav.
+  final bool isActive;
+
+  @override
+  State<ChatScreen> createState() => _ChatScreenState();
+}
+
+class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
+  late final ChatController _chatController;
+  final NativeAppBlockService _blockService = NativeAppBlockService();
+  bool _overlayGranted = false;
+  bool _usageGranted = false;
+  bool _isCheckingPermissions = true;
+  bool _hideMindControlGateTemporary = false;
+  bool _skippedMindControl = false;
+
+  final _textController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  int _lastMessageCount = 0;
+  final Set<String> _revealedUnreadMessageIds = <String>{};
+  bool _isLoadingOlder = false;
+  bool _suppressAutoBottomScroll = false;
+  bool _skipNextAutoBottomScroll = false;
+  bool _didInitialBottomSnap = false;
+  String _previousFirstMessageId = '';
+  String _previousLastMessageId = '';
+  final Set<String> _openedTradingAppMessageIds = <String>{};
+  final Set<String> _actionTakenMessageIds = <String>{};
+  final Set<String> _actionTakenTradeIds = <String>{};
+
+  /// Voice recording & STT states
+  AudioRecorder? _audioRecorder;
+  StreamSubscription<Amplitude>? _amplitudeSubscription;
+  bool _isRecording = false;
+  bool _isTranscribing = false;
+  double _currentAmplitude = 0.0;
+  int _recordingSeconds = 0;
+  Timer? _recordingTimer;
+  String? _currentRecordingPath;
+
+  /// DMT score popup staged animation shown once per message (while unread).
+  final Set<String> _dmtScorePopupAnimatedIds = <String>{};
+
+  /// Selected action in trade signal dropdowns keyed by messageId / signalId.
+  final Map<String, String> _selectedSignalActions = <String, String>{};
+  final Set<String> _expandedSignalDropdowns = <String>{};
+
+  Future<void> _disposeRecorder() async {
+    _recordingTimer?.cancel();
+    _recordingTimer = null;
+    await _amplitudeSubscription?.cancel();
+    _amplitudeSubscription = null;
+    if (_audioRecorder != null) {
+      try {
+        if (await _audioRecorder!.isRecording()) {
+          await _audioRecorder!.stop();
+        }
+      } catch (_) {}
+      try {
+        await _audioRecorder!.dispose();
+      } catch (_) {}
+      _audioRecorder = null;
+    }
+  }
+
+  Future<void> _startRecording() async {
+    if (_isRecording || _isTranscribing) return;
+    try {
+      await _disposeRecorder();
+      _audioRecorder = AudioRecorder();
+
+      final status = await Permission.microphone.request();
+      if (!status.isGranted) {
+        AppToast.showToast('Microphone permission is required to record audio');
+        await _disposeRecorder();
+        return;
+      }
+      final hasPermission = await _audioRecorder!.hasPermission();
+      if (!hasPermission) {
+        AppToast.showToast('Microphone permission denied');
+        await _disposeRecorder();
+        return;
+      }
+
+      final tempDir = await getTemporaryDirectory();
+      final path =
+          '${tempDir.path}/chat_voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
+      await _audioRecorder!.start(
+        const RecordConfig(encoder: AudioEncoder.aacLc),
+        path: path,
+      );
+
+      setState(() {
+        _isRecording = true;
+        _isTranscribing = false;
+        _currentAmplitude = 0.0;
+        _recordingSeconds = 0;
+        _currentRecordingPath = path;
+      });
+
+      _recordingTimer?.cancel();
+      _recordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted && _isRecording) {
+          setState(() => _recordingSeconds++);
+        }
+      });
+
+      _amplitudeSubscription?.cancel();
+      _amplitudeSubscription = _audioRecorder!
+          .onAmplitudeChanged(const Duration(milliseconds: 70))
+          .listen((amp) {
+            if (!mounted || !_isRecording) return;
+            final db = amp.current;
+            double norm;
+            if (db <= -45.0) {
+              norm = 0.0;
+            } else {
+              norm = ((db + 45.0) / 45.0).clamp(0.0, 1.0);
+            }
+            setState(() {
+              _currentAmplitude = norm;
+            });
+          });
+    } catch (e) {
+      debugPrint('Error starting audio recording: $e');
+      AppToast.showToast('Failed to start recording');
+      await _disposeRecorder();
+      if (mounted) {
+        setState(() => _isRecording = false);
+      }
+    }
+  }
+
+  Future<void> _stopRecordingAndTranscribe() async {
+    if (!_isRecording) return;
+    try {
+      _recordingTimer?.cancel();
+      await _amplitudeSubscription?.cancel();
+      _amplitudeSubscription = null;
+
+      String? path;
+      if (_audioRecorder != null) {
+        try {
+          path = await _audioRecorder!.stop();
+        } catch (e) {
+          debugPrint('Error stopping audio recorder: $e');
+        }
+        try {
+          await _audioRecorder!.dispose();
+        } catch (_) {}
+        _audioRecorder = null;
+      }
+
+      setState(() {
+        _isRecording = false;
+        _isTranscribing = true;
+      });
+
+      final targetPath = path ?? _currentRecordingPath;
+      if (targetPath == null || targetPath.isEmpty) {
+        AppToast.showToast('No audio recorded');
+        setState(() => _isTranscribing = false);
+        return;
+      }
+
+      final text = await OpenAiSttService.transcribeAudio(targetPath);
+
+      if (!mounted) return;
+      setState(() {
+        _isTranscribing = false;
+      });
+
+      if (text != null && text.isNotEmpty) {
+        final currentText = _textController.text;
+        if (currentText.trim().isEmpty) {
+          _textController.text = text;
+        } else {
+          _textController.text = '$currentText $text';
+        }
+        _textController.selection = TextSelection.fromPosition(
+          TextPosition(offset: _textController.text.length),
+        );
+      } else {
+        AppToast.showToast('Could not convert voice to text');
+      }
+
+      try {
+        final f = File(targetPath);
+        if (await f.exists()) await f.delete();
+      } catch (_) {}
+    } catch (e) {
+      debugPrint('Error stopping/transcribing audio: $e');
+      await _disposeRecorder();
+      if (mounted) {
+        setState(() => _isTranscribing = false);
+        AppToast.showToast('Failed to process voice recording');
+      }
+    }
+  }
+
+  Future<void> _cancelRecording() async {
+    if (!_isRecording) return;
+    try {
+      _recordingTimer?.cancel();
+      await _amplitudeSubscription?.cancel();
+      _amplitudeSubscription = null;
+
+      String? path;
+      if (_audioRecorder != null) {
+        try {
+          path = await _audioRecorder!.stop();
+        } catch (_) {}
+        try {
+          await _audioRecorder!.dispose();
+        } catch (_) {}
+        _audioRecorder = null;
+      }
+
+      setState(() {
+        _isRecording = false;
+        _isTranscribing = false;
+        _currentAmplitude = 0.0;
+      });
+
+      final targetPath = path ?? _currentRecordingPath;
+      if (targetPath != null) {
+        final f = File(targetPath);
+        if (await f.exists()) await f.delete();
+      }
+    } catch (e) {
+      debugPrint('Error cancelling recording: $e');
+    }
+  }
+
+  // ==================== Theme-aware color helpers ====================
+  // Centralised so light/dark variants stay consistent across every bubble,
+  // card, dialog and input in this screen.
+
+  bool get _isMarketOpen {
+    final nowUtc = DateTime.now().toUtc();
+    final istOffset = const Duration(hours: 5, minutes: 30);
+    final nowIst = nowUtc.add(istOffset);
+
+    if (nowIst.weekday == DateTime.saturday ||
+        nowIst.weekday == DateTime.sunday) {
+      return false;
+    }
+
+    final minutes = nowIst.hour * 60 + nowIst.minute;
+    final startMinutes = 9 * 60 + 15; // 9:15 AM
+    final endMinutes = 15 * 60 + 30; // 3:30 PM
+
+    return minutes >= startMinutes && minutes <= endMinutes;
+  }
+
+  bool _enforceMindControlOnClick() {
+    final processController = Get.find<TradingProcessController>();
+    final process = processController.currentProcess.value;
+    if (process != null && process.isMindControllActive == 0 && _isMarketOpen) {
+      AppToast.showToast('Activate Mind Control Guard');
+      setState(() {
+        _skippedMindControl = false;
+      });
+      return true;
+    }
+    return false;
+  }
+
+  bool _isDark(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark;
+
+  /// Screen / scaffold background.
+  Color _screenBg(bool isDark) =>
+      isDark ? const Color(0xFF12151B) : AppColors.backgroundGray;
+
+  /// Bottom input bar background.
+  Color _bottomBarBg(bool isDark) =>
+      isDark ? const Color(0xFF12151B) : Colors.white;
+
+  /// Incoming (assistant) plain text bubble background.
+  Color _bubbleBg(bool isDark) =>
+      isDark ? const Color(0xFF1E222A) : Colors.grey.shade200;
+
+  /// Incoming bubble main text.
+  Color _bubbleText(bool isDark) => isDark ? Colors.white : Colors.black87;
+
+  /// Headline / primary body text outside bubbles (was Colors.grey.shade800).
+  Color _headlineText(bool isDark) =>
+      isDark ? Colors.white : Colors.grey.shade800;
+
+  /// Secondary text (was Colors.grey.shade700).
+  Color _secondaryText(bool isDark) =>
+      isDark ? Colors.white70 : Colors.grey.shade700;
+
+  /// Tertiary / muted text (was Colors.grey.shade600).
+  Color _tertiaryText(bool isDark) =>
+      isDark ? Colors.white60 : Colors.grey.shade600;
+
+  /// Dialog / popup surface background.
+  Color _dialogBg(bool isDark) =>
+      isDark ? const Color(0xFF1E222A) : Colors.white;
+
+  /// Text field fill inside dialogs / input bar.
+  Color _fieldFill(bool isDark) =>
+      isDark ? const Color(0xFF1E222A) : const Color(0xFFF7F6FB);
+
+  /// Generic border color for fields/cards in dialogs.
+  Color _fieldBorder(bool isDark) =>
+      isDark ? Colors.white12 : const Color(0xFFE2E0E9);
+
+  /// Divider color used inside the (always-white) trade card stays the same
+  /// in both themes since the card itself stays white per design.
+
+  final ValueNotifier<bool> _showScrollToLatest = ValueNotifier<bool>(false);
+
+  @override
+  void initState() {
+    super.initState();
+    _chatController = Get.isRegistered<ChatController>()
+        ? Get.find<ChatController>()
+        : Get.put(ChatController(), permanent: true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && widget.isActive) _syncOnTabFocus();
+    });
+    WidgetsBinding.instance.addObserver(this);
+    _checkPermissions();
+    _scrollController.addListener(_onChatScroll);
+  }
+
+  Future<void> _checkPermissions() async {
+    final permissions = await _blockService.checkPermissions();
+    if (!mounted) return;
+    final overlay = permissions['hasOverlayPermission'] ?? false;
+    final usage = permissions['hasUsageStatsPermission'] ?? false;
+    setState(() {
+      _overlayGranted = overlay;
+      _usageGranted = usage;
+      _isCheckingPermissions = false;
+    });
+    if (overlay && usage) {
+      unawaited(checkAndStartTradingBlockIfPermitted());
+    }
+  }
+
+  Future<void> _requestOverlay() async {
+    await _blockService.requestOverlayPermission();
+    _checkPermissions();
+  }
+
+  Future<void> _requestUsage() async {
+    await _blockService.requestUsageStatsPermission();
+    _checkPermissions();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkPermissions();
+      if (widget.isActive) _syncOnTabFocus();
+    }
+  }
+
+  @override
+  void didUpdateWidget(ChatScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      if (_hideMindControlGateTemporary || _skippedMindControl) {
+        setState(() {
+          _hideMindControlGateTemporary = false;
+          _skippedMindControl = false;
+        });
+      }
+      _syncOnTabFocus();
+    }
+  }
+
+  void _syncOnTabFocus() {
+    if (_chatController.isClosed) return;
+    _chatController.loadNewMessages(
+      silent: _chatController.messages.isNotEmpty,
+    );
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _disposeRecorder();
+    _scrollController.removeListener(_onChatScroll);
+    _textController.dispose();
+    _showScrollToLatest.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onChatScroll() {
+    _updateScrollToLatestVisibility();
+    _handleScrollForOlderMessages();
+  }
+
+  void _updateScrollToLatestVisibility() {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    final distanceFromBottom = position.maxScrollExtent - position.pixels;
+    final shouldShow =
+        position.maxScrollExtent > 120 && distanceFromBottom > 120;
+    if (shouldShow != _showScrollToLatest.value) {
+      _showScrollToLatest.value = shouldShow;
+    }
+  }
+
+  void _jumpToLatestMessages() {
+    if (!_scrollController.hasClients) return;
+    _showScrollToLatest.value = false;
+    _scrollToBottom(animated: true);
+    Future.delayed(const Duration(milliseconds: 280), () {
+      if (!mounted) return;
+      _scheduleScrollToBottom();
+    });
+  }
+
+  bool _isNearBottom() {
+    if (!_scrollController.hasClients) return false;
+    final position = _scrollController.position;
+    return (position.maxScrollExtent - position.pixels) <= 80;
+  }
+
+  String _firstMessageId(List<ChatMessage> list) {
+    for (final m in list) {
+      final id = m.messageId.trim();
+      if (id.isNotEmpty) return id;
+    }
+    return '';
+  }
+
+  String _lastMessageId(List<ChatMessage> list) {
+    for (var i = list.length - 1; i >= 0; i--) {
+      final id = list[i].messageId.trim();
+      if (id.isNotEmpty) return id;
+    }
+    return '';
+  }
+
+  Future<void> _handleScrollForOlderMessages() async {
+    if (_isLoadingOlder) return;
+    if (!_scrollController.hasClients) return;
+    if (_scrollController.position.pixels > 24) return;
+    if (!Get.isRegistered<ChatController>()) return;
+    final controller = Get.find<ChatController>();
+    if (controller.isLoading.value || controller.messages.isEmpty) return;
+    if (!controller.hasMoreOlderMessages.value) return;
+    _isLoadingOlder = true;
+    _suppressAutoBottomScroll = true;
+    _skipNextAutoBottomScroll = true;
+    final beforeIds = controller.messages
+        .map((m) => m.messageId.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    final previousPixels = _scrollController.position.pixels;
+    final previousMax = _scrollController.position.maxScrollExtent;
+    try {
+      await controller.loadOlderMessages();
+      if (mounted) {
+        final prependedUnreadIds = <String>{};
+        for (final m in controller.messages) {
+          final id = m.messageId.trim();
+          if (id.isEmpty) continue;
+          if (beforeIds.contains(id)) break;
+          if (m.isUnread) prependedUnreadIds.add(id);
+        }
+        if (prependedUnreadIds.isNotEmpty) {
+          setState(() {
+            _revealedUnreadMessageIds.addAll(prependedUnreadIds);
+          });
+        }
+      }
+      if (!mounted || !_scrollController.hasClients) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scrollController.hasClients) return;
+        final newMax = _scrollController.position.maxScrollExtent;
+        final addedExtent = (newMax - previousMax).clamp(0.0, double.infinity);
+        final target = previousPixels + addedExtent;
+        final bounded = target.clamp(0.0, newMax);
+        _scrollController.jumpTo(bounded);
+      });
+    } finally {
+      _isLoadingOlder = false;
+      // Keep suppression for this frame so list-length rebuild won't try to
+      // snap to bottom while older messages are being inserted.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _suppressAutoBottomScroll = false;
+      });
+    }
+  }
+
+  void _scrollToBottom({bool animated = false}) {
+    if (!_scrollController.hasClients) return;
+    final target = _scrollController.position.maxScrollExtent;
+    if (animated) {
+      _scrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    } else {
+      _scrollController.jumpTo(target);
+    }
+  }
+
+  /// Scroll until [maxScrollExtent] stabilizes so tall messages are fully visible.
+  void _scheduleScrollToBottom({int attempt = 0}) {
+    const maxAttempts = 18;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+
+      final max = _scrollController.position.maxScrollExtent;
+      _scrollToBottom(animated: false);
+
+      if (attempt >= maxAttempts) return;
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scrollController.hasClients) return;
+        final nextMax = _scrollController.position.maxScrollExtent;
+        final nextPixels = _scrollController.position.pixels;
+        final stillGrowing = nextMax > max + 0.5;
+        final notFullyScrolled = (nextMax - nextPixels).abs() > 2.0;
+
+        if (stillGrowing || notFullyScrolled) {
+          _scheduleScrollToBottom(attempt: attempt + 1);
+          return;
+        }
+
+        // Late layout (images, rich cards) can still grow after extent looks stable.
+        if (attempt < 8) {
+          Future.delayed(Duration(milliseconds: 40 + attempt * 25), () {
+            if (mounted) _scheduleScrollToBottom(attempt: attempt + 1);
+          });
+        }
+      });
+    });
+  }
+
+  void _scheduleScrollAfterUnreadReveal(
+    String messageId,
+    ChatController controller,
+  ) {
+    final isLast = messageId == _lastMessageId(controller.messages);
+    if (isLast || _isNearBottom()) {
+      _scheduleScrollToBottom();
+    }
+  }
+
+  /// Spreads [lx] so adjacent markers are at least [minSep] apart without
+  /// reversing price order (low price → left, high → right).
+  List<double> _spreadTimelineAnchorsByPrice(
+    List<double> lx,
+    List<double> numeric,
+    double minSep,
+    double maxWidth,
+  ) {
+    final n = lx.length;
+    final order = List<int>.generate(n, (i) => i);
+    order.sort((a, b) {
+      final c = numeric[a].compareTo(numeric[b]);
+      if (c != 0) return c;
+      return a.compareTo(b);
+    });
+    final xs = order.map((i) => lx[i]).toList();
+
+    for (var k = 1; k < n; k++) {
+      if (xs[k] - xs[k - 1] < minSep) {
+        xs[k] = xs[k - 1] + minSep;
+      }
+    }
+    if (xs[n - 1] > maxWidth) {
+      xs[n - 1] = maxWidth;
+      for (var k = n - 2; k >= 0; k--) {
+        if (xs[k + 1] - xs[k] < minSep) {
+          xs[k] = xs[k + 1] - minSep;
+        }
+      }
+      if (xs[0] < 0) {
+        xs[0] = 0;
+        for (var k = 1; k < n; k++) {
+          if (xs[k] - xs[k - 1] < minSep) {
+            xs[k] = xs[k - 1] + minSep;
+          }
+        }
+      }
+    }
+
+    final out = List<double>.filled(n, 0);
+    for (var k = 0; k < n; k++) {
+      out[order[k]] = xs[k];
+    }
+    return out;
+  }
+
+  /// For trade card display: if value ends with `.00`, show whole number.
+  /// Keep non-numeric and mixed values (e.g. `390 - 400`) unchanged.
+  String _formatTradeCardPrice(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty) return raw;
+    final parsed = double.tryParse(value);
+    if (parsed == null) return raw;
+    final fixed = parsed.toStringAsFixed(2);
+    if (fixed.endsWith('.00')) {
+      return parsed.toInt().toString();
+    }
+    return raw;
+  }
+
+  String _tradeSignalTime(String ts) {
+    if (ts.isEmpty) return '';
+    final parsed = DateTime.tryParse(ts);
+    if (parsed == null) return ts;
+    final local = parsed.toLocal();
+    final h = local.hour;
+    final m = local.minute.toString().padLeft(2, '0');
+    final period = h >= 12 ? 'pm' : 'am';
+    final hr12 = h == 0 ? 12 : (h > 12 ? h - 12 : h);
+    return '$hr12:$m $period';
+  }
+
+  Widget _buildMarketOpenMindControlPrompt(BuildContext context, bool isDark) {
+    final titleStyle = TextStyle(
+      fontSize: 16,
+      fontWeight: FontWeight.w800,
+      color: _headlineText(isDark),
+    );
+    final textStyle = TextStyle(
+      fontSize: 15,
+      color: _secondaryText(isDark),
+      height: 1.4,
+    );
+    final timeStyle = TextStyle(fontSize: 12, color: _tertiaryText(isDark));
+    final timeStr = _tradeSignalTime(DateTime.now().toUtc().toIso8601String());
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Zeno Chat Bubble
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              const SizedBox(width: 32),
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: _dialogBg(isDark),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(isDark ? 0.2 : 0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Zeno',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF5A4FCF),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text('Market is Open 🔔', style: titleStyle),
+                      const SizedBox(height: 8),
+                      Text(
+                        "It's time to activate your\nMind Control.",
+                        style: textStyle,
+                      ),
+                      const SizedBox(height: 12),
+                      Align(
+                        alignment: Alignment.bottomRight,
+                        child: Text(timeStr, style: timeStyle),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 48),
+            ],
+          ),
+        ),
+
+        // Action Card
+        Padding(
+          padding: const EdgeInsets.only(left: 32, right: 16),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _dialogBg(isDark),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(isDark ? 0.2 : 0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Activate Mind Control',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: _headlineText(isDark),
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () =>
+                          _showMindControlInfoBottomSheet(context, isDark),
+                      child: Icon(
+                        Icons.info_outline,
+                        size: 20,
+                        color: _tertiaryText(isDark),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => _showActivateMindControlBottomSheet(
+                          context,
+                          isDark,
+                        ),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF5A4FCF),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          alignment: Alignment.center,
+                          child: const Text(
+                            'Yes',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _skippedMindControl = true;
+                          });
+                          _scheduleScrollToBottom();
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _fieldBorder(isDark),
+                              width: 1,
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            'No',
+                            style: TextStyle(
+                              color: _headlineText(isDark),
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showActivateMindControlBottomSheet(BuildContext context, bool isDark) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          decoration: BoxDecoration(
+            color: _dialogBg(isDark),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.only(
+            top: 12,
+            left: 24,
+            right: 24,
+            bottom: 32,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isDark
+                      ? AppColors.primary.withOpacity(0.2)
+                      : const Color(0xFFEDE9FE),
+                  border: Border.all(color: AppColors.primary, width: 1.5),
+                ),
+                alignment: Alignment.center,
+                child: const Text(
+                  '?',
+                  style: TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Do you wish to activate\nMind Control Guard?',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: _headlineText(isDark),
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 32),
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => Navigator.pop(ctx),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        decoration: BoxDecoration(
+                          color: Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _fieldBorder(isDark),
+                            width: 1,
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          'No',
+                          style: TextStyle(
+                            color: _headlineText(isDark),
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Obx(() {
+                      final pCtrl = Get.find<TradingProcessController>();
+                      if (pCtrl.isUpdating.value) {
+                        return Container(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          alignment: Alignment.center,
+                          child: const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+
+                      return GestureDetector(
+                        onTap: () async {
+                          final success = await pCtrl.activateMindControl();
+                          if (success && mounted) {
+                            Navigator.pop(ctx);
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          alignment: Alignment.center,
+                          child: const Text(
+                            'Yes',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  DateTime? _messageDay(ChatMessage msg) {
+    final ts = msg.timestamp.trim();
+    if (ts.isNotEmpty) {
+      final parsed = DateTime.tryParse(ts);
+      if (parsed != null) {
+        final local = parsed.toLocal();
+        return DateTime(local.year, local.month, local.day);
+      }
+    }
+    if (msg is DmtScoreMessage) {
+      final scoreDate = msg.scoreDate.trim();
+      if (scoreDate.isNotEmpty) {
+        final parsed = DateTime.tryParse(scoreDate);
+        if (parsed != null) {
+          return DateTime(parsed.year, parsed.month, parsed.day);
+        }
+      }
+    }
+    return null;
+  }
+
+  String _chatDateLabel(DateTime day) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    if (day == today) return 'Today';
+    if (day == yesterday) return 'Yesterday';
+    const months = <String>[
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final month = months[day.month - 1];
+    if (day.year == today.year) return '${day.day} $month';
+    return '${day.day} $month ${day.year}';
+  }
+
+  static const _unreadBurstWindow = Duration(seconds: 1);
+
+  int _latestUnreadBurstStartIndex(List<ChatMessage> messages) {
+    var end = -1;
+    for (var i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].isUnread) {
+        end = i;
+        break;
+      }
+    }
+    if (end < 0) return -1;
+
+    var start = end;
+    while (start > 0) {
+      final prev = messages[start - 1];
+      if (!prev.isUnread) break;
+      final tCurr = ChatController.parseMessageTime(messages[start].timestamp);
+      final tPrev = ChatController.parseMessageTime(prev.timestamp);
+      if (tCurr == null || tPrev == null) break;
+      if (tCurr.difference(tPrev).abs() > _unreadBurstWindow) break;
+      start--;
+    }
+    return start;
+  }
+
+  List<_ChatFeedItem> _buildChatFeedItems(List<ChatMessage> messages) {
+    final items = <_ChatFeedItem>[];
+    DateTime? lastDay;
+    final newMessagesAt = _latestUnreadBurstStartIndex(messages);
+    final lastAiIndex = messages.lastIndexWhere(
+      (m) => m.type == ChatMessageType.aiWaiting,
+    );
+
+    for (var i = 0; i < messages.length; i++) {
+      final msg = messages[i];
+      if (msg.type == ChatMessageType.aiWaiting && i != lastAiIndex) {
+        continue; // Only show the latest/last AI message
+      }
+      final day = _messageDay(msg);
+
+      if (i == newMessagesAt) {
+        items.add(const _ChatFeedNewMessages());
+      }
+
+      if (day != null && (lastDay == null || day != lastDay)) {
+        items.add(_ChatFeedDateHeader(label: _chatDateLabel(day)));
+        lastDay = day;
+      }
+
+      items.add(_ChatFeedMessage(index: i, message: msg));
+    }
+    return items;
+  }
+
+  Widget _buildDateSeparator(String label, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Row(
+        children: [
+          Expanded(
+            child: Divider(
+              color: isDark ? const Color(0xFF2E3440) : Colors.grey.shade300,
+              thickness: 1,
+              height: 1,
+            ),
+          ),
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF242A36) : Colors.grey.shade200,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.white70 : Colors.grey.shade700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Divider(
+              color: isDark ? const Color(0xFF2E3440) : Colors.grey.shade300,
+              thickness: 1,
+              height: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNewMessagesSeparator() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Row(
+        children: [
+          Expanded(
+            child: SizedBox(
+              height: 1,
+              child: CustomPaint(
+                painter: _DottedLinePainter(
+                  color: AppColors.primary,
+                  strokeWidth: 1.5,
+                  dashWidth: 5,
+                  gap: 4,
+                ),
+              ),
+            ),
+          ),
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Text(
+              'New Messages',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          Expanded(
+            child: SizedBox(
+              height: 1,
+              child: CustomPaint(
+                painter: _DottedLinePainter(
+                  color: AppColors.primary,
+                  strokeWidth: 1.5,
+                  dashWidth: 5,
+                  gap: 4,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = _isDark(context);
+    final allGranted = _overlayGranted && _usageGranted;
+
+    return GetBuilder<ChatController>(
+      init: _chatController,
+      autoRemove: false,
+      builder: (controller) {
+        final processController = Get.put(TradingProcessController());
+
+        return Obx(() {
+          final process = processController.currentProcess.value;
+          final isProcessLoading = processController.isLoading.value;
+
+          if (isProcessLoading && process == null) {
+            return Scaffold(
+              backgroundColor: _screenBg(isDark),
+              body: const Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          // If no process exists, bypass gates and show chat (which contains the "create process" flow)
+          if (process == null) {
+            return _buildMainChat(context, isDark, controller);
+          }
+
+          // If process exists, enforce permissions
+          if (_isCheckingPermissions) {
+            return Scaffold(
+              backgroundColor: _screenBg(isDark),
+              body: const Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          if (!allGranted) {
+            return _buildPermissionGateUI(isDark);
+          }
+
+          // Everything is active or market is closed, show the chat
+          return _buildMainChat(context, isDark, controller);
+        });
+      },
+    );
+  }
+
+  Widget _buildMainChat(
+    BuildContext context,
+    bool isDark,
+    ChatController controller,
+  ) {
+    return Scaffold(
+      backgroundColor: _screenBg(isDark),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // _buildHeader(context, controller),
+            Expanded(
+              child: Obx(() {
+                if (controller.isLoading.value) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                final processController = Get.put(TradingProcessController());
+                final process = processController.currentProcess.value;
+                if (process != null &&
+                    process.isMindControllActive == 0 &&
+                    _isMarketOpen &&
+                    !_skippedMindControl) {
+                  return ListView(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    children: [
+                      _buildMarketOpenMindControlPrompt(context, isDark),
+                    ],
+                  );
+                }
+
+                final currentFirstId = _firstMessageId(controller.messages);
+                final currentLastId = _lastMessageId(controller.messages);
+                final wasNearBottom = _isNearBottom();
+                if (_lastMessageCount != controller.messages.length) {
+                  _lastMessageCount = controller.messages.length;
+                  if (!_didInitialBottomSnap &&
+                      controller.messages.isNotEmpty) {
+                    _didInitialBottomSnap = true;
+                    _scheduleScrollToBottom();
+                  } else if (_skipNextAutoBottomScroll) {
+                    _skipNextAutoBottomScroll = false;
+                  } else if (_previousFirstMessageId.isNotEmpty &&
+                      currentFirstId.isNotEmpty &&
+                      _previousFirstMessageId != currentFirstId &&
+                      _previousLastMessageId == currentLastId) {
+                    // Older history prepended at top -> keep user's viewport.
+                  } else if (!_suppressAutoBottomScroll &&
+                      _previousLastMessageId.isNotEmpty &&
+                      currentLastId.isNotEmpty &&
+                      _previousLastMessageId != currentLastId) {
+                    // New messages appended at bottom -> always take user to latest.
+                    _scheduleScrollToBottom();
+                  } else if (!_suppressAutoBottomScroll &&
+                      wasNearBottom &&
+                      _previousLastMessageId.isEmpty &&
+                      currentLastId.isNotEmpty) {
+                    // Fallback: if IDs were absent previously but user was already at end.
+                    _scheduleScrollToBottom();
+                  }
+                }
+                _previousFirstMessageId = currentFirstId;
+                _previousLastMessageId = currentLastId;
+
+                // If user tapped a "DMT score" notification, auto-open the
+                // unread DMT score popup for the matching (or latest) message.
+                if (NotificationHandler.dmtScoreAutoOpenPending) {
+                  final pendingDate =
+                      NotificationHandler.dmtScoreAutoOpenScoreDate;
+                  DmtScoreMessage? target;
+                  for (var i = controller.messages.length - 1; i >= 0; i--) {
+                    final msg = controller.messages[i];
+                    if (msg is! DmtScoreMessage) continue;
+                    final id = msg.messageId.trim();
+                    if (id.isEmpty) continue;
+                    if (!msg.isUnread) continue;
+                    if (_dmtScorePopupAnimatedIds.contains(id)) continue;
+                    if (pendingDate != null && pendingDate.isNotEmpty) {
+                      if (msg.scoreDate.trim() != pendingDate.trim()) continue;
+                    }
+                    target = msg;
+                    break;
+                  }
+
+                  if (target != null) {
+                    final t = target;
+                    NotificationHandler.clearDmtScoreAutoOpen();
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) return;
+                      final id = t.messageId.trim();
+                      setState(() => _dmtScorePopupAnimatedIds.add(id));
+                      showDmtScorePopup(
+                        context,
+                        scoreDate: t.scoreDate,
+                        instructionsScore: t.instructionsScore,
+                        commitmentScore: t.commitmentScore,
+                        acceptanceScore: t.acceptanceScore,
+                        patienceScore: t.patienceScore,
+                        consistencyScore: t.consistencyScore,
+                        dmtTotalScore: t.dmtTotalScore,
+                        dmtMaxScore: t.dmtMaxScore,
+                        hasAcceptanceScore: t.hasAcceptanceScore,
+                        acceptanceIsNa: t.acceptanceIsNa,
+                        acceptanceNote: t.acceptanceNote,
+                        animateReveal: true,
+                      );
+                    });
+                  }
+                }
+                final feedItems = _buildChatFeedItems(controller.messages);
+                return Stack(
+                  children: [
+                    controller.messages.isEmpty
+                        ? ListView(
+                            controller: _scrollController,
+                            children: [
+                              SizedBox(
+                                height: 420,
+                                child: Center(
+                                  child: Text(
+                                    'No messages yet.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: _secondaryText(isDark),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          )
+                        : ListView.builder(
+                            controller: _scrollController,
+                            cacheExtent: 500,
+                            addRepaintBoundaries: true,
+                            addAutomaticKeepAlives: true,
+                            physics: const AlwaysScrollableScrollPhysics(
+                              parent: BouncingScrollPhysics(),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            itemCount: feedItems.length,
+                            itemBuilder: (_, i) {
+                              final item = feedItems[i];
+                              Widget childWidget;
+                              if (item is _ChatFeedDateHeader) {
+                                childWidget = KeyedSubtree(
+                                  key: ValueKey('chat_date_${item.label}'),
+                                  child: _buildDateSeparator(
+                                    item.label,
+                                    isDark,
+                                  ),
+                                );
+                              } else if (item is _ChatFeedNewMessages) {
+                                childWidget = KeyedSubtree(
+                                  key: const ValueKey('chat_new_messages'),
+                                  child: _buildNewMessagesSeparator(),
+                                );
+                              } else {
+                                final msgItem = item as _ChatFeedMessage;
+                                final msg = msgItem.message;
+                                final bubble = _buildMessage(
+                                  context,
+                                  msg,
+                                  controller,
+                                );
+                                final rowKey = msg.messageId.trim().isNotEmpty
+                                    ? ValueKey(
+                                        'chat_row_${msg.messageId}_${msg.type.name}',
+                                      )
+                                    : ValueKey(
+                                        'chat_row_fallback_${msg.type.name}_${msgItem.index}',
+                                      );
+                                final id = msg.messageId.trim();
+                                if (!msg.isUnread || id.isEmpty) {
+                                  childWidget = KeyedSubtree(
+                                    key: rowKey,
+                                    child: bubble,
+                                  );
+                                } else if (_revealedUnreadMessageIds.contains(
+                                  id,
+                                )) {
+                                  childWidget = KeyedSubtree(
+                                    key: rowKey,
+                                    child: bubble,
+                                  );
+                                } else {
+                                  childWidget = KeyedSubtree(
+                                    key: rowKey,
+                                    child: _UnreadRevealGate(
+                                      messageId: id,
+                                      onRevealed: (messageId) {
+                                        if (!mounted) return;
+                                        setState(() {
+                                          _revealedUnreadMessageIds.add(
+                                            messageId,
+                                          );
+                                        });
+                                        _scheduleScrollAfterUnreadReveal(
+                                          messageId,
+                                          controller,
+                                        );
+                                      },
+                                    ),
+                                  );
+                                }
+                              }
+                              return RepaintBoundary(child: childWidget);
+                            },
+                          ),
+                    ValueListenableBuilder<bool>(
+                      valueListenable: _showScrollToLatest,
+                      builder: (context, show, child) {
+                        if (!show) return const SizedBox.shrink();
+                        return Positioned(
+                          right: 16,
+                          bottom: 12,
+                          child: Material(
+                            elevation: 4,
+                            color: isDark
+                                ? const Color(0xFF1E222A)
+                                : Colors.white,
+                            shape: const CircleBorder(),
+                            shadowColor: Colors.black26,
+                            child: InkWell(
+                              customBorder: const CircleBorder(),
+                              onTap: _jumpToLatestMessages,
+                              child: const Padding(
+                                padding: EdgeInsets.all(10),
+                                child: Icon(
+                                  Icons.keyboard_arrow_down_rounded,
+                                  color: AppColors.primary,
+                                  size: 28,
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                );
+              }),
+            ),
+            Obx(() {
+              final processController = Get.put(TradingProcessController());
+              final process = processController.currentProcess.value;
+              final isPromptShowing =
+                  process != null &&
+                  process.isMindControllActive == 0 &&
+                  _isMarketOpen &&
+                  !_skippedMindControl;
+              if (isPromptShowing) return const SizedBox.shrink();
+              return _buildInput(context, controller, _textController);
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showMindControlInfoBottomSheet(BuildContext context, bool isDark) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: _dialogBg(isDark),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 24),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Text(
+                'What is Mind Control?',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: _headlineText(isDark),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Mind Control helps you stay focused on your trading process and protects you from impulsive decisions like FOMO, Fear and Revenge Trading.',
+                style: TextStyle(
+                  fontSize: 16,
+                  height: 1.5,
+                  color: _secondaryText(isDark),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'When activated, Zeno stays with you during the market and helps you follow your defined process.',
+                style: TextStyle(
+                  fontSize: 16,
+                  height: 1.5,
+                  color: _secondaryText(isDark),
+                ),
+              ),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    'Got it',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMindControlGateUI(
+    bool isDark,
+    TradingProcessController processController,
+  ) {
+    return Scaffold(
+      backgroundColor: _screenBg(isDark),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Spacer(),
+              Icon(
+                Icons.psychology_outlined,
+                size: 80,
+                color: AppColors.primary,
+              ),
+              const SizedBox(height: 24),
+              Text.rich(
+                TextSpan(
+                  children: [
+                    const TextSpan(text: 'Activate Mind Control\nGuard '),
+                    WidgetSpan(
+                      alignment: PlaceholderAlignment.middle,
+                      child: GestureDetector(
+                        onTap: () =>
+                            _showMindControlInfoBottomSheet(context, isDark),
+                        child: Icon(
+                          Icons.info_outline_rounded,
+                          color: _headlineText(isDark),
+                          size: 26,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: _headlineText(isDark),
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'You have created a trading process. To protect your capital and maintain discipline, you must activate Mind Control Guard.',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: _secondaryText(isDark),
+                  height: 1.5,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 40),
+              Obx(
+                () => SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: processController.isUpdating.value
+                        ? null
+                        : () async {
+                            final success = await processController
+                                .activateMindControl();
+                            if (success && Get.isRegistered<ChatController>()) {
+                              Get.find<ChatController>().loadMessages();
+                            }
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      elevation: 2,
+                    ),
+                    child: processController.isUpdating.value
+                        ? const SizedBox(
+                            height: 24,
+                            width: 24,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Text(
+                            'Activate Now',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: () {
+                  setState(() => _hideMindControlGateTemporary = true);
+                },
+                child: Text(
+                  'I will do it later',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: _secondaryText(isDark),
+                  ),
+                ),
+              ),
+              const Spacer(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPermissionGateUI(bool isDark) {
+    return Scaffold(
+      backgroundColor: _screenBg(isDark),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Spacer(),
+              Icon(Icons.security_rounded, size: 80, color: AppColors.primary),
+              const SizedBox(height: 24),
+              Text(
+                'Permissions Required',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: _headlineText(isDark),
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'To create a seamless process and use app block services, please allow the following permissions.',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: _secondaryText(isDark),
+                  height: 1.5,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 40),
+              _buildPermissionCard(
+                title: 'Display Over Apps',
+                description: 'Required to show overlay alerts.',
+                icon: Icons.layers_outlined,
+                isGranted: _overlayGranted,
+                onTap: _requestOverlay,
+                isDark: isDark,
+              ),
+              const SizedBox(height: 16),
+              _buildPermissionCard(
+                title: 'Usage Access',
+                description: 'Required for app blocking services.',
+                icon: Icons.analytics_outlined,
+                isGranted: _usageGranted,
+                onTap: _requestUsage,
+                isDark: isDark,
+              ),
+              const Spacer(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPermissionCard({
+    required String title,
+    required String description,
+    required IconData icon,
+    required bool isGranted,
+    required VoidCallback onTap,
+    required bool isDark,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E222A) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isGranted
+              ? Colors.green.withOpacity(0.5)
+              : (isDark ? Colors.white12 : Colors.grey.shade300),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: isGranted
+                ? Colors.green.withOpacity(0.1)
+                : AppColors.primary.withOpacity(0.1),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            isGranted ? Icons.check_circle_rounded : icon,
+            color: isGranted ? Colors.green : AppColors.primary,
+            size: 28,
+          ),
+        ),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 16,
+            color: _headlineText(isDark),
+          ),
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 4.0),
+          child: Text(
+            description,
+            style: TextStyle(fontSize: 13, color: _secondaryText(isDark)),
+          ),
+        ),
+        trailing: isGranted
+            ? const SizedBox.shrink()
+            : ElevatedButton(
+                onPressed: onTap,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  elevation: 0,
+                ),
+                child: const Text(
+                  'Allow',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context, ChatController controller) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          GestureDetector(
+            onTap: widget.onMonkkTap,
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.asset(
+                    "assets/logo.jpg",
+                    height: 26,
+                    width: 26,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'Zeno AI',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMessage(
+    BuildContext context,
+    ChatMessage msg,
+    ChatController controller,
+  ) {
+    switch (msg.type) {
+      case ChatMessageType.simpleText:
+        return _buildSimpleText(context, msg as SimpleTextMessage);
+      case ChatMessageType.aiWaiting:
+        return _buildAiWaiting(context, msg as AiWaitingMessage);
+      case ChatMessageType.agentWithButton:
+        return _buildAgentWithButton(context, msg as AgentWithButtonMessage);
+      case ChatMessageType.newTradeOpportunity:
+        return _buildNewTradeOpportunity(
+          context,
+          msg as NewTradeOpportunityMessage,
+          controller,
+        );
+      case ChatMessageType.tradeExecutionPrompt:
+        return _buildTradeExecutionPrompt(
+          context,
+          msg as TradeExecutionPromptMessage,
+          controller,
+        );
+      case ChatMessageType.tradeExecuted:
+        return _buildTradeExecuted(
+          context,
+          msg as TradeExecutedMessage,
+          controller,
+        );
+      case ChatMessageType.alertHitWithButton:
+        return _buildAlertHitWithButton(
+          context,
+          msg as AlertHitWithButtonMessage,
+          controller,
+        );
+      case ChatMessageType.dmtScore:
+        return _buildDmtScore(context, msg as DmtScoreMessage);
+      case ChatMessageType.tradeSignal:
+        return _buildTradeSignal(
+          context,
+          msg as TradeSignalMessage,
+          controller,
+        );
+    }
+  }
+
+  Widget _buildAiWaiting(BuildContext context, AiWaitingMessage msg) {
+    return AiWaitingStatusBubble(
+      key: ValueKey('ai_waiting_${msg.messageId}_${msg.text}'),
+      text: msg.text,
+      subtitle: msg.subtitle,
+      showAvatar: false,
+    );
+  }
+
+  Widget _buildDmtScore(BuildContext context, DmtScoreMessage msg) {
+    final isDark = _isDark(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildRichMessageContent(
+            msg.headline.isNotEmpty
+                ? msg.headline
+                : 'Your daily discipline analysis is ready.',
+            isDark,
+          ),
+          const SizedBox(height: 12),
+          _tradePromptPrimaryButton(
+            label: 'View Discipline Analysis',
+            icon: Icons.analytics_outlined,
+            onTap: () {
+              final id = msg.messageId.trim();
+              final shouldAnimate =
+                  msg.isUnread &&
+                  id.isNotEmpty &&
+                  !_dmtScorePopupAnimatedIds.contains(id);
+              showDmtScorePopup(
+                context,
+                scoreDate: msg.scoreDate,
+                instructionsScore: msg.instructionsScore,
+                commitmentScore: msg.commitmentScore,
+                acceptanceScore: msg.acceptanceScore,
+                patienceScore: msg.patienceScore,
+                consistencyScore: msg.consistencyScore,
+                dmtTotalScore: msg.dmtTotalScore,
+                dmtMaxScore: msg.dmtMaxScore,
+                hasAcceptanceScore: msg.hasAcceptanceScore,
+                acceptanceIsNa: msg.acceptanceIsNa,
+                acceptanceNote: msg.acceptanceNote,
+                animateReveal: shouldAnimate,
+              ).then((_) {
+                if (!mounted || !shouldAnimate || id.isEmpty) return;
+                setState(() => _dmtScorePopupAnimatedIds.add(id));
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _formatIndianCurrency(String raw) {
+    if (raw.trim().isEmpty) return '0.00';
+    final clean = raw.trim().replaceAll(',', '');
+    final numVal = double.tryParse(clean);
+    if (numVal == null) return raw;
+    final parts = clean.split('.');
+    final intPart = parts[0];
+    final decPart = parts.length > 1 ? '.${parts[1]}' : '';
+
+    final digits = intPart.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length <= 3) {
+      return (intPart.startsWith('-') ? '-' : '') + digits + decPart;
+    }
+
+    final lastThree = digits.substring(digits.length - 3);
+    var other = digits.substring(0, digits.length - 3);
+    final groups = <String>[];
+    while (other.length > 2) {
+      groups.insert(0, other.substring(other.length - 2));
+      other = other.substring(0, other.length - 2);
+    }
+    if (other.isNotEmpty) {
+      groups.insert(0, other);
+    }
+    groups.add(lastThree);
+    final formatted = groups.join(',');
+    return (intPart.startsWith('-') ? '-' : '') + formatted + decPart;
+  }
+
+  Widget _buildTradeSignal(
+    BuildContext context,
+    TradeSignalMessage msg,
+    ChatController controller,
+  ) {
+    final isDark = _isDark(context);
+    final hasPayloadData =
+        msg.currentPrice.isNotEmpty ||
+        msg.dayLow.isNotEmpty ||
+        msg.dayHigh.isNotEmpty ||
+        msg.openPrice.isNotEmpty;
+
+    if (!hasPayloadData) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: _buildRichMessageContent(msg.headline, isDark),
+      );
+    }
+
+    final msgKey = msg.messageId.isNotEmpty
+        ? msg.messageId
+        : (msg.signalId.isNotEmpty ? msg.signalId : 'ts_${msg.instrument}');
+    final selectedAction = _selectedSignalActions[msgKey];
+    final isDropdownExpanded = _expandedSignalDropdowns.contains(msgKey);
+
+    final openPriceFormatted = _formatIndianCurrency(msg.openPrice);
+    final currentPriceFormatted = _formatIndianCurrency(msg.currentPrice);
+    final dayLowFormatted = _formatIndianCurrency(msg.dayLow);
+    final dayHighFormatted = _formatIndianCurrency(msg.dayHigh);
+
+    final gapNum = double.tryParse(msg.gapPercent) ?? 0.0;
+    final changeNum = double.tryParse(msg.changePercent) ?? 0.0;
+    final isGapDown = gapNum < 0;
+    final isChangeDown = changeNum < 0;
+
+    final lowNum = double.tryParse(msg.dayLow.replaceAll(',', '')) ?? 0.0;
+    final highNum = double.tryParse(msg.dayHigh.replaceAll(',', '')) ?? 1.0;
+    final currNum =
+        double.tryParse(msg.currentPrice.replaceAll(',', '')) ?? lowNum;
+    final diff = highNum - lowNum;
+    final ratio = diff > 0 ? ((currNum - lowNum) / diff).clamp(0.0, 1.0) : 0.5;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildRichMessageContent(
+            msg.headline.isNotEmpty ? msg.headline : 'Your Process Overview',
+            isDark,
+          ),
+          const SizedBox(height: 12),
+
+          // Top Process Overview Card
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E222A) : Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: isDark ? Colors.white12 : const Color(0xFFE8E6F0),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header Row (Icon + Symbol)
+                Row(
+                  children: [
+                    Container(
+                      width: 26,
+                      height: 26,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          colors: [Color(0xFF6C38FF), Color(0xFF4A22F4)],
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        (msg.tradingsymbol.isNotEmpty
+                                ? msg.tradingsymbol
+                                : msg.instrument)
+                            .substring(0, 1)
+                            .toUpperCase(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      msg.tradingsymbol.isNotEmpty
+                          ? msg.tradingsymbol
+                          : msg.instrument,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: _headlineText(isDark),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Two column stats container
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF15181E)
+                        : const Color(0xFFFBFBFE),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: isDark ? Colors.white10 : const Color(0xFFEEECF6),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      // Left Column (Opens At)
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${msg.instrument} Opens At',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: _secondaryText(isDark),
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              openPriceFormatted,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: _headlineText(isDark),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '(${gapNum >= 0 ? "+$gapNum%" : "$gapNum%"} ${isGapDown ? "Gap Down" : "Gap Up"})',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: isGapDown
+                                    ? const Color(0xFFE53935)
+                                    : const Color(0xFF2E7D32),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Vertical Divider
+                      Container(
+                        width: 1,
+                        height: 48,
+                        color: isDark
+                            ? Colors.white12
+                            : const Color(0xFFE8E6F0),
+                      ),
+                      const SizedBox(width: 12),
+
+                      // Right Column (Current Status)
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Current Status',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: _secondaryText(isDark),
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              currentPriceFormatted,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: _headlineText(isDark),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '(${changeNum >= 0 ? "+$changeNum%" : "$changeNum%"})',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: isChangeDown
+                                    ? const Color(0xFFE53935)
+                                    : const Color(0xFF2E7D32),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // Day Low / Current / Day High Text Row
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Day Low',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: _secondaryText(isDark),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          dayLowFormatted,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: _headlineText(isDark),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Current',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: _secondaryText(isDark),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          currentPriceFormatted,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF208052),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          'Day High',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: _secondaryText(isDark),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          dayHighFormatted,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: _headlineText(isDark),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+
+                // Slider Track & Indicator Dots
+                SizedBox(
+                  height: 18,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final totalWidth = constraints.maxWidth;
+                      final dotPos = (totalWidth * ratio).clamp(
+                        6.0,
+                        totalWidth - 6.0,
+                      );
+
+                      return Stack(
+                        alignment: Alignment.centerLeft,
+                        children: [
+                          // Background base track
+                          Container(
+                            width: totalWidth,
+                            height: 3,
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Colors.white12
+                                  : const Color(0xFFE2E0E9),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+
+                          // Active progress track from low to current
+                          Container(
+                            width: dotPos,
+                            height: 3,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF6C38FF), Color(0xFF208052)],
+                              ),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+
+                          // Left Dot (Low)
+                          Positioned(
+                            left: 0,
+                            child: Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: isDark
+                                    ? const Color(0xFF1E222A)
+                                    : Colors.white,
+                                border: Border.all(
+                                  color: const Color(0xFF6C38FF),
+                                  width: 2.5,
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          // Current Dot
+                          Positioned(
+                            left: dotPos - 6,
+                            child: Container(
+                              width: 12,
+                              height: 12,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: isDark
+                                    ? const Color(0xFF1E222A)
+                                    : Colors.white,
+                                border: Border.all(
+                                  color: const Color(0xFF208052),
+                                  width: 3,
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          // Right Dot (High)
+                          Positioned(
+                            right: 0,
+                            child: Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: isDark
+                                    ? const Color(0xFF1E222A)
+                                    : Colors.white,
+                                border: Border.all(
+                                  color: isDark
+                                      ? Colors.white38
+                                      : const Color(0xFFB8B6C4),
+                                  width: 2.5,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          if (_showButtons(msg)) ...[
+            const SizedBox(height: 18),
+
+            // Mind Control Guard is Deactivated
+            Text(
+              'Mind Control Guard is Deactivated',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: _headlineText(isDark),
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            // 1. Open Trading APP
+            Text(
+              '1. Open Trading APP',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: _headlineText(isDark),
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // Button: OPEN TRADING APP
+            _tradePromptPrimaryButton(
+              label: 'OPEN TRADING APP',
+              enabled: true,
+              onTap: () async {
+                await controller.openTradingApp();
+              },
+            ),
+
+            const SizedBox(height: 18),
+
+            // 2. Select your Action
+            Text(
+              '2. Select your Action',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: _headlineText(isDark),
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // Custom Action Dropdown
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: isDark
+                    ? const Color(0xFF211D33)
+                    : const Color(0xFFFAF9FF),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFF7C3AED), width: 1.3),
+              ),
+              child: Column(
+                children: [
+                  InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () {
+                      setState(() {
+                        if (isDropdownExpanded) {
+                          _expandedSignalDropdowns.remove(msgKey);
+                        } else {
+                          _expandedSignalDropdowns.add(msgKey);
+                        }
+                      });
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              selectedAction ?? 'Select an action',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: selectedAction != null
+                                    ? _headlineText(isDark)
+                                    : _secondaryText(isDark),
+                              ),
+                            ),
+                          ),
+                          Icon(
+                            isDropdownExpanded
+                                ? Icons.keyboard_arrow_up_rounded
+                                : Icons.keyboard_arrow_down_rounded,
+                            color: const Color(0xFF7C3AED),
+                            size: 20,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (isDropdownExpanded) ...[
+                    const Divider(height: 1, color: Color(0xFFE2DCF7)),
+                    // Option 1: Set Levels
+                    InkWell(
+                      onTap: () {
+                        setState(() {
+                          _selectedSignalActions[msgKey] = 'Set Levels';
+                          _expandedSignalDropdowns.remove(msgKey);
+                        });
+                        _showSignalSetLevelsDialog(context, msg, controller);
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.adjust_rounded,
+                              color: Color(0xFF7C3AED),
+                              size: 18,
+                            ),
+                            const SizedBox(width: 10),
+                            const Expanded(
+                              child: Text(
+                                'Set Levels',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            if (selectedAction == 'Set Levels')
+                              const Icon(
+                                Icons.check_rounded,
+                                color: Color(0xFF7C3AED),
+                                size: 18,
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 1, color: Color(0xFFE2DCF7)),
+                    // Option 2: GTT
+                    InkWell(
+                      onTap: () {
+                        setState(() {
+                          _selectedSignalActions[msgKey] =
+                              'GTT (Good Till Triggered)';
+                          _expandedSignalDropdowns.remove(msgKey);
+                        });
+                        _showSignalGttDialog(context, msg, controller);
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.access_time_rounded,
+                              color: Color(0xFF7C3AED),
+                              size: 18,
+                            ),
+                            const SizedBox(width: 10),
+                            const Expanded(
+                              child: Text(
+                                'GTT (Good Till Triggered)',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            if (selectedAction == 'GTT' ||
+                                selectedAction == 'GTT (Good Till Triggered)')
+                              const Icon(
+                                Icons.check_rounded,
+                                color: Color(0xFF7C3AED),
+                                size: 18,
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: 18),
+            _tradePromptPrimaryButton(
+              label: selectedAction != null && selectedAction != 'Select Action'
+                  ? selectedAction!
+                  : 'Action Applied',
+              icon: Icons.check_circle_outline_rounded,
+              isCompleted: true,
+              enabled: false,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _showSignalGttDialog(
+    BuildContext context,
+    TradeSignalMessage msg,
+    ChatController controller,
+  ) {
+    final isDark = _isDark(context);
+    final initialGtt = msg.currentPrice.trim().isNotEmpty
+        ? msg.currentPrice.trim().replaceAll(',', '')
+        : '';
+    final gttController = TextEditingController(text: initialGtt);
+
+    showChatFadeDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: _dialogBg(isDark),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 380),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Top Close button
+              Align(
+                alignment: Alignment.topRight,
+                child: InkWell(
+                  onTap: () => Navigator.pop(ctx),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.close_rounded,
+                      color: isDark ? Colors.white60 : AppColors.primary,
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ),
+
+              // Center Icon
+              Center(
+                child: Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.primary.withOpacity(0.2)
+                        : const Color(0xFFEDE9FE),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.gps_fixed_rounded,
+                    color: AppColors.primary,
+                    size: 30,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Title
+              Text(
+                'You have selected Apply GTT',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: _headlineText(isDark),
+                ),
+              ),
+              const SizedBox(height: 6),
+
+              // Subtitle
+              Text(
+                'Please enter the level at which you have already applied the GTT order on your trading app.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: _secondaryText(isDark),
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              // Current Level Box
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF1E222A)
+                      : const Color(0xFFF6F5FF),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Current Level',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: isDark
+                            ? Colors.white70
+                            : const Color(0xFF10122D),
+                      ),
+                    ),
+                    Text(
+                      _formatIndianCurrency(msg.currentPrice),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              // Field Label
+              Text(
+                'GTT Applied Level',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: _headlineText(isDark),
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              // TextField
+              TextField(
+                controller: gttController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: _bubbleText(isDark),
+                ),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: isDark
+                      ? const Color(0xFF1E222A)
+                      : const Color(0xFFF7F6FB),
+                  hintText: 'Enter the GTT applied level',
+                  hintStyle: TextStyle(
+                    color: isDark ? Colors.white38 : const Color(0xFFB0B0B8),
+                    fontSize: 13,
+                    fontWeight: FontWeight.normal,
+                  ),
+                  suffixIcon: const Icon(
+                    Icons.trending_up_rounded,
+                    color: AppColors.primary,
+                    size: 22,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: isDark ? Colors.white12 : const Color(0xFFE2E0E9),
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: isDark ? Colors.white12 : const Color(0xFFE2E0E9),
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(
+                      color: AppColors.primary,
+                      width: 1.5,
+                    ),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 14,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Info note
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 16,
+                    color: isDark ? Colors.white60 : const Color(0xFF70717F),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'We will track this level and update you accordingly.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _secondaryText(isDark),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+
+              // Submit Button
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: FilledButton(
+                  onPressed: () async {
+                    final val = gttController.text.trim();
+                    if (val.isEmpty) {
+                      AppToast.showToast('Please enter GTT trigger value');
+                      return;
+                    }
+                    Navigator.pop(ctx);
+                    await controller.submitTradeSignalGtt(
+                      msg: msg,
+                      gttPrice: val,
+                    );
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text(
+                    'Submit',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showSignalSetLevelsDialog(
+    BuildContext context,
+    TradeSignalMessage msg,
+    ChatController controller,
+  ) {
+    final isDark = _isDark(context);
+    final initialUpper = msg.dayHigh.trim().isNotEmpty
+        ? msg.dayHigh.trim().replaceAll(',', '')
+        : '';
+    final initialLower = msg.dayLow.trim().isNotEmpty
+        ? msg.dayLow.trim().replaceAll(',', '')
+        : '';
+    final upperController = TextEditingController(text: initialUpper);
+    final lowerController = TextEditingController(text: initialLower);
+    final instrumentName = msg.tradingsymbol.isNotEmpty
+        ? msg.tradingsymbol
+        : (msg.instrument.isNotEmpty ? msg.instrument : 'Nifty 50');
+
+    showChatFadeDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: _dialogBg(isDark),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 380),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Top Close button
+              Align(
+                alignment: Alignment.topRight,
+                child: InkWell(
+                  onTap: () => Navigator.pop(ctx),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.close_rounded,
+                      color: isDark ? Colors.white60 : AppColors.primary,
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ),
+
+              // Center Bell Icon
+              Center(
+                child: Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.primary.withOpacity(0.2)
+                        : const Color(0xFFEDE9FE),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.notifications_none_rounded,
+                    color: AppColors.primary,
+                    size: 32,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Title
+              Text(
+                'Set Alert for $instrumentName',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: _headlineText(isDark),
+                ),
+              ),
+              const SizedBox(height: 6),
+
+              // Subtitle
+              Text(
+                'Get notified when the index reaches your desired levels.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: _secondaryText(isDark),
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              // Current Level Box
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF1E222A)
+                      : const Color(0xFFF6F5FF),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Current Level',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: isDark
+                            ? Colors.white70
+                            : const Color(0xFF10122D),
+                      ),
+                    ),
+                    Text(
+                      _formatIndianCurrency(msg.currentPrice),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Field 1: Upper Level Alert
+              Text(
+                'Upper Level Alert',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: _headlineText(isDark),
+                ),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: upperController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: _bubbleText(isDark),
+                ),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: isDark
+                      ? const Color(0xFF1E222A)
+                      : const Color(0xFFF7F6FB),
+                  hintText: 'Enter upper level',
+                  hintStyle: TextStyle(
+                    color: isDark ? Colors.white38 : const Color(0xFFB0B0B8),
+                    fontSize: 13,
+                    fontWeight: FontWeight.normal,
+                  ),
+                  suffixIcon: const Icon(
+                    Icons.trending_up_rounded,
+                    color: Color(0xFF208052),
+                    size: 22,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: isDark ? Colors.white12 : const Color(0xFFE2E0E9),
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: isDark ? Colors.white12 : const Color(0xFFE2E0E9),
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(
+                      color: AppColors.primary,
+                      width: 1.5,
+                    ),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 14,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Field 2: Lower Level Alert
+              Text(
+                'Lower Level Alert',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: _headlineText(isDark),
+                ),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: lowerController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: _bubbleText(isDark),
+                ),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: isDark
+                      ? const Color(0xFF1E222A)
+                      : const Color(0xFFF7F6FB),
+                  hintText: 'Enter lower level',
+                  hintStyle: TextStyle(
+                    color: isDark ? Colors.white38 : const Color(0xFFB0B0B8),
+                    fontSize: 13,
+                    fontWeight: FontWeight.normal,
+                  ),
+                  suffixIcon: const Icon(
+                    Icons.trending_down_rounded,
+                    color: Color(0xFFCC3B4D),
+                    size: 22,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: isDark ? Colors.white12 : const Color(0xFFE2E0E9),
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: isDark ? Colors.white12 : const Color(0xFFE2E0E9),
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(
+                      color: AppColors.primary,
+                      width: 1.5,
+                    ),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 14,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Submit Button
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: FilledButton(
+                  onPressed: () async {
+                    final upperVal = upperController.text.trim();
+                    final lowerVal = lowerController.text.trim();
+                    if (upperVal.isEmpty || lowerVal.isEmpty) {
+                      AppToast.showToast(
+                        'Please enter both Upper and Lower values',
+                      );
+                      return;
+                    }
+                    Navigator.pop(ctx);
+                    await controller.submitTradeSignalLevels(
+                      msg: msg,
+                      upperPrice: upperVal,
+                      lowerPrice: lowerVal,
+                    );
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text(
+                    'Submit',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<InlineSpan> _parseFormattedSpans(String text, Color textColor) {
+    final List<InlineSpan> spans = [];
+    final tagRegex = RegExp(
+      r'(?:<b\b[^>]*>(.*?)<\/b>|<strong>(.*?)<\/strong>|\*\*(.*?)\*\*|<i\b[^>]*>(.*?)<\/i>|<em>(.*?)<\/em>|\*(.*?)\*|<u\b[^>]*>(.*?)<\/u>|<[^>]+>)',
+      caseSensitive: false,
+      dotAll: true,
+    );
+
+    int lastMatchEnd = 0;
+    for (final match in tagRegex.allMatches(text)) {
+      if (match.start > lastMatchEnd) {
+        final plain = text.substring(lastMatchEnd, match.start);
+        if (plain.isNotEmpty) {
+          spans.add(
+            TextSpan(
+              text: plain,
+              style: TextStyle(
+                fontSize: 14,
+                color: textColor,
+                fontWeight: FontWeight.normal,
+                height: 1.4,
+              ),
+            ),
+          );
+        }
+      }
+
+      final bold = match.group(1) ?? match.group(2) ?? match.group(3);
+      final italic = match.group(4) ?? match.group(5) ?? match.group(6);
+      final underline = match.group(7);
+
+      if (bold != null) {
+        spans.add(
+          TextSpan(
+            text: bold.replaceAll(RegExp(r'<[^>]+>'), ''),
+            style: TextStyle(
+              fontSize: 14,
+              color: textColor,
+              fontWeight: FontWeight.w800,
+              height: 1.4,
+            ),
+          ),
+        );
+      } else if (italic != null) {
+        spans.add(
+          TextSpan(
+            text: italic.replaceAll(RegExp(r'<[^>]+>'), ''),
+            style: TextStyle(
+              fontSize: 14,
+              color: textColor,
+              fontStyle: FontStyle.italic,
+              height: 1.4,
+            ),
+          ),
+        );
+      } else if (underline != null) {
+        spans.add(
+          TextSpan(
+            text: underline.replaceAll(RegExp(r'<[^>]+>'), ''),
+            style: TextStyle(
+              fontSize: 14,
+              color: textColor,
+              decoration: TextDecoration.underline,
+              height: 1.4,
+            ),
+          ),
+        );
+      }
+      // Any other tag matched by `<[^>]+>` is safely stripped and not rendered as text
+
+      lastMatchEnd = match.end;
+    }
+
+    if (lastMatchEnd < text.length) {
+      final trailing = text.substring(lastMatchEnd);
+      if (trailing.isNotEmpty) {
+        spans.add(
+          TextSpan(
+            text: trailing,
+            style: TextStyle(
+              fontSize: 14,
+              color: textColor,
+              fontWeight: FontWeight.normal,
+              height: 1.4,
+            ),
+          ),
+        );
+      }
+    }
+
+    return spans;
+  }
+
+  Widget _buildRichMessageContent(String rawText, bool isDark) {
+    final primaryTextColor = isDark ? Colors.white : const Color(0xFF10122D);
+    final normalized = rawText
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll('&amp;', '&')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#39;', "'")
+        .replaceAll('&apos;', "'")
+        .replaceAll(RegExp(r'<br\s*\/?>', caseSensitive: false), '\n')
+        .replaceAll(
+          RegExp(r'<\/?(?:p|div)\b[^>]*>', caseSensitive: false),
+          '\n',
+        )
+        .replaceAll(r'\n', '\n');
+    final lines = normalized.split('\n');
+    final List<Widget> widgets = [];
+
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i].trim();
+      if (line.isEmpty) {
+        widgets.add(const SizedBox(height: 6));
+        continue;
+      }
+
+      final isBullet = line.startsWith('•') || line.startsWith('-');
+
+      if (isBullet) {
+        final bulletText = line.replaceFirst(RegExp(r'^[•\-]\s*'), '');
+        widgets.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '•  ',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: primaryTextColor,
+                  ),
+                ),
+                Expanded(
+                  child: RichText(
+                    text: TextSpan(
+                      children: _parseFormattedSpans(
+                        bulletText,
+                        primaryTextColor,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      } else {
+        widgets.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: RichText(
+              text: TextSpan(
+                children: _parseFormattedSpans(line, primaryTextColor),
+              ),
+            ),
+          ),
+        );
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: widgets,
+    );
+  }
+
+  Widget _buildSimpleText(BuildContext context, SimpleTextMessage msg) {
+    final isDark = _isDark(context);
+    if (msg.isFromUser) {
+      return Align(
+        alignment: Alignment.centerRight,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppColors.primary,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Text(
+            msg.text,
+            style: const TextStyle(color: Colors.white, fontSize: 15),
+          ),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: _buildRichMessageContent(msg.text, isDark),
+    );
+  }
+
+  Widget _buildAgentWithButton(
+    BuildContext context,
+    AgentWithButtonMessage msg,
+  ) {
+    final isDark = _isDark(context);
+    final hasText = msg.text.trim().isNotEmpty;
+    final label = msg.buttonLabel.trim().isNotEmpty
+        ? msg.buttonLabel.trim()
+        : 'CREATE A PROCESS';
+
+    Future<void> handleButtonTap() async {
+      final upperLabel = label.toUpperCase();
+      if (upperLabel.contains('PROCESS') ||
+          upperLabel.contains('CREATE A PROCESS')) {
+        final userId = Common.userData.value?.payload?.id?.toString();
+        if (userId != null && userId.isNotEmpty) {
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => TradingProcessScreen(userId: userId),
+            ),
+          );
+          if (result == true && Get.isRegistered<TradingProcessController>()) {
+            await Get.find<TradingProcessController>().fetchProcess();
+          }
+          if (Get.isRegistered<ChatController>()) {
+            await Get.find<ChatController>().loadMessages(refresh: true);
+          }
+        } else {
+          widget.onMonkkTap?.call();
+        }
+      } else {
+        widget.onMonkkTap?.call();
+      }
+    }
+
+    final buttonWidget = _tradePromptPrimaryButton(
+      label: label,
+      icon: msg.actionTaken != null ? Icons.check_circle_outline_rounded : null,
+      isCompleted: msg.actionTaken != null,
+      enabled: msg.actionTaken == null,
+      onTap: msg.actionTaken == null ? handleButtonTap : null,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (hasText) ...[
+            _buildRichMessageContent(msg.text, isDark),
+            const SizedBox(height: 12),
+          ],
+          buttonWidget,
+        ],
+      ),
+    );
+  }
+
+  bool _isDeleteTradeAction(NewTradeOpportunityMessage msg) =>
+      msg.action.toLowerCase() == 'delete';
+  bool _isEditTradeAction(NewTradeOpportunityMessage msg) {
+    final a = msg.action.toLowerCase();
+    return a == 'edit' || a == 'editgtt';
+  }
+
+  bool _isEditTradeButton(NewTradeOpportunityMessage msg) {
+    final btn = msg.buttonType.toLowerCase();
+    return btn == 'edit_button' || btn == 'edit_gtt_button';
+  }
+
+  bool _isEditTrade(NewTradeOpportunityMessage msg) {
+    if (_isEditTradeAction(msg)) return true;
+    if (_isEditTradeButton(msg)) return true;
+    if (msg.slChanged || msg.tpChanged) return true;
+    if (msg.oldStopLoss.trim().isNotEmpty ||
+        msg.oldTakeProfit.trim().isNotEmpty)
+      return true;
+    final b = msg.buttonType.toLowerCase();
+    if (b.contains('edit')) return true;
+    return false;
+  }
+
+  bool _isActionTaken(ChatMessage msg) {
+    if (_chatController.isActionTakenFor(msg)) return true;
+    final mId = msg.messageId.trim();
+    if (mId.isNotEmpty && _actionTakenMessageIds.contains(mId)) return true;
+    if (msg is NewTradeOpportunityMessage) {
+      final tId = msg.tradeId.trim();
+      if (tId.isNotEmpty && _actionTakenTradeIds.contains(tId)) return true;
+    }
+    if (msg is TradeExecutionPromptMessage) {
+      final tId = msg.tradeData.tradeId.trim();
+      if (tId.isNotEmpty && _actionTakenTradeIds.contains(tId)) return true;
+    }
+    return false;
+  }
+
+  bool _sameTradeCardPrice(String a, String b) {
+    final pa = double.tryParse(a.trim());
+    final pb = double.tryParse(b.trim());
+    if (pa != null && pb != null) return (pa - pb).abs() < 0.0000001;
+    return a.trim() == b.trim();
+  }
+
+  bool _showButtons(ChatMessage msg) => !_isActionTaken(msg);
+
+  String _tradeDeleteStepLine(int n, String api, String fallback) {
+    final t = api.trim();
+    if (t.isEmpty) return '$n. $fallback';
+    if (RegExp(r'^\d+\.').hasMatch(t)) return t;
+    return '$n. $t';
+  }
+
+  String _deleteTradeStep1Text(NewTradeOpportunityMessage msg) {
+    if (msg.buttonType == 'open_app_button' && msg.apiMessage.isNotEmpty) {
+      return _tradeDeleteStepLine(
+        1,
+        msg.apiMessage,
+        'Go to Trading APP and delete the Trade',
+      );
+    }
+    return _tradeDeleteStepLine(
+      1,
+      '',
+      'Go to Trading APP and delete the Trade',
+    );
+  }
+
+  String _deleteTradeStep2Text(NewTradeOpportunityMessage msg) {
+    if (msg.buttonType == 'delete_button' && msg.apiMessage.isNotEmpty) {
+      return _tradeDeleteStepLine(
+        2,
+        msg.apiMessage,
+        'Intimate me once you delete the Open Trade',
+      );
+    }
+    return _tradeDeleteStepLine(
+      2,
+      '',
+      'Intimate me once you delete the Open Trade',
+    );
+  }
+
+  Widget _buildNewTradeOpportunity(
+    BuildContext context,
+    NewTradeOpportunityMessage msg,
+    ChatController controller,
+  ) {
+    final isDark = _isDark(context);
+    if (_isEditTrade(msg)) {
+      return _buildTradeEditCombinedMessage(context, msg, controller);
+    }
+    if (_isDeleteTradeAction(msg) &&
+        (msg.buttonType == 'open_app_button' ||
+            msg.buttonType == 'delete_button')) {
+      return _buildTradeDeleteCombinedMessage(context, msg, controller);
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildRichMessageContent(
+            msg.apiMessage.isNotEmpty
+                ? msg.apiMessage
+                : 'New Trade Opportunity is spotted for you',
+            isDark,
+          ),
+          const SizedBox(height: 8),
+          _buildTradeOpportunityCard(
+            context,
+            msg,
+            showInvalidOverlay: false,
+            hideMarketPrice:
+                _isActionTaken(msg) || !_showButtons(msg) || _isEditTrade(msg),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _monkkSparkleIcon() {
+    return const SizedBox.shrink();
+  }
+
+  /// Invalid card + cross + both steps and buttons in one bubble (open_app / delete_button).
+  Widget _buildTradeDeleteCombinedMessage(
+    BuildContext context,
+    NewTradeOpportunityMessage msg,
+    ChatController controller,
+  ) {
+    final isDark = _isDark(context);
+    final stepStyle = TextStyle(
+      fontSize: 13,
+      color: _headlineText(isDark),
+      height: 1.35,
+    );
+    final titleStyle = TextStyle(
+      color: _headlineText(isDark),
+      fontSize: 14,
+      fontWeight: FontWeight.bold,
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Trade recommendation invalid — please delete this trade',
+            style: titleStyle,
+          ),
+          const SizedBox(height: 8),
+          _buildTradeOpportunityCard(
+            context,
+            msg,
+            showInvalidOverlay: true,
+            hideMarketPrice: true,
+          ),
+          const SizedBox(height: 16),
+          Text('Mind Control Guard is Deactivated', style: titleStyle),
+          const SizedBox(height: 12),
+          Text(_deleteTradeStep1Text(msg), style: stepStyle),
+          const SizedBox(height: 8),
+          _tradePromptPrimaryButton(
+            label: 'Open Trading APP',
+            enabled: _showButtons(msg),
+            onTap: () => controller.openTradingApp(),
+          ),
+          const SizedBox(height: 14),
+          Text(_deleteTradeStep2Text(msg), style: stepStyle),
+          const SizedBox(height: 8),
+          _tradePromptPrimaryButton(
+            label: 'Trade Deleted',
+            icon: !_showButtons(msg)
+                ? Icons.check_circle_outline_rounded
+                : null,
+            isCompleted: !_showButtons(msg),
+            enabled: _showButtons(msg),
+            onTap: () {
+              final mId = msg.messageId.trim();
+              final tId = msg.tradeId.trim();
+              if (mId.isNotEmpty)
+                setState(() => _actionTakenMessageIds.add(mId));
+              if (tId.isNotEmpty) setState(() => _actionTakenTradeIds.add(tId));
+              controller.acknowledgeTradeDeleted(msg);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Edit flow bubble: SL Edited + trade card + backend message + two buttons.
+  Widget _buildTradeEditCombinedMessage(
+    BuildContext context,
+    NewTradeOpportunityMessage msg,
+    ChatController controller,
+  ) {
+    final isDark = _isDark(context);
+    final stepStyle = TextStyle(
+      fontSize: 13,
+      color: _headlineText(isDark),
+      height: 1.35,
+    );
+    final titleStyle = TextStyle(
+      color: _headlineText(isDark),
+      fontSize: 14,
+      fontWeight: FontWeight.bold,
+    );
+    final isGttEdit =
+        msg.buttonType == 'edit_gtt_button' ||
+        msg.action.toLowerCase() == 'editgtt';
+    String titlePrefix = 'SL';
+    if (!isGttEdit) {
+      if (msg.slChanged && msg.tpChanged) {
+        titlePrefix = 'SL and Target';
+      } else if (msg.tpChanged) {
+        titlePrefix = 'Target';
+      }
+    }
+    final cardTitle = isGttEdit ? 'GTT Edited' : '$titlePrefix Edited';
+    final backendText = msg.apiMessage.trim().isNotEmpty
+        ? msg.apiMessage.trim()
+        : (isGttEdit
+              ? 'Open Trading App and update your pending GTT order.'
+              : 'Open Trading App and Trail your $titlePrefix to reduce risk.');
+    final step2Text = isGttEdit
+        ? '2. Intimate me once you update the GTT'
+        : '2. Intimate me once you Trail your $titlePrefix';
+    final btnLabel = isGttEdit ? 'GTT Updated' : '$titlePrefix Trailed';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(cardTitle, style: titleStyle),
+          const SizedBox(height: 8),
+          _buildTradeOpportunityCard(
+            context,
+            msg,
+            showInvalidOverlay: false,
+            hideMarketPrice: true,
+          ),
+          const SizedBox(height: 16),
+          Text('Mind Control Guard is Deactivated', style: titleStyle),
+          const SizedBox(height: 12),
+          Text(
+            _tradeDeleteStepLine(1, backendText, backendText),
+            style: stepStyle,
+          ),
+          const SizedBox(height: 8),
+          _tradePromptPrimaryButton(
+            label: 'Open Trading APP',
+            enabled: _showButtons(msg),
+            onTap: () => controller.openTradingApp(),
+          ),
+          const SizedBox(height: 14),
+          Text(step2Text, style: stepStyle),
+          const SizedBox(height: 8),
+          _tradePromptPrimaryButton(
+            label: btnLabel,
+            icon: !_showButtons(msg)
+                ? Icons.check_circle_outline_rounded
+                : null,
+            isCompleted: !_showButtons(msg),
+            enabled: _showButtons(msg),
+            onTap: () => _showTrailSlDialog(context, msg, controller),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTradeOpportunityCard(
+    BuildContext context,
+    NewTradeOpportunityMessage msg, {
+    required bool showInvalidOverlay,
+    bool hideMarketPrice = false,
+  }) {
+    final isDark = _isDark(context);
+
+    final isEdit = _isEditTrade(msg);
+    final isActionCompleted =
+        _isActionTaken(msg) || msg.actionTaken != null || !_showButtons(msg);
+
+    final effectiveHideMarketPrice =
+        hideMarketPrice ||
+        isActionCompleted ||
+        showInvalidOverlay ||
+        _isDeleteTradeAction(msg) ||
+        isEdit;
+
+    final cardBorder = isDark
+        ? AppColors.primary.withOpacity(.4)
+        : Colors.grey.shade300;
+    final shadowColor = isDark
+        ? Colors.black.withOpacity(0.35)
+        : Colors.black.withOpacity(0.08);
+
+    final tradeName = msg.tradeName.trim().isNotEmpty
+        ? msg.tradeName.trim()
+        : msg.instrument;
+    final tradeSymbol = msg.tradeSymbol.trim().isNotEmpty
+        ? msg.tradeSymbol.trim()
+        : msg.contract;
+
+    final inner = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (msg.analystInfo.trim().isNotEmpty) ...[
+          SizedBox(
+            width: double.infinity,
+            child: Text(
+              msg.analystInfo,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 11,
+                color: isDark ? Colors.white60 : Colors.grey.shade600,
+                height: 1.25,
+              ),
+            ),
+          ),
+          Divider(
+            height: 18,
+            color: isDark ? Colors.white12 : Colors.grey.shade300,
+            thickness: 1,
+          ),
+        ],
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: AppColors.primary.withOpacity(0.2),
+              child: Text(
+                tradeName.isEmpty ? '?' : tradeName[0].toUpperCase(),
+                style: const TextStyle(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    tradeName,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : Colors.grey.shade800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    tradeSymbol,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: isDark ? Colors.white70 : Colors.grey.shade700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _buildTradeTimeline(
+          context,
+          msg,
+          hideMarketPrice: effectiveHideMarketPrice,
+          showOldNew: isEdit,
+        ),
+        if (!effectiveHideMarketPrice && msg.rtt.trim().isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: _BlinkingCurrentPriceBadge(
+              price: _formatTradeCardPrice(msg.rtt),
+            ),
+          ),
+        ],
+      ],
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isDark
+              ? [Colors.black, Colors.white.withOpacity(.002)]
+              : [Colors.white, Colors.white],
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: shadowColor,
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: showInvalidOverlay
+          ? Stack(
+              clipBehavior: Clip.hardEdge,
+              children: [
+                inner,
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: _InvalidTradeCrossPainter(isDark: isDark),
+                  ),
+                ),
+              ],
+            )
+          : inner,
+    );
+  }
+
+  Widget _buildTradeTimeline(
+    BuildContext context,
+    NewTradeOpportunityMessage msg, {
+    bool hideMarketPrice = false,
+    bool showOldNew = false,
+  }) {
+    final isDark = _isDark(context);
+    const dotRadius = 6.0;
+    final labels = ['SL', 'Entry', 'Target'];
+    final newRaw = [msg.stopLoss, msg.entryRange, msg.frr];
+    final oldRaw = showOldNew
+        ? [
+            msg.slChanged ? msg.oldStopLoss : '',
+            '',
+            msg.tpChanged ? msg.oldTakeProfit : '',
+          ]
+        : const ['', '', ''];
+    final values = newRaw.map(_formatTradeCardPrice).toList();
+    final showOld = List<bool>.generate(3, (i) {
+      final old = oldRaw[i].trim();
+      return old.isNotEmpty && !_sameTradeCardPrice(old, newRaw[i]);
+    });
+    final hasAnyOld = showOld.contains(true);
+
+    double parseNumeric(String raw) {
+      final matches = RegExp(r'[\d.]+').allMatches(raw);
+      final nums = matches
+          .map((m) => double.tryParse(m.group(0) ?? ''))
+          .whereType<double>()
+          .toList();
+      if (nums.isEmpty) return 0.0;
+      final sum = nums.fold<double>(0.0, (a, b) => a + b);
+      return sum / nums.length;
+    }
+
+    final numeric = [
+      parseNumeric(msg.stopLoss),
+      parseNumeric(msg.entryRange),
+      parseNumeric(msg.frr),
+    ];
+    final minV = numeric.reduce((a, b) => a < b ? a : b);
+    final maxV = numeric.reduce((a, b) => a > b ? a : b);
+    final denom = (maxV - minV).abs();
+
+    final rttTrim = msg.rtt.trim();
+    final hasCurrent = !hideMarketPrice && rttTrim.isNotEmpty;
+    final currentNumeric = hasCurrent ? parseNumeric(rttTrim) : null;
+
+    return LayoutBuilder(
+      builder: (ctx, constraints) {
+        final w = constraints.maxWidth;
+        final usableW = w.clamp(0.0, double.infinity);
+
+        List<double> fractions;
+        if (denom < 0.000001) {
+          fractions = const [0.0, 0.5, 1.0];
+        } else {
+          fractions = numeric
+              .map((v) => ((v - minV) / denom).clamp(0.0, 1.0))
+              .toList();
+        }
+
+        final lW = hasAnyOld ? 64.0 : 56.0;
+        const minGap = 2.0;
+
+        List<double> lx = List.generate(3, (i) => usableW * fractions[i]);
+        lx = _spreadTimelineAnchorsByPrice(lx, numeric, lW + minGap, w);
+
+        double? lxCurrent;
+        if (hasCurrent && currentNumeric != null) {
+          if (denom < 0.000001) {
+            lxCurrent = usableW * 0.5;
+          } else {
+            final frac = ((currentNumeric - minV) / denom).clamp(0.0, 1.0);
+            lxCurrent = usableW * frac;
+          }
+        }
+
+        return Column(
+          children: [
+            SizedBox(
+              height: 28,
+              child: Stack(
+                children: List.generate(3, (i) {
+                  double left;
+                  if (i == 0) {
+                    left = lx[i].clamp(0.0, w - lW);
+                  } else if (i == 2) {
+                    left = (lx[i] - lW).clamp(0.0, w - lW);
+                  } else {
+                    left = (lx[i] - lW / 2).clamp(0.0, w - lW);
+                  }
+
+                  return Positioned(
+                    left: left,
+                    width: lW,
+                    child: Align(
+                      alignment: i == 0
+                          ? Alignment.centerLeft
+                          : (i == 2 ? Alignment.centerRight : Alignment.center),
+                      child: Text(
+                        labels[i],
+                        textAlign: i == 0
+                            ? TextAlign.left
+                            : (i == 2 ? TextAlign.right : TextAlign.center),
+                        style: TextStyle(
+                          height: 1.1,
+                          fontSize: 11,
+                          color: isDark ? Colors.white60 : Colors.grey.shade700,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ),
+            ),
+            const SizedBox(height: 2),
+            if (lxCurrent != null)
+              SizedBox(
+                height: 16,
+                width: w,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Positioned(
+                      left: (lxCurrent - 22).clamp(0.0, w - 44),
+                      width: 44,
+                      top: 0,
+                      child: const Text(
+                        'LTP',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primary,
+                          height: 1,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            SizedBox(
+              height: dotRadius * 2 + 4,
+              width: w,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: dotRadius,
+                    height: 2,
+                    child: CustomPaint(
+                      size: Size(w, 2),
+                      painter: _DottedLinePainter(isDark: isDark),
+                    ),
+                  ),
+                  ...List.generate(3, (i) {
+                    return Positioned(
+                      left: (lx[i] - dotRadius).clamp(0.0, w - dotRadius * 2),
+                      top: 1,
+                      child: Container(
+                        width: dotRadius * 2,
+                        height: dotRadius * 2,
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? Colors.white38
+                              : const Color(0xFF616161),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    );
+                  }),
+                  if (lxCurrent != null)
+                    Positioned(
+                      left: (lxCurrent - dotRadius).clamp(
+                        0.0,
+                        w - dotRadius * 2,
+                      ),
+                      top: 1,
+                      child: Tooltip(
+                        message: 'Current market price (LTP)',
+                        child: Container(
+                          width: dotRadius * 2,
+                          height: dotRadius * 2,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 4),
+            SizedBox(
+              height: hasAnyOld ? 42 : 32,
+              child: Stack(
+                children: List.generate(3, (i) {
+                  double left;
+                  if (i == 0) {
+                    left = lx[i].clamp(0.0, w - lW);
+                  } else if (i == 2) {
+                    left = (lx[i] - lW).clamp(0.0, w - lW);
+                  } else {
+                    left = (lx[i] - lW / 2).clamp(0.0, w - lW);
+                  }
+
+                  final align = i == 0
+                      ? Alignment.centerLeft
+                      : (i == 2 ? Alignment.centerRight : Alignment.center);
+                  final textAlign = i == 0
+                      ? TextAlign.left
+                      : (i == 2 ? TextAlign.right : TextAlign.center);
+                  final cross = i == 0
+                      ? CrossAxisAlignment.start
+                      : (i == 2
+                            ? CrossAxisAlignment.end
+                            : CrossAxisAlignment.center);
+
+                  return Positioned(
+                    left: left,
+                    width: lW,
+                    child: Align(
+                      alignment: align,
+                      child: showOld[i]
+                          ? Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: cross,
+                              children: [
+                                Text(
+                                  _formatTradeCardPrice(oldRaw[i]),
+                                  textAlign: textAlign,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    height: 1.1,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark
+                                        ? Colors.white38
+                                        : Colors.grey.shade500,
+                                    decoration: TextDecoration.lineThrough,
+                                  ),
+                                ),
+                                Text(
+                                  values[i],
+                                  textAlign: textAlign,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    height: 1.1,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: isDark
+                                        ? Colors.white
+                                        : const Color(0xFF424242),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Text(
+                              values[i],
+                              textAlign: textAlign,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                height: 1.1,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: isDark
+                                    ? Colors.white
+                                    : const Color(0xFF424242),
+                              ),
+                            ),
+                    ),
+                  );
+                }),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildImageStyleTimeline(
+    BuildContext context,
+    NewTradeOpportunityMessage msg,
+  ) {
+    return _buildTradeTimeline(context, msg);
+  }
+
+  Widget _buildTradeExecutionPrompt(
+    BuildContext context,
+    TradeExecutionPromptMessage msg,
+    ChatController controller,
+  ) {
+    return _buildTradeExecutedBlock(
+      context,
+      msg.tradeData,
+      controller,
+      text: msg.text,
+      sourceMessage: msg,
+    );
+  }
+
+  Widget _buildTradeExecutedBlock(
+    BuildContext context,
+    NewTradeOpportunityMessage msg,
+    ChatController controller, {
+    String? text,
+    ChatMessage? sourceMessage,
+  }) {
+    final isDark = _isDark(context);
+    final actionSource = sourceMessage ?? msg;
+    final bodyStyle = TextStyle(fontSize: 14, color: _headlineText(isDark));
+    final stepStyle = TextStyle(
+      fontSize: 13,
+      color: _headlineText(isDark),
+      height: 1.35,
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildRichMessageContent(text ?? 'Trading App is unlocked.', isDark),
+          if (_showButtons(actionSource)) ...[
+            const SizedBox(height: 14),
+            Text('1. Go to Trading APP and apply Levels', style: stepStyle),
+            const SizedBox(height: 8),
+            _tradePromptPrimaryButton(
+              label: 'Open Trading APP',
+              enabled: true,
+              onTap: () {
+                setState(
+                  () => _openedTradingAppMessageIds.add(actionSource.messageId),
+                );
+                controller.openTradingApp();
+              },
+            ),
+            const SizedBox(height: 14),
+            Text('2. Intimate me once you apply the GTT', style: stepStyle),
+            const SizedBox(height: 8),
+            _tradePromptPrimaryButton(
+              label: 'GTT / Levels Applied',
+              enabled: _openedTradingAppMessageIds.contains(
+                actionSource.messageId,
+              ),
+              onTap: () => _showGttDialog(context, msg, controller),
+            ),
+          ] else ...[
+            const SizedBox(height: 14),
+            _tradePromptPrimaryButton(
+              label: 'GTT / Levels Applied',
+              icon: Icons.check_circle_outline_rounded,
+              isCompleted: true,
+              enabled: false,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _tradePromptPrimaryButton({
+    required String label,
+    IconData? icon,
+    VoidCallback? onTap,
+    bool enabled = true,
+    bool interactive = true,
+    bool isCompleted = false,
+  }) {
+    final isDark = _isDark(context);
+    const primaryColor = Color(0xFF2B4BF2);
+    final isEffectivelyActive = enabled && !isCompleted;
+    final borderColor = isEffectivelyActive
+        ? primaryColor
+        : (isDark ? const Color(0xFF333A48) : const Color(0xFFD1D5DB));
+    final textColor = isEffectivelyActive
+        ? primaryColor
+        : (isDark ? const Color(0xFF6B7280) : const Color(0xFF94A3B8));
+    final iconColor = textColor;
+    IconData getFallbackIcon() {
+      final l = label.toUpperCase();
+      if (isCompleted) return Icons.check_circle_outline_rounded;
+      if (l.contains('PROCESS') || l.contains('CREATE'))
+        return Icons.add_circle_outline_rounded;
+      if (l.contains('OPEN') || l.contains('TRADING APP') || l.contains('APP'))
+        return Icons.open_in_new_rounded;
+      if (l.contains('GTT') || l.contains('LEVELS') || l.contains('APPLIED'))
+        return Icons.check_circle_outline_rounded;
+      if (l.contains('DELETE')) return Icons.delete_outline_rounded;
+      if (l.contains('TRAIL') || l.contains('SL'))
+        return Icons.trending_up_rounded;
+      if (l.contains('SCORE') ||
+          l.contains('DMT') ||
+          l.contains('ANALYSIS') ||
+          l.contains('VIEW'))
+        return Icons.analytics_outlined;
+      if (l.contains('HIT') || l.contains('TARGET')) return Icons.flag_outlined;
+      return Icons.check_circle_outline_rounded;
+    }
+
+    final effectiveIcon = isCompleted
+        ? Icons.check_circle_outline_rounded
+        : (icon ?? getFallbackIcon());
+
+    final child = Container(
+      width: double.infinity,
+      height: 44,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E222A) : Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: borderColor, width: 1.8),
+      ),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(effectiveIcon, size: 19, color: iconColor),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: textColor,
+              fontWeight: FontWeight.w800,
+              fontSize: 14,
+              letterSpacing: 0.4,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    final canTap = interactive && isEffectivelyActive && onTap != null;
+    return SizedBox(
+      width: double.infinity,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: canTap
+            ? InkWell(
+                onTap: () {
+                  if (_enforceMindControlOnClick()) return;
+                  onTap?.call();
+                },
+                borderRadius: BorderRadius.circular(8),
+                child: child,
+              )
+            : child,
+      ),
+    );
+  }
+
+  void _showGttDialog(
+    BuildContext context,
+    NewTradeOpportunityMessage msg,
+    ChatController controller,
+  ) {
+    final isDark = _isDark(context);
+    final useExtendedFields = controller.shouldUseExtendedGttInputs();
+    final gttPriceController = TextEditingController(
+      text: ChatController.getDefaultGttPrice(msg.entryRange),
+    );
+    final stopLossController = TextEditingController(text: msg.stopLoss);
+    final takeProfitController = TextEditingController(text: msg.frr);
+
+    showChatFadeDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: _dialogBg(isDark),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 380),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Top Close button
+              Align(
+                alignment: Alignment.topRight,
+                child: InkWell(
+                  onTap: () => Navigator.pop(ctx),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.close_rounded,
+                      color: isDark ? Colors.white60 : AppColors.primary,
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ),
+
+              // Center Icon
+              Center(
+                child: Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.primary.withOpacity(0.2)
+                        : const Color(0xFFEDE9FE),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.gps_fixed_rounded,
+                    color: AppColors.primary,
+                    size: 30,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Title
+              Text(
+                'You have selected Apply GTT',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: _headlineText(isDark),
+                ),
+              ),
+              const SizedBox(height: 6),
+
+              // Subtitle
+              Text(
+                'Please enter the level at which you have already applied the GTT order on your trading app.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: _secondaryText(isDark),
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              // Current Level Box
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF1E222A)
+                      : const Color(0xFFF6F5FF),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Current Level',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: isDark
+                            ? Colors.white70
+                            : const Color(0xFF10122D),
+                      ),
+                    ),
+                    Text(
+                      _formatIndianCurrency(
+                        ChatController.getDefaultGttPrice(msg.entryRange),
+                      ),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              // Fields
+              if (!useExtendedFields) ...[
+                Text(
+                  'GTT Applied Level',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: _headlineText(isDark),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: gttPriceController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: _bubbleText(isDark),
+                  ),
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: isDark
+                        ? const Color(0xFF1E222A)
+                        : const Color(0xFFF7F6FB),
+                    hintText: 'Enter the GTT applied level',
+                    hintStyle: TextStyle(
+                      color: isDark ? Colors.white38 : const Color(0xFFB0B0B8),
+                      fontSize: 13,
+                      fontWeight: FontWeight.normal,
+                    ),
+                    suffixIcon: const Icon(
+                      Icons.trending_up_rounded,
+                      color: AppColors.primary,
+                      size: 22,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: isDark
+                            ? Colors.white12
+                            : const Color(0xFFE2E0E9),
+                      ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: isDark
+                            ? Colors.white12
+                            : const Color(0xFFE2E0E9),
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(
+                        color: AppColors.primary,
+                        width: 1.5,
+                      ),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 14,
+                    ),
+                  ),
+                ),
+              ] else ...[
+                _popupField('GTT is set at', gttPriceController, '', isDark),
+                const SizedBox(height: 12),
+                _popupField('Stop Loss', stopLossController, '', isDark),
+                const SizedBox(height: 12),
+                _popupField('Target', takeProfitController, '', isDark),
+              ],
+              const SizedBox(height: 12),
+
+              // Info note
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 16,
+                    color: isDark ? Colors.white60 : const Color(0xFF70717F),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'We will track this level and update you accordingly.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _secondaryText(isDark),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+
+              // Submit Button
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: FilledButton(
+                  onPressed: () async {
+                    final val = gttPriceController.text.trim();
+                    if (val.isEmpty) {
+                      AppToast.showToast('Please enter GTT trigger value');
+                      return;
+                    }
+                    Navigator.pop(ctx);
+                    await controller.createGttAlert(
+                      msg,
+                      gttPriceController.text,
+                      stopLoss: useExtendedFields
+                          ? stopLossController.text
+                          : null,
+                      takeProfit: useExtendedFields
+                          ? takeProfitController.text
+                          : null,
+                    );
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text(
+                    'Submit',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showTrailSlDialog(
+    BuildContext context,
+    NewTradeOpportunityMessage msg,
+    ChatController controller,
+  ) {
+    final isDark = _isDark(context);
+    final isGttEdit =
+        msg.buttonType == 'edit_gtt_button' ||
+        msg.action.toLowerCase() == 'editgtt';
+
+    String dialogTitle = 'Trail Stop Loss';
+    if (isGttEdit) {
+      dialogTitle = 'Update GTT';
+    } else if (msg.slChanged && msg.tpChanged) {
+      dialogTitle = 'Update SL and Target';
+    } else if (msg.tpChanged) {
+      dialogTitle = 'Update Target';
+    }
+
+    final slController = TextEditingController(text: msg.stopLoss);
+    final tpController = TextEditingController(text: msg.frr);
+    final gttController = TextEditingController(text: msg.entryRange);
+    showChatFadeDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: _dialogBg(isDark),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 380),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Top Close button
+              Align(
+                alignment: Alignment.topRight,
+                child: InkWell(
+                  onTap: () => Navigator.pop(ctx),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.close_rounded,
+                      color: isDark ? Colors.white60 : AppColors.primary,
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ),
+
+              // Center Icon
+              Center(
+                child: Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.primary.withOpacity(0.2)
+                        : const Color(0xFFEDE9FE),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.tune_rounded,
+                    color: AppColors.primary,
+                    size: 30,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Title
+              Text(
+                dialogTitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: _headlineText(isDark),
+                ),
+              ),
+              const SizedBox(height: 6),
+
+              // Subtitle
+              Text(
+                'Please update your trade parameters.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: _secondaryText(isDark),
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              // Instrument / Trade Info Box
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF1E222A)
+                      : const Color(0xFFF6F5FF),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 18,
+                      backgroundColor: AppColors.primary.withOpacity(0.15),
+                      child: Text(
+                        (msg.tradeName.trim().isNotEmpty
+                                ? msg.tradeName.trim()
+                                : msg.instrument)
+                            .substring(0, 1)
+                            .toUpperCase(),
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            (msg.tradeName.trim().isNotEmpty
+                                    ? msg.tradeName.trim()
+                                    : msg.instrument)
+                                .toUpperCase(),
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: _bubbleText(isDark),
+                            ),
+                          ),
+                          Text(
+                            msg.tradeSymbol.trim().isNotEmpty
+                                ? msg.tradeSymbol.trim()
+                                : msg.contract,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: _secondaryText(isDark),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              if (isGttEdit)
+                _popupField('New GTT', gttController, '', isDark)
+              else ...[
+                if (msg.slChanged || (!msg.slChanged && !msg.tpChanged))
+                  _popupField('New Stop Loss', slController, '', isDark),
+                if (msg.slChanged && msg.tpChanged) const SizedBox(height: 12),
+                if (msg.tpChanged)
+                  _popupField('New Target', tpController, '', isDark),
+              ],
+              const SizedBox(height: 24),
+
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: FilledButton(
+                  onPressed: () async {
+                    final vGtt = gttController.text.trim();
+                    final vSl = slController.text.trim();
+                    final vTp = tpController.text.trim();
+                    final mId = msg.messageId.trim();
+                    final tId = msg.tradeId.trim();
+                    if (mId.isNotEmpty)
+                      setState(() => _actionTakenMessageIds.add(mId));
+                    if (tId.isNotEmpty)
+                      setState(() => _actionTakenTradeIds.add(tId));
+                    Navigator.pop(ctx);
+                    if (isGttEdit) {
+                      await controller.acknowledgeSlTrailed(
+                        msg,
+                        newEntry: vGtt,
+                        isGttEdit: true,
+                      );
+                    } else {
+                      await controller.acknowledgeSlTrailed(
+                        msg,
+                        newSl: vSl,
+                        newTp: vTp,
+                      );
+                    }
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text(
+                    'Submit',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTradeTimelineForEdit(
+    BuildContext context,
+    NewTradeOpportunityMessage msg,
+  ) {
+    return _buildTradeTimeline(context, msg, showOldNew: true);
+  }
+
+  void _showTradeParamsPopup(
+    BuildContext context,
+    NewTradeOpportunityMessage msg,
+    ChatController controller,
+  ) {
+    final isDark = _isDark(context);
+    // From API: entry_price, stop_loss, take_profit
+    final entryPriceController = TextEditingController(text: msg.entryRange);
+    final stopLossController = TextEditingController(text: msg.stopLoss);
+    final takeProfitController = TextEditingController(text: msg.frr);
+
+    showChatFadeDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: _dialogBg(isDark),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 380),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Top Close button
+              Align(
+                alignment: Alignment.topRight,
+                child: InkWell(
+                  onTap: () => Navigator.pop(ctx),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.close_rounded,
+                      color: isDark ? Colors.white60 : AppColors.primary,
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ),
+
+              // Center Icon
+              Center(
+                child: Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.primary.withOpacity(0.2)
+                        : const Color(0xFFEDE9FE),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.candlestick_chart_rounded,
+                    color: AppColors.primary,
+                    size: 30,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Title
+              Text(
+                'Trade Details',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: _headlineText(isDark),
+                ),
+              ),
+              const SizedBox(height: 6),
+
+              // Subtitle
+              Text(
+                'Please verify and submit trade levels.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: _secondaryText(isDark),
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              // Instrument Box
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF1E222A)
+                      : const Color(0xFFF6F5FF),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      msg.instrument.isNotEmpty ? msg.instrument : msg.contract,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: isDark
+                            ? Colors.white70
+                            : const Color(0xFF10122D),
+                      ),
+                    ),
+                    Text(
+                      msg.contract,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              _popupField(
+                'Entry Price',
+                entryPriceController,
+                '${msg.lotNumbers.length > 1 ? msg.lotNumbers[1] : 1} Lots',
+                isDark,
+              ),
+              const SizedBox(height: 12),
+              _popupField(
+                'Stop Loss',
+                stopLossController,
+                '${msg.lotNumbers.isNotEmpty ? msg.lotNumbers[0] : 1} Lots',
+                isDark,
+              ),
+              const SizedBox(height: 12),
+              _popupField(
+                'Take Profit',
+                takeProfitController,
+                '${msg.lotNumbers.length > 2 ? msg.lotNumbers[2] : 1} Lots',
+                isDark,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 16,
+                    color: isDark ? Colors.white60 : const Color(0xFF70717F),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '1 lot is preferred to be under RTT mode',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _secondaryText(isDark),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 48,
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: _fieldBorder(isDark)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: Text(
+                          'Cancel',
+                          style: TextStyle(
+                            color: _headlineText(isDark),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: SizedBox(
+                      height: 48,
+                      child: FilledButton(
+                        onPressed: () async {
+                          Navigator.pop(ctx);
+                          await controller.submitTradeExecuted(
+                            msg: msg,
+                            entryPrice: entryPriceController.text,
+                            stopLoss: stopLossController.text,
+                            takeProfit: takeProfitController.text,
+                          );
+                        },
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text(
+                          'Submit',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _popupField(
+    String label,
+    TextEditingController controller,
+    String suffix,
+    bool isDark,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 13,
+            color: _headlineText(isDark),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: controller,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: _bubbleText(isDark),
+                ),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: _fieldFill(isDark),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: _fieldBorder(isDark)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: _fieldBorder(isDark)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(
+                      color: AppColors.primary,
+                      width: 1.5,
+                    ),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                ),
+              ),
+            ),
+            if (suffix.isNotEmpty) ...[
+              const SizedBox(width: 10),
+              Text(
+                suffix,
+                style: TextStyle(fontSize: 13, color: _tertiaryText(isDark)),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+
+  void _showTargetHitConfirmDialog(
+    BuildContext context,
+    AlertHitWithButtonMessage msg,
+    ChatController controller,
+  ) {
+    final rawPrice = msg.targetHitPrice.trim();
+    final initialPrice = rawPrice.isNotEmpty
+        ? _formatTradeCardPrice(rawPrice)
+        : '';
+
+    showChatFadeDialog(
+      context: context,
+      builder: (ctx) => _TargetHitConfirmDialog(
+        msg: msg,
+        controller: controller,
+        initialPrice: initialPrice,
+      ),
+    );
+  }
+
+  Widget _buildAlertHitWithButton(
+    BuildContext context,
+    AlertHitWithButtonMessage msg,
+    ChatController controller,
+  ) {
+    final isDark = _isDark(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildRichMessageContent(msg.text, isDark),
+          const SizedBox(height: 12),
+          if (msg.isGttHit) ...[
+            _tradePromptPrimaryButton(
+              label: 'Open Trading APP',
+              enabled: _showButtons(msg),
+              onTap: () {
+                setState(() => _openedTradingAppMessageIds.add(msg.messageId));
+                controller.openTradingApp();
+              },
+            ),
+            const SizedBox(height: 10),
+          ],
+          _tradePromptPrimaryButton(
+            label: msg.buttonLabel,
+            icon: !_showButtons(msg)
+                ? Icons.check_circle_outline_rounded
+                : (msg.isSlHit
+                      ? Icons.error_outline_rounded
+                      : Icons.flag_outlined),
+            isCompleted: !_showButtons(msg),
+            enabled:
+                _showButtons(msg) &&
+                (!msg.isGttHit ||
+                    _openedTradingAppMessageIds.contains(msg.messageId)),
+            onTap: () {
+              final setupType =
+                  ApiConfig.activeSetupType ??
+                  Common.userData.value?.payload?.tradingSetupType ??
+                  'own_setup';
+              final isZenoAi = setupType == 'zeno_ai_signals';
+
+              if (msg.buttonType == 'trade_executed' || msg.isSlHit) {
+                _showTargetHitConfirmDialog(context, msg, controller);
+              } else if (msg.isGttHit) {
+                if (isZenoAi && msg.tradeData != null) {
+                  _showTradeParamsPopup(context, msg.tradeData!, controller);
+                } else {
+                  _showTargetHitConfirmDialog(context, msg, controller);
+                }
+              } else {
+                controller.onTradeExecuted();
+              }
+            },
+          ),
+          if (msg.isGttHit &&
+              msg.tradeData != null &&
+              (ApiConfig.activeSetupType ??
+                      Common.userData.value?.payload?.tradingSetupType ??
+                      'own_setup') ==
+                  'zeno_ai_signals') ...[
+            const SizedBox(height: 10),
+            _tradePromptPrimaryButton(
+              label: 'GTT Missed',
+              enabled: _showButtons(msg),
+              onTap: () => controller.acknowledgeGttMissed(msg),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTradeExecuted(
+    BuildContext context,
+    TradeExecutedMessage msg,
+    ChatController controller,
+  ) {
+    final isDark = _isDark(context);
+    final stepStyle = TextStyle(
+      fontSize: 13,
+      color: _headlineText(isDark),
+      height: 1.35,
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildRichMessageContent(msg.text, isDark),
+          if (_showButtons(msg)) ...[
+            const SizedBox(height: 14),
+            Text('1. Go to Trading APP and apply Levels', style: stepStyle),
+            const SizedBox(height: 8),
+            _tradePromptPrimaryButton(
+              label: 'Open Trading APP',
+              enabled: true,
+              onTap: () {
+                setState(() => _openedTradingAppMessageIds.add(msg.messageId));
+                controller.openTradingApp();
+              },
+            ),
+            const SizedBox(height: 14),
+            Text('2. Intimate me once you apply the GTT', style: stepStyle),
+            const SizedBox(height: 8),
+            _tradePromptPrimaryButton(
+              label: msg.buttonLabel,
+              enabled: _openedTradingAppMessageIds.contains(msg.messageId),
+              onTap: () {
+                controller.markActionTaken(messageId: msg.messageId);
+                AppToast.showToast('Thanks for confirming');
+              },
+            ),
+          ] else ...[
+            const SizedBox(height: 14),
+            _tradePromptPrimaryButton(
+              label: msg.buttonLabel,
+              icon: Icons.check_circle_outline_rounded,
+              isCompleted: true,
+              enabled: false,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInput(
+    BuildContext context,
+    ChatController controller,
+    TextEditingController textController,
+  ) {
+    final isDark = _isDark(context);
+
+    if (_isTranscribing) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        color: _bottomBarBg(isDark),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF3F0FF),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isDark ? const Color(0xFF2C3240) : const Color(0xFFE2DCF7),
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'Converting voice to text...',
+                style: TextStyle(
+                  color: isDark ? Colors.white70 : const Color(0xFF10122D),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_isRecording) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        color: _bottomBarBg(isDark),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF3F0FF),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isDark ? const Color(0xFF2C3240) : const Color(0xFFE2DCF7),
+            ),
+          ),
+          child: Row(
+            children: [
+              GestureDetector(
+                onTap: _cancelRecording,
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  child: Icon(
+                    Icons.close,
+                    color: isDark ? Colors.white70 : Colors.grey.shade700,
+                    size: 22,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: AudioWaveVisualizer(
+                  amplitude: _currentAmplitude,
+                  barCount: 26,
+                  height: 32,
+                  barWidth: 3.2,
+                  activeColor: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: _stopRecordingAndTranscribe,
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF2C3240)
+                        : Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Center(
+                    child: Icon(
+                      Icons.square_rounded,
+                      color: isDark ? Colors.white : Colors.grey.shade800,
+                      size: 14,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: _stopRecordingAndTranscribe,
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.arrow_upward_rounded,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+      color: _bottomBarBg(isDark),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF3F0FF),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isDark ? const Color(0xFF2C3240) : const Color(0xFFE2DCF7),
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: TextField(
+                controller: textController,
+                minLines: 1,
+                maxLines: 5,
+                keyboardType: TextInputType.multiline,
+                style: TextStyle(
+                  color: _bubbleText(isDark),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'Send a message',
+                  hintStyle: TextStyle(
+                    color: isDark ? Colors.white38 : const Color(0xFF70717F),
+                    fontSize: 14,
+                  ),
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 6),
+                ),
+                onSubmitted: (text) {
+                  if (text.trim().isEmpty) return;
+                  controller.sendTextMessage(text);
+                  textController.clear();
+                  _scheduleScrollToBottom();
+                },
+              ),
+            ),
+            const SizedBox(width: 4),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 3),
+              child: GestureDetector(
+                onTap: _startRecording,
+                child: Container(
+                  padding: const EdgeInsets.all(5),
+                  child: Icon(
+                    Icons.mic_none_rounded,
+                    color: isDark ? Colors.white70 : const Color(0xFF70717F),
+                    size: 22,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 2),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: GestureDetector(
+                onTap: () {
+                  final text = textController.text;
+                  if (text.trim().isEmpty) return;
+                  controller.sendTextMessage(text);
+                  textController.clear();
+                  _scheduleScrollToBottom();
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.arrow_upward_rounded,
+                    color: Colors.white,
+                    size: 16,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TargetHitConfirmDialog extends StatefulWidget {
+  const _TargetHitConfirmDialog({
+    required this.msg,
+    required this.controller,
+    required this.initialPrice,
+  });
+
+  final AlertHitWithButtonMessage msg;
+  final ChatController controller;
+  final String initialPrice;
+
+  @override
+  State<_TargetHitConfirmDialog> createState() =>
+      _TargetHitConfirmDialogState();
+}
+
+class _TargetHitConfirmDialogState extends State<_TargetHitConfirmDialog> {
+  late final TextEditingController _priceController;
+
+  @override
+  void initState() {
+    super.initState();
+    _priceController = TextEditingController(text: widget.initialPrice);
+  }
+
+  @override
+  void dispose() {
+    _priceController.dispose();
+    super.dispose();
+  }
+
+  void _onConfirm() {
+    final price = _priceController.text.trim();
+    Navigator.of(context).pop();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.controller.acknowledgeTradeExecuted(widget.msg, hitPrice: price);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final dialogBg = isDark ? const Color(0xFF1E222A) : Colors.white;
+    final titleColor = isDark ? Colors.white : const Color(0xFF10122D);
+    final bodyColor = isDark ? Colors.white70 : const Color(0xFF70717F);
+    final fieldFill = isDark
+        ? const Color(0xFF1E222A)
+        : const Color(0xFFF7F6FB);
+    final fieldBorder = isDark ? Colors.white12 : const Color(0xFFE2E0E9);
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      backgroundColor: dialogBg,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 380),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Top Close button
+            Align(
+              alignment: Alignment.topRight,
+              child: InkWell(
+                onTap: () => Navigator.of(context).pop(),
+                borderRadius: BorderRadius.circular(16),
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    Icons.close_rounded,
+                    color: isDark ? Colors.white60 : AppColors.primary,
+                    size: 24,
+                  ),
+                ),
+              ),
+            ),
+
+            // Center Icon
+            Center(
+              child: Container(
+                width: 58,
+                height: 58,
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? AppColors.primary.withOpacity(0.2)
+                      : const Color(0xFFEDE9FE),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  widget.msg.isSlHit
+                      ? Icons.shield_outlined
+                      : (widget.msg.isGttHit
+                            ? Icons.gps_fixed_rounded
+                            : Icons.flag_rounded),
+                  color: AppColors.primary,
+                  size: 30,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            // Title
+            Text(
+              widget.msg.isSlHit
+                  ? 'Confirm SL Hit'
+                  : (widget.msg.isGttHit
+                        ? 'Confirm GTT Hit'
+                        : 'Confirm Target Hit'),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: titleColor,
+              ),
+            ),
+            const SizedBox(height: 6),
+
+            // Subtitle
+            Text(
+              widget.msg.isSlHit
+                  ? 'SL hit on this price'
+                  : (widget.msg.isGttHit
+                        ? 'GTT hit on this price'
+                        : 'Target hit on this price'),
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13, color: bodyColor, height: 1.35),
+            ),
+            const SizedBox(height: 18),
+
+            // Price Field
+            TextField(
+              controller: _priceController,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: AppColors.primary,
+              ),
+              textAlign: TextAlign.center,
+              decoration: InputDecoration(
+                hintText: 'Enter price',
+                hintStyle: TextStyle(
+                  color: isDark ? Colors.white38 : const Color(0xFFB0B0B8),
+                  fontSize: 15,
+                ),
+                filled: true,
+                fillColor: fieldFill,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: fieldBorder),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: fieldBorder),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(
+                    color: AppColors.primary,
+                    width: 1.5,
+                  ),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 14,
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Action Buttons
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 48,
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: fieldBorder),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: Text(
+                        'Cancel',
+                        style: TextStyle(
+                          color: titleColor,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: SizedBox(
+                    height: 48,
+                    child: FilledButton(
+                      onPressed: _onConfirm,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: const Text(
+                        'Confirm',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Fade-in open animation for chat dialogs (GTT, trail SL, trade details).
+Future<T?> showChatFadeDialog<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  bool barrierDismissible = true,
+}) {
+  return showGeneralDialog<T>(
+    context: context,
+    barrierDismissible: barrierDismissible,
+    barrierLabel: 'Dismiss',
+    barrierColor: Colors.black54,
+    transitionDuration: const Duration(milliseconds: 260),
+    pageBuilder: (dialogContext, animation, secondaryAnimation) {
+      return builder(dialogContext);
+    },
+    transitionBuilder: (context, animation, secondaryAnimation, child) {
+      return FadeTransition(
+        opacity: CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOut,
+          reverseCurve: Curves.easeIn,
+        ),
+        child: child,
+      );
+    },
+  );
+}
+
+class _UnreadRevealGate extends StatefulWidget {
+  const _UnreadRevealGate({required this.messageId, required this.onRevealed});
+
+  final String messageId;
+  final ValueChanged<String> onRevealed;
+
+  @override
+  State<_UnreadRevealGate> createState() => _UnreadRevealGateState();
+}
+
+class _UnreadRevealGateState extends State<_UnreadRevealGate> {
+  @override
+  void initState() {
+    super.initState();
+    Future.delayed(const Duration(milliseconds: 900), () {
+      if (!mounted) return;
+      widget.onRevealed(widget.messageId);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.only(bottom: 8),
+      child: Row(children: [SizedBox(width: 44), _TypingDots()]),
+    );
+  }
+}
+
+class _TypingDots extends StatefulWidget {
+  const _TypingDots();
+
+  @override
+  State<_TypingDots> createState() => _TypingDotsState();
+}
+
+class _TypingDotsState extends State<_TypingDots>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? const Color(0xFF1E222A) : Colors.white;
+    final dotColor = isDark ? Colors.white60 : const Color(0xFF9E9E9E);
+
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        double opacityFor(int i) {
+          final phase = ((_controller.value * 3) - i).clamp(0.0, 1.0);
+          return 0.25 + (phase * 0.75);
+        }
+
+        Widget dot(int i) => Opacity(
+          opacity: opacityFor(i),
+          child: Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+          ),
+        );
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              dot(0),
+              const SizedBox(width: 4),
+              dot(1),
+              const SizedBox(width: 4),
+              dot(2),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Large “X” over invalidated trade cards (delete / recommendation void).
+class _InvalidTradeCrossPainter extends CustomPainter {
+  const _InvalidTradeCrossPainter({this.isDark = false});
+
+  final bool isDark;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = (isDark ? Colors.white54 : Colors.grey.shade500).withOpacity(
+        0.65,
+      )
+      ..strokeWidth = 3.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    const inset = 8.0;
+    canvas.drawLine(
+      Offset(inset, inset),
+      Offset(size.width - inset, size.height - inset),
+      paint,
+    );
+    canvas.drawLine(
+      Offset(size.width - inset, inset),
+      Offset(inset, size.height - inset),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _InvalidTradeCrossPainter oldDelegate) =>
+      oldDelegate.isDark != isDark;
+}
+
+class _DottedLinePainter extends CustomPainter {
+  const _DottedLinePainter({
+    this.color,
+    this.strokeWidth = 2,
+    this.dashWidth = 6,
+    this.gap = 4,
+    this.isDark = false,
+  });
+
+  final Color? color;
+  final double strokeWidth;
+  final double dashWidth;
+  final double gap;
+  final bool isDark;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color ?? (isDark ? Colors.white24 : Colors.grey.shade400)
+      ..strokeWidth = strokeWidth
+      ..style = PaintingStyle.stroke;
+    double x = 0;
+    while (x < size.width) {
+      canvas.drawLine(
+        Offset(x, size.height / 2),
+        Offset(x + dashWidth, size.height / 2),
+        paint,
+      );
+      x += dashWidth + gap;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DottedLinePainter oldDelegate) =>
+      oldDelegate.color != color ||
+      oldDelegate.strokeWidth != strokeWidth ||
+      oldDelegate.dashWidth != dashWidth ||
+      oldDelegate.gap != gap ||
+      oldDelegate.isDark != isDark;
+}
+
+class _BlinkingCurrentPriceBadge extends StatefulWidget {
+  const _BlinkingCurrentPriceBadge({required this.price});
+
+  final String price;
+
+  @override
+  State<_BlinkingCurrentPriceBadge> createState() =>
+      _BlinkingCurrentPriceBadgeState();
+}
+
+class _BlinkingCurrentPriceBadgeState extends State<_BlinkingCurrentPriceBadge>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+      lowerBound: 0.35,
+      upperBound: 1.0,
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Kept identical in both themes (matches screenshots — red badge sits on
+    // the always-white trade card, so it doesn't need a dark variant).
+    return FadeTransition(
+      opacity: _controller,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.red.shade300),
+        ),
+        child: Text(
+          'Current Market Price: ${widget.price}',
+          style: TextStyle(
+            color: Colors.red.shade700,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+abstract class _ChatFeedItem {
+  const _ChatFeedItem();
+}
+
+class _ChatFeedDateHeader extends _ChatFeedItem {
+  const _ChatFeedDateHeader({required this.label});
+  final String label;
+}
+
+class _ChatFeedNewMessages extends _ChatFeedItem {
+  const _ChatFeedNewMessages();
+}
+
+class _ChatFeedMessage extends _ChatFeedItem {
+  const _ChatFeedMessage({required this.index, required this.message});
+  final int index;
+  final ChatMessage message;
+}

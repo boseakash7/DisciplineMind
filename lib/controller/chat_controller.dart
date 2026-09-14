@@ -1,0 +1,1362 @@
+import 'dart:io';
+
+import 'package:app_limiter/app_limiter.dart';
+import 'package:discipline_mind/common/common.dart';
+import 'package:discipline_mind/constants/blocked_apps.dart';
+import 'package:discipline_mind/controller/alert_controller.dart';
+import 'package:discipline_mind/model/chat_message_model.dart';
+import 'package:discipline_mind/services/api/api_config.dart';
+import 'package:discipline_mind/services/api/api_services.dart';
+import 'package:discipline_mind/services/api/api_url.dart';
+import 'package:discipline_mind/services/app_block_preferences_service.dart';
+import 'package:discipline_mind/services/native_app_block_service.dart';
+import 'package:discipline_mind/services/trading_apps_service.dart';
+import 'package:discipline_mind/ui/widgets/app_toast.dart';
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+class ChatController extends GetxController {
+  final NativeAppBlockService _blockService = NativeAppBlockService();
+  final AppBlockPreferencesService _prefs = AppBlockPreferencesService();
+
+  final messages = <ChatMessage>[].obs;
+  final isLoading = false.obs;
+  final isRefreshing = false.obs;
+  final hasMoreOlderMessages = true.obs;
+
+  String? currentUserId;
+  int _emptyLoadRetryCount = 0;
+  int _sessionVersion = 0;
+  int _loadVersion = 0;
+  Worker? _userWorker;
+
+  bool _isCurrentSession(String userId, int version) =>
+      !isClosed && _sessionVersion == version && _resolvedUserId == userId;
+
+  String? get _resolvedUserId {
+    final fromModel = Common.userData.value?.payload?.id?.toString();
+    if (fromModel != null && fromModel.isNotEmpty) return fromModel;
+    final fromStorage = GetStorage().read('user_id')?.toString();
+    if (fromStorage != null && fromStorage.isNotEmpty) return fromStorage;
+    return null;
+  }
+
+  void reset() {
+    _sessionVersion++;
+    _loadVersion++;
+    messages.clear();
+    currentUserId = null;
+    isLoading.value = false;
+    isRefreshing.value = false;
+    hasMoreOlderMessages.value = true;
+    _emptyLoadRetryCount = 0;
+    update();
+  }
+
+  List<String> _selectedBlockedPackages() {
+    final userId = _resolvedUserId;
+    if (userId == null || userId.isEmpty) {
+      return [];
+    }
+    return _prefs.getSelectedPackages(userId: userId);
+  }
+
+  @override
+  void onInit() {
+    super.onInit();
+    _userWorker = ever(Common.userData, (_) {
+      final userId = Common.userData.value?.payload?.id?.toString();
+      if (userId == currentUserId) return;
+      reset();
+      if (userId != null && userId.isNotEmpty) loadMessages();
+    });
+    loadMessages();
+  }
+
+  @override
+  void onClose() {
+    _userWorker?.dispose();
+    _sessionVersion++;
+    super.onClose();
+  }
+
+  String _lastKnownMessageId() {
+    for (var i = messages.length - 1; i >= 0; i--) {
+      final id = messages[i].messageId.trim();
+      if (id.isNotEmpty) return id;
+    }
+    return '';
+  }
+
+  String _firstKnownMessageId() {
+    for (var i = 0; i < messages.length; i++) {
+      final id = messages[i].messageId.trim();
+      if (id.isNotEmpty) return id;
+    }
+    return '';
+  }
+
+  /// Ensures there is AT MOST ONE AI waiting message in the list (the latest/newest one).
+  /// Any older AI messages are dropped so only the last active AI message is displayed.
+  List<ChatMessage> _keepOnlyLatestAiMessage(List<ChatMessage> list) {
+    final lastAiIndex = list.lastIndexWhere((m) => m.type == ChatMessageType.aiWaiting);
+    if (lastAiIndex == -1) return list;
+
+    final result = <ChatMessage>[];
+    for (var i = 0; i < list.length; i++) {
+      final m = list[i];
+      if (m.type == ChatMessageType.aiWaiting && i != lastAiIndex) {
+        continue; // drop older AI message
+      }
+      result.add(m);
+    }
+    return result;
+  }
+
+  final Set<String> _takenActionMessageIds = <String>{};
+  final Set<String> _takenActionTradeIds = <String>{};
+
+  bool isActionTakenFor(ChatMessage msg) {
+    if (msg.actionTaken != null &&
+        msg.actionTaken != 0 &&
+        msg.actionTaken != '0' &&
+        msg.actionTaken != false &&
+        msg.actionTaken != 'false') {
+      return true;
+    }
+    final mId = msg.messageId.trim();
+    if (mId.isNotEmpty && _takenActionMessageIds.contains(mId)) return true;
+    final tId = msg is NewTradeOpportunityMessage
+        ? msg.tradeId.trim()
+        : (msg is TradeExecutionPromptMessage ? msg.tradeData.tradeId.trim() : '');
+    if (tId.isNotEmpty && _takenActionTradeIds.contains(tId)) return true;
+    return false;
+  }
+
+  List<ChatMessage> _applyLocallyTakenActions(List<ChatMessage> list) {
+    if (_takenActionMessageIds.isEmpty && _takenActionTradeIds.isEmpty) return list;
+    final result = list.toList();
+    for (int i = 0; i < result.length; i++) {
+      final m = result[i];
+      if (m.actionTaken == null) {
+        final mId = m.messageId.trim();
+        final tId = m is NewTradeOpportunityMessage
+            ? m.tradeId.trim()
+            : (m is TradeExecutionPromptMessage ? m.tradeData.tradeId.trim() : '');
+        if ((mId.isNotEmpty && _takenActionMessageIds.contains(mId)) ||
+            (tId.isNotEmpty && _takenActionTradeIds.contains(tId))) {
+          result[i] = _withActionTaken(m, 1);
+        }
+      }
+    }
+    return result;
+  }
+
+  List<ChatMessage> _parseDisplayMessages(dynamic payload) {
+    if (payload is! List) return const <ChatMessage>[];
+    final parsed = <ChatMessage>[];
+    for (final item in payload) {
+      if (item is Map<String, dynamic>) {
+        // API returns messages oldest → newest (newest last). Chat list is the same.
+        // [chatMessagesFromJson] order per row (e.g. trade card then prompt) is already
+        // top-to-bottom for that row.
+        parsed.addAll(chatMessagesFromJson(item));
+      }
+    }
+    final deduped = _keepOnlyLatestAiMessage(_dedupeRedundantDeleteTradeButtons(parsed));
+    return _applyLocallyTakenActions(deduped);
+  }
+
+  List<ChatMessage> _mergeUniqueMessages({
+    required List<ChatMessage> base,
+    required List<ChatMessage> incoming,
+    required bool prepend,
+  }) {
+    final existingIds = base
+        .map((m) => m.messageId.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
+    final filteredIncoming = incoming.where((m) {
+      final id = m.messageId.trim();
+      if (id.isEmpty) return true;
+      return !existingIds.contains(id);
+    }).toList();
+
+    List<ChatMessage> combined;
+    if (prepend) {
+      combined = [...filteredIncoming, ...base];
+    } else {
+      // If new messages contain an AI message, immediately purge older AI messages from base
+      final incomingHasAi = filteredIncoming.any((m) => m.type == ChatMessageType.aiWaiting);
+      final adjustedBase = incomingHasAi
+          ? base.where((m) => m.type != ChatMessageType.aiWaiting).toList()
+          : base;
+      combined = [...adjustedBase, ...filteredIncoming];
+    }
+    return _keepOnlyLatestAiMessage(combined);
+  }
+
+  bool _isDeleteTradeRequestMessage(ChatMessage m) {
+    if (m is! NewTradeOpportunityMessage) return false;
+    if (m.action.toLowerCase() != 'delete') return false;
+    // These are the two bubbles used in the delete flow (combined UI).
+    return m.buttonType == 'open_app_button' || m.buttonType == 'delete_button';
+  }
+
+  bool _incomingHasDeleteTradeRequest(List<ChatMessage> incoming) {
+    for (final m in incoming) {
+      if (_isDeleteTradeRequestMessage(m) && m.actionTaken == null) return true;
+    }
+    return false;
+  }
+
+  ChatMessage _withActionTaken(ChatMessage m, dynamic actionTaken) {
+    switch (m.type) {
+      case ChatMessageType.simpleText:
+        final x = m as SimpleTextMessage;
+        return SimpleTextMessage(
+          text: x.text,
+          tradeId: x.tradeId,
+          isFromUser: x.isFromUser,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          actionTaken: actionTaken,
+          timestamp: x.timestamp,
+        );
+      case ChatMessageType.aiWaiting:
+        final x = m as AiWaitingMessage;
+        return AiWaitingMessage(
+          text: x.text,
+          tradeId: x.tradeId,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          actionTaken: actionTaken,
+          timestamp: x.timestamp,
+        );
+      case ChatMessageType.agentWithButton:
+        final x = m as AgentWithButtonMessage;
+        return AgentWithButtonMessage(
+          text: x.text,
+          buttonLabel: x.buttonLabel,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          actionTaken: actionTaken,
+          timestamp: x.timestamp,
+        );
+      case ChatMessageType.newTradeOpportunity:
+        final x = m as NewTradeOpportunityMessage;
+        return NewTradeOpportunityMessage(
+          analystInfo: x.analystInfo,
+          instrument: x.instrument,
+          contract: x.contract,
+          stopLoss: x.stopLoss,
+          entryRange: x.entryRange,
+          frr: x.frr,
+          rtt: x.rtt,
+          frrRatio: x.frrRatio,
+          rttRatio: x.rttRatio,
+          lotNumbers: x.lotNumbers,
+          action: x.action,
+          exchange: x.exchange,
+          tradeId: x.tradeId,
+          oldStopLoss: x.oldStopLoss,
+          apiMessage: x.apiMessage,
+          buttonType: x.buttonType,
+          tradeName: x.tradeName,
+          tradeSymbol: x.tradeSymbol,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          actionTaken: actionTaken,
+          timestamp: x.timestamp,
+        );
+      case ChatMessageType.tradeExecutionPrompt:
+        final x = m as TradeExecutionPromptMessage;
+        return TradeExecutionPromptMessage(
+          tradeData: x.tradeData,
+          text: x.text,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          actionTaken: actionTaken,
+          timestamp: x.timestamp,
+        );
+      case ChatMessageType.tradeExecuted:
+        final x = m as TradeExecutedMessage;
+        return TradeExecutedMessage(
+          text: x.text,
+          buttonLabel: x.buttonLabel,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          actionTaken: actionTaken,
+          timestamp: x.timestamp,
+        );
+      case ChatMessageType.alertHitWithButton:
+        final x = m as AlertHitWithButtonMessage;
+        return AlertHitWithButtonMessage(
+          text: x.text,
+          buttonLabel: x.buttonLabel,
+          buttonType: x.buttonType,
+          tradeId: x.tradeId,
+          isGttHit: x.isGttHit,
+          isSlHit: x.isSlHit,
+          isTargetHit: x.isTargetHit,
+          status: x.status,
+          targetHitPrice: x.targetHitPrice,
+          tradeData: x.tradeData,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          actionTaken: actionTaken,
+          timestamp: x.timestamp,
+        );
+      case ChatMessageType.dmtScore:
+        final x = m as DmtScoreMessage;
+        return DmtScoreMessage(
+          headline: x.headline,
+          scoreDate: x.scoreDate,
+          instructionsScore: x.instructionsScore,
+          commitmentScore: x.commitmentScore,
+          acceptanceScore: x.acceptanceScore,
+          patienceScore: x.patienceScore,
+          consistencyScore: x.consistencyScore,
+          dmtTotalScore: x.dmtTotalScore,
+          dmtMaxScore: x.dmtMaxScore,
+          bonusScore: x.bonusScore,
+          hasAcceptanceScore: x.hasAcceptanceScore,
+          acceptanceIsNa: x.acceptanceIsNa,
+          acceptanceNote: x.acceptanceNote,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          actionTaken: actionTaken,
+          timestamp: x.timestamp,
+        );
+      case ChatMessageType.tradeSignal:
+        final x = m as TradeSignalMessage;
+        return TradeSignalMessage(
+          headline: x.headline,
+          signalId: x.signalId,
+          userId: x.userId,
+          processId: x.processId,
+          instrument: x.instrument,
+          exchange: x.exchange,
+          tradingsymbol: x.tradingsymbol,
+          openPrice: x.openPrice,
+          currentPrice: x.currentPrice,
+          dayLow: x.dayLow,
+          dayHigh: x.dayHigh,
+          previousClose: x.previousClose,
+          gapPercent: x.gapPercent,
+          changePercent: x.changePercent,
+          sequenceNo: x.sequenceNo,
+          status: x.status,
+          createdAt: x.createdAt,
+          timestamp: x.timestamp,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          actionTaken: actionTaken,
+        );
+    }
+  }
+
+  List<ChatMessage> _markAllActionsTaken(List<ChatMessage> list) {
+    return list
+        .map((m) => m.actionTaken == null ? _withActionTaken(m, 1) : m)
+        .toList();
+  }
+
+  /// Fetch messages from API
+  /// [refresh] - use isRefreshing (pull-to-refresh indicator)
+  /// [silent] - no loader at all, use when e.g. notification received
+  Future<void> loadMessages({
+    bool refresh = false,
+    bool silent = false,
+    bool force = false,
+  }) async {
+    final userId = _resolvedUserId;
+    if (userId == null || userId.isEmpty) {
+      reset();
+      return;
+    }
+
+    if (currentUserId != null && currentUserId != userId) {
+      reset();
+      force = true;
+    }
+    currentUserId = userId;
+    final sessionVersion = _sessionVersion;
+    final loadVersion = ++_loadVersion;
+    bool isCurrentLoad() =>
+        _isCurrentSession(userId, sessionVersion) && _loadVersion == loadVersion;
+
+    if (!silent) {
+      if (refresh) {
+        isRefreshing.value = true;
+      } else {
+        isLoading.value = true;
+      }
+    }
+
+    try {
+      final api = Get.isRegistered<ApiService>()
+          ? Get.find<ApiService>()
+          : Get.put(ApiService(), permanent: true);
+      final response = await api.postMessagesForm(ApiUrl.getMessagesByUser, {
+        'user_id': userId,
+      });
+      if (!isCurrentLoad()) return;
+
+      if (response.isSuccess && response.data != null) {
+        final payload = response.data['payload'];
+        final display = _parseDisplayMessages(payload);
+        messages.assignAll(display);
+        hasMoreOlderMessages.value = true;
+
+        if (messages.isEmpty && _emptyLoadRetryCount < 3) {
+          _emptyLoadRetryCount++;
+          Future.delayed(const Duration(milliseconds: 2000), () {
+            if (isCurrentLoad() && messages.isEmpty) {
+              loadMessages(silent: true);
+            }
+          });
+        } else if (messages.isNotEmpty) {
+          _emptyLoadRetryCount = 0;
+        }
+      } else {
+        if (!refresh) {
+          messages.clear();
+        }
+        if (response.errorMessage != null) {
+          AppToast.showToast(response.errorMessage!);
+        }
+      }
+    } catch (e, stack) {
+      if (!isCurrentLoad()) return;
+      debugPrint('[ChatController] loadMessages error: $e\n$stack');
+      if (!refresh && !silent) messages.clear();
+      if (!silent) AppToast.showToast('Unable to load chat. Please try again.');
+    } finally {
+      if (isCurrentLoad()) {
+        isLoading.value = false;
+        isRefreshing.value = false;
+      }
+    }
+  }
+
+  /// Fetch only newly arrived messages:
+  /// sends latest local `message_id` + `direction=after`.
+  Future<void> loadNewMessages({bool silent = true}) async {
+    final userId = _resolvedUserId;
+    if (userId == null || userId.isEmpty) {
+      reset();
+      return;
+    }
+
+    if (currentUserId != userId) {
+      await loadMessages(silent: silent, force: true);
+      return;
+    }
+
+    if (messages.isEmpty) {
+      await loadMessages(silent: silent);
+      return;
+    }
+    final sessionVersion = _sessionVersion;
+    if (!silent) {
+      isRefreshing.value = true;
+    }
+    try {
+      final fields = <String, String>{'user_id': userId};
+      final lastMessageId = _lastKnownMessageId();
+      if (lastMessageId.isNotEmpty) {
+        fields['message_id'] = lastMessageId;
+        fields['direction'] = 'after';
+      }
+      final api = Get.isRegistered<ApiService>()
+          ? Get.find<ApiService>()
+          : Get.put(ApiService(), permanent: true);
+      final response = await api.postMessagesForm(
+        ApiUrl.getMessagesByUser,
+        fields,
+      );
+      if (!_isCurrentSession(userId, sessionVersion)) return;
+      if (response.isSuccess && response.data != null) {
+        final incoming = _parseDisplayMessages(response.data['payload']);
+        if (incoming.isNotEmpty) {
+          final base = messages.toList();
+          final hasDeleteRequest = _incomingHasDeleteTradeRequest(incoming);
+          final merged = _mergeUniqueMessages(
+            base: hasDeleteRequest ? _markAllActionsTaken(base) : base,
+            incoming: incoming,
+            prepend: false,
+          );
+          messages.assignAll(merged);
+
+          // After disabling old actions locally, refresh from backend so older messages
+          // load with correct `action_taken` state.
+          if (hasDeleteRequest) {
+            Future.delayed(const Duration(milliseconds: 250), () {
+              if (_isCurrentSession(userId, sessionVersion)) {
+                loadMessages(silent: true);
+              }
+            });
+          }
+        }
+      } else if (!silent && response.errorMessage != null) {
+        AppToast.showToast(response.errorMessage!);
+      }
+    } catch (e, stack) {
+      if (!_isCurrentSession(userId, sessionVersion)) return;
+      debugPrint('[ChatController] loadNewMessages error: $e\n$stack');
+      if (!silent) {
+        AppToast.showToast('Failed to load new messages. Please try again.');
+      }
+    } finally {
+      if (_isCurrentSession(userId, sessionVersion) && !silent) {
+        isRefreshing.value = false;
+      }
+    }
+  }
+
+  /// Fetch older messages when user scrolls up:
+  /// sends earliest local `message_id` + `direction=before`.
+  Future<void> loadOlderMessages() async {
+    if (isRefreshing.value || !hasMoreOlderMessages.value) return;
+    final userId = _resolvedUserId;
+    if (userId == null || currentUserId != userId) return;
+    final sessionVersion = _sessionVersion;
+    final firstMessageId = _firstKnownMessageId();
+    if (firstMessageId.isEmpty) return;
+    isRefreshing.value = true;
+    try {
+      final fields = <String, String>{'user_id': userId};
+      fields['message_id'] = firstMessageId;
+      fields['direction'] = 'before';
+      final api = Get.isRegistered<ApiService>()
+          ? Get.find<ApiService>()
+          : Get.put(ApiService(), permanent: true);
+      final response = await api.postMessagesForm(
+        ApiUrl.getMessagesByUser,
+        fields,
+      );
+      if (!_isCurrentSession(userId, sessionVersion)) return;
+      if (response.isSuccess && response.data != null) {
+        final incoming = _parseDisplayMessages(response.data['payload']);
+        if (incoming.isNotEmpty) {
+          final merged = _mergeUniqueMessages(
+            base: messages.toList(),
+            incoming: incoming,
+            prepend: true,
+          );
+          messages.assignAll(merged);
+        } else {
+          hasMoreOlderMessages.value = false;
+        }
+      } else if (response.errorMessage != null) {
+        AppToast.showToast(response.errorMessage!);
+      }
+    } catch (e, stack) {
+      if (!_isCurrentSession(userId, sessionVersion)) return;
+      debugPrint('[ChatController] loadOlderMessages error: $e\n$stack');
+      AppToast.showToast('Failed to load older messages. Please try again.');
+    } finally {
+      if (_isCurrentSession(userId, sessionVersion)) {
+        isRefreshing.value = false;
+      }
+    }
+  }
+
+  /// If the same trade has both `open_app_button` and `delete_button`, the UI
+  /// already shows one combined bubble — drop the redundant `delete_button` row.
+  List<ChatMessage> _dedupeRedundantDeleteTradeButtons(
+    List<ChatMessage> chronological,
+  ) {
+    final openAppDeleteTradeIds = <String>{};
+    for (final m in chronological) {
+      if (m is! NewTradeOpportunityMessage) continue;
+      if (m.buttonType != 'open_app_button') continue;
+      if (m.action.toLowerCase() != 'delete') continue;
+      if (m.tradeId.isEmpty) continue;
+      openAppDeleteTradeIds.add(m.tradeId);
+    }
+    return chronological.where((m) {
+      if (m is! NewTradeOpportunityMessage) return true;
+      if (m.buttonType != 'delete_button') return true;
+      if (m.action.toLowerCase() != 'delete') return true;
+      if (m.tradeId.isEmpty) return true;
+      return !openAppDeleteTradeIds.contains(m.tradeId);
+    }).toList();
+  }
+
+  void _loadSampleMessages() {
+    messages.assignAll([
+      const SimpleTextMessage(text: 'Hello'),
+      const SimpleTextMessage(text: 'I am Zeno AI Agent.'),
+      const SimpleTextMessage(text: 'Hi', isFromUser: true),
+      const SimpleTextMessage(text: 'Hi'),
+    ]);
+  }
+
+  void addMessage(ChatMessage msg) {
+    if (msg.type == ChatMessageType.aiWaiting) {
+      messages.removeWhere((m) => m.type == ChatMessageType.aiWaiting);
+    }
+    messages.add(msg);
+  }
+
+  String _llmAskUrl() {
+    return '${ApiConfig.getBaseUrl(ApiUrl.llmAsk)}${ApiUrl.llmAsk}';
+  }
+
+  Future<void> sendTextMessage(String text) async {
+    final query = text.trim();
+    if (query.isEmpty) return;
+
+    addMessage(
+      SimpleTextMessage(
+        text: query,
+        isFromUser: true,
+      ),
+    );
+
+    final waitingMsgId = 'ai_waiting_${DateTime.now().millisecondsSinceEpoch}';
+    addMessage(
+      AiWaitingMessage(
+        text: 'Analyzing...',
+        messageId: waitingMsgId,
+      ),
+    );
+
+    try {
+      final userId = Common.userData.value?.payload?.id?.toString() ??
+          GetStorage().read<String>('user_id') ??
+          '123';
+
+      final response = await ApiService().postJson(
+        _llmAskUrl(),
+        {
+          'user_id': userId,
+          'user_query': query,
+        },
+      );
+
+      messages.removeWhere((m) => m.messageId == waitingMsgId);
+
+      if (response.isSuccess && response.data != null) {
+        final payload = response.data['payload'];
+        if (payload is Map<String, dynamic> &&
+            payload['response_markdown'] != null) {
+          final replyText = payload['response_markdown'].toString();
+          if (replyText.isNotEmpty) {
+            addMessage(
+              SimpleTextMessage(
+                text: replyText,
+                isFromUser: false,
+              ),
+            );
+            return;
+          }
+        }
+      }
+
+      final errorMsg =
+          response.errorMessage ?? 'Unable to get response from AI.';
+      addMessage(
+        SimpleTextMessage(
+          text: errorMsg,
+          isFromUser: false,
+        ),
+      );
+    } catch (e) {
+      messages.removeWhere((m) => m.messageId == waitingMsgId);
+      addMessage(
+        SimpleTextMessage(
+          text: 'Error getting AI response. Please try again.',
+          isFromUser: false,
+        ),
+      );
+    }
+  }
+
+  /// Called when user submits trade params from New Trade Opportunity popup.
+  /// Blocks trading apps (Zerodha, Upstox, Groww).
+  Future<void> onSubmitTradeParams({
+    required String stopLoss,
+    required String entry,
+    required String frr,
+    required String instrument,
+    required String contract,
+  }) async {
+    try {
+      if (Platform.isAndroid) {
+        final userId = Common.userData.value?.payload?.id?.toString();
+        if (userId != null) {
+          await _blockService.saveUserIdForOverlay(userId);
+        }
+        final perms = await _blockService.checkPermissions();
+        if (perms['hasOverlayPermission'] != true) {
+          await _blockService.requestOverlayPermission();
+        }
+        if (perms['hasUsageStatsPermission'] != true) {
+          await _blockService.requestUsageStatsPermission();
+        }
+        final selectedPackages = _selectedBlockedPackages();
+        for (final package in selectedPackages) {
+          await _blockService.blockApp(package);
+        }
+        try {
+          await _blockService.startBlockingService();
+        } catch (e) {
+          print('[ChatController] startBlockingService failed: $e');
+        }
+        AppToast.showToast('Mind Control Guard is Activated');
+      } else if (Platform.isIOS) {
+        final limiter = AppLimiter();
+        final granted = await limiter.requestIosPermission();
+        if (granted) {
+          await limiter.blockAndUnblockIOSApp();
+          AppToast.showToast('Mind Control Guard is Activated');
+        } else {
+          AppToast.showToast('iOS permission required to block apps');
+        }
+      }
+    } catch (e, stack) {
+      debugPrint('[ChatController] blockTradingAppsNow error: $e\n$stack');
+      AppToast.showToast('Something went wrong. Please try again.');
+    }
+  }
+
+  /// Default GTT price parsed from entry range (e.g. "390 - 400" -> "390").
+  static String getDefaultGttPrice(String entryRange) {
+    final match = RegExp(r'[\d.]+').firstMatch(entryRange);
+    return match?.group(0) ?? '';
+  }
+
+  /// true => selected app needs GTT + SL + Target in popup (from API flags).
+  bool shouldUseExtendedGttInputs() {
+    final selected = _selectedBlockedPackages();
+    if (selected.isEmpty) return false;
+    if (Get.isRegistered<TradingAppsService>()) {
+      final svc = Get.find<TradingAppsService>();
+      for (final pkg in selected) {
+        if (svc.requiresExtendedGttForPackage(pkg)) return true;
+      }
+      return false;
+    }
+    return selected.any(extendedGttInputPackages.contains);
+  }
+
+  /// Create GTT alert via API. Refreshes messages from backend on success.
+  Future<bool> createGttAlert(
+    NewTradeOpportunityMessage msg,
+    String gttPrice, {
+    String? stopLoss,
+    String? takeProfit,
+  }) async {
+    if (gttPrice.trim().isEmpty) {
+      AppToast.showToast('Please enter GTT price');
+      return false;
+    }
+    try {
+      final hasPermissions = await _checkBlockAppPermissions();
+      if (!hasPermissions) {
+        // Permission denied: do not call GTT create API.
+        return false;
+      }
+
+      final userId = Common.userData.value?.payload?.id?.toString() ?? '2';
+      final alertController = Get.isRegistered<AlertController>()
+          ? Get.find<AlertController>()
+          : Get.put(AlertController(), permanent: true);
+      await alertController.fetchUserAlerts(userId);
+      final hasPending = alertController.savedAlerts.any(
+        (a) => (a.status ?? '').toLowerCase() == 'pending',
+      );
+      if (hasPending) {
+        AppToast.showToast(
+          'You already have a pending alert. Complete or delete it before creating another.',
+        );
+        return false;
+      }
+
+      final instrument = msg.exchange.isNotEmpty
+          ? '${msg.exchange}:${msg.instrument}'
+          : msg.instrument;
+      final api = Get.isRegistered<ApiService>()
+          ? Get.find<ApiService>()
+          : Get.put(ApiService(), permanent: true);
+      final fields = <String, String>{
+        'user_id': userId,
+        'instrument': instrument,
+        'gtt_price': gttPrice.trim(),
+        'trade_id': msg.tradeId,
+      };
+      if (stopLoss != null && stopLoss.trim().isNotEmpty) {
+        fields['stop_loss'] = stopLoss.trim();
+        // Optional compatibility key for backends aligned with alert schema.
+        fields['lower_price'] = stopLoss.trim();
+      }
+      if (takeProfit != null && takeProfit.trim().isNotEmpty) {
+        fields['take_profit'] = takeProfit.trim();
+        // Optional compatibility key for backends aligned with alert schema.
+        fields['upper_price'] = takeProfit.trim();
+      }
+      final response = await api.postFormData(ApiUrl.gttAlertCreate, fields);
+      if (response.isSuccess) {
+        markActionTaken(tradeId: msg.tradeId, messageId: msg.messageId);
+        await _applyTradingAppBlock(userId);
+        AppToast.showToast('GTT alert created successfully');
+        loadMessages(refresh: true);
+        return true;
+      } else {
+        AppToast.showToast(
+          response.errorMessage ?? 'Failed to create GTT alert',
+        );
+        return false;
+      }
+    } catch (e, stack) {
+      debugPrint('[ChatController] createGttAlert error: $e\n$stack');
+      AppToast.showToast('Failed to create GTT alert. Please try again.');
+      return false;
+    }
+  }
+
+  /// Submit GTT value for a TradeSignalMessage.
+  Future<bool> submitTradeSignalGtt({
+    required TradeSignalMessage msg,
+    required String gttPrice,
+  }) async {
+    if (gttPrice.trim().isEmpty) {
+      AppToast.showToast('Please enter GTT price');
+      return false;
+    }
+    try {
+      final hasPermissions = await _checkBlockAppPermissions();
+      if (!hasPermissions) {
+        return false;
+      }
+
+      final userId = Common.userData.value?.payload?.id?.toString() ?? '2';
+      final alertController = Get.isRegistered<AlertController>()
+          ? Get.find<AlertController>()
+          : Get.put(AlertController(), permanent: true);
+      await alertController.fetchUserAlerts(userId);
+      final hasPending = alertController.savedAlerts.any(
+        (a) => (a.status ?? '').toLowerCase() == 'pending',
+      );
+      if (hasPending) {
+        AppToast.showToast(
+          'You already have a pending alert. Complete or delete it before creating another.',
+        );
+        return false;
+      }
+
+      final tradeId = msg.signalId.isNotEmpty
+          ? msg.signalId
+          : (msg.messageId.isNotEmpty ? msg.messageId : '7');
+      final currentPriceClean = msg.currentPrice.replaceAll(',', '').trim();
+      final symbol = msg.tradingsymbol.isNotEmpty ? msg.tradingsymbol : msg.instrument;
+      final instrument = msg.exchange.isNotEmpty
+          ? '${msg.exchange}:$symbol'
+          : symbol;
+      final api = Get.isRegistered<ApiService>()
+          ? Get.find<ApiService>()
+          : Get.put(ApiService(), permanent: true);
+      final fields = <String, String>{
+        'user_id': userId,
+        'trade_id': tradeId,
+        'gtt_price': gttPrice.trim(),
+        'current_price': currentPriceClean.isNotEmpty ? currentPriceClean : '0.00',
+        if (instrument.isNotEmpty) 'instrument': instrument,
+        if (msg.processId.isNotEmpty) 'v2test_trading_process_id': msg.processId,
+      };
+      final response = await api.postFormData(ApiUrl.gttAlertCreate, fields);
+      if (response.isSuccess) {
+        _markSignalActionTaken(msg);
+        await _applyTradingAppBlock(userId);
+        AppToast.showToast('GTT alert created successfully');
+        loadMessages(refresh: true);
+        return true;
+      } else {
+        AppToast.showToast(
+          response.errorMessage ?? 'Failed to create GTT alert',
+        );
+        return false;
+      }
+    } catch (e, stack) {
+      debugPrint('[ChatController] submitTradeSignalGtt error: $e\n$stack');
+      AppToast.showToast('Failed to create GTT alert. Please try again.');
+      return false;
+    }
+  }
+
+  /// Submit Upper & Lower levels for a TradeSignalMessage.
+  Future<bool> submitTradeSignalLevels({
+    required TradeSignalMessage msg,
+    required String upperPrice,
+    required String lowerPrice,
+  }) async {
+    if (upperPrice.trim().isEmpty || lowerPrice.trim().isEmpty) {
+      AppToast.showToast('Please enter both Upper and Lower values');
+      return false;
+    }
+    try {
+      final hasPermissions = await _checkBlockAppPermissions();
+      if (!hasPermissions) {
+        return false;
+      }
+
+      final userId = Common.userData.value?.payload?.id?.toString() ?? '2';
+      final alertController = Get.isRegistered<AlertController>()
+          ? Get.find<AlertController>()
+          : Get.put(AlertController(), permanent: true);
+      await alertController.fetchUserAlerts(userId);
+      final hasPending = alertController.savedAlerts.any(
+        (a) => (a.status ?? '').toLowerCase() == 'pending',
+      );
+      if (hasPending) {
+        AppToast.showToast(
+          'You already have a pending alert. Complete or delete it before creating another.',
+        );
+        return false;
+      }
+
+      final tradeId = msg.signalId.isNotEmpty
+          ? msg.signalId
+          : (msg.messageId.isNotEmpty ? msg.messageId : '7');
+      final currentPriceClean = msg.currentPrice.replaceAll(',', '').trim();
+      final symbol = msg.tradingsymbol.isNotEmpty ? msg.tradingsymbol : msg.instrument;
+      final instrument = msg.exchange.isNotEmpty
+          ? '${msg.exchange}:$symbol'
+          : symbol;
+      final api = Get.isRegistered<ApiService>()
+          ? Get.find<ApiService>()
+          : Get.put(ApiService(), permanent: true);
+      final fields = <String, String>{
+        'user_id': userId,
+        'trade_id': tradeId,
+        'current_price': currentPriceClean.isNotEmpty ? currentPriceClean : '0.00',
+        'upper_price': upperPrice.trim(),
+        'lower_price': lowerPrice.trim(),
+        if (instrument.isNotEmpty) 'instrument': instrument,
+      };
+      final response = await api.postFormData(ApiUrl.createAlertUrl, fields);
+      if (response.isSuccess) {
+        _markSignalActionTaken(msg);
+        await _applyTradingAppBlock(userId);
+        AppToast.showToast('Alert created successfully');
+        loadMessages(refresh: true);
+        return true;
+      } else {
+        AppToast.showToast(
+          response.errorMessage ?? 'Failed to create alert',
+        );
+        return false;
+      }
+    } catch (e, stack) {
+      debugPrint('[ChatController] submitTradeSignalLevels error: $e\n$stack');
+      AppToast.showToast('Failed to create alert. Please try again.');
+      return false;
+    }
+  }
+
+  void markActionTaken({String? tradeId, String? messageId}) {
+    final cleanTradeId = (tradeId ?? '').trim();
+    final cleanMsgId = (messageId ?? '').trim();
+    if (cleanTradeId.isEmpty && cleanMsgId.isEmpty) return;
+
+    if (cleanTradeId.isNotEmpty) _takenActionTradeIds.add(cleanTradeId);
+    if (cleanMsgId.isNotEmpty) _takenActionMessageIds.add(cleanMsgId);
+
+    for (int i = 0; i < messages.length; i++) {
+      final m = messages[i];
+      bool match = false;
+      if (cleanMsgId.isNotEmpty && m.messageId.trim() == cleanMsgId) {
+        match = true;
+      }
+      if (!match && cleanTradeId.isNotEmpty) {
+        if (m is NewTradeOpportunityMessage && m.tradeId.trim() == cleanTradeId) match = true;
+        if (m is TradeExecutionPromptMessage && m.tradeData.tradeId.trim() == cleanTradeId) match = true;
+        if (m is AlertHitWithButtonMessage && m.tradeId.trim() == cleanTradeId) match = true;
+        if (m is SimpleTextMessage && m.tradeId.trim() == cleanTradeId) match = true;
+        if (m is TradeSignalMessage && (m.signalId.trim() == cleanTradeId || m.messageId.trim() == cleanTradeId)) match = true;
+      }
+      if (match) {
+        messages[i] = _withActionTaken(m, 1);
+      }
+    }
+    messages.refresh();
+  }
+
+  void _markSignalActionTaken(TradeSignalMessage msg) {
+    markActionTaken(
+      tradeId: msg.signalId.isNotEmpty ? msg.signalId : null,
+      messageId: msg.messageId.isNotEmpty ? msg.messageId : null,
+    );
+  }
+
+  Future<bool> _checkBlockAppPermissions() async {
+    if (Platform.isIOS) {
+      final limiter = AppLimiter();
+      final granted = await limiter.requestIosPermission();
+      if (!granted) {
+        AppToast.showToast('iOS ScreenTime permission required');
+        return false;
+      }
+      return true;
+    }
+
+    final permissions = await _blockService.checkPermissions();
+    final overlayGranted = permissions['hasOverlayPermission'] ?? false;
+    final usageGranted = permissions['hasUsageStatsPermission'] ?? false;
+
+    if (!overlayGranted) {
+      await _blockService.requestOverlayPermission();
+    }
+    if (!usageGranted) {
+      await _blockService.requestUsageStatsPermission();
+    }
+
+    final updated = await _blockService.checkPermissions();
+    final granted =
+        (updated['hasOverlayPermission'] ?? false) &&
+        (updated['hasUsageStatsPermission'] ?? false);
+    if (!granted) {
+      AppToast.showToast(
+        'Android overlay and usage access permissions are required to create GTT alert',
+      );
+    }
+    return granted;
+  }
+
+  Future<void> _applyTradingAppBlock(String? userId) async {
+    if (Platform.isAndroid) {
+      if (userId != null && userId.isNotEmpty) {
+        await _blockService.saveUserIdForOverlay(userId);
+      }
+      final selectedPackages = _selectedBlockedPackages();
+      for (final package in selectedPackages) {
+        await _blockService.blockApp(package);
+      }
+      try {
+        await _blockService.startBlockingService();
+      } catch (e) {
+        print('[ChatController] startBlockingService failed: $e');
+      }
+      AppToast.showToast('Mind Control Guard is Activated');
+      return;
+    }
+
+    if (Platform.isIOS) {
+      try {
+        final limiter = AppLimiter();
+        await limiter.blockAndUnblockIOSApp();
+        AppToast.showToast('Mind Control Guard is Activated');
+      } catch (e) {
+        print('[ChatController] iOS block failed: $e');
+      }
+    }
+  }
+
+  /// Submit trade executed (entry, stop loss, take profit). Uses AlertController.
+  Future<bool> submitTradeExecuted({
+    required NewTradeOpportunityMessage msg,
+    required String entryPrice,
+    required String stopLoss,
+    required String takeProfit,
+  }) async {
+    final alertController = Get.isRegistered<AlertController>()
+        ? Get.find<AlertController>()
+        : Get.put(AlertController(), permanent: true);
+    final entry = double.tryParse(entryPrice) ?? 0.0;
+    final instrument = msg.exchange.isNotEmpty
+        ? '${msg.exchange}:${msg.instrument}'
+        : msg.instrument;
+    final success = await alertController.createTradeAlert(
+      instrument: instrument,
+      upperPrice: takeProfit,
+      lowerPrice: stopLoss,
+      currentPrice: entry,
+      tradeId: msg.tradeId,
+    );
+    if (success) {
+      markActionTaken(tradeId: msg.tradeId, messageId: msg.messageId);
+      loadMessages(refresh: true);
+    }
+    return success;
+  }
+
+  /// POST `delete/trade` (trade_id + user_id) after user taps Trade Deleted.
+  Future<void> acknowledgeTradeDeleted(NewTradeOpportunityMessage msg) async {
+    final userId = Common.userData.value?.payload?.id?.toString();
+    if (userId == null || userId.isEmpty) {
+      AppToast.showToast('Please sign in to confirm');
+      return;
+    }
+    if (msg.tradeId.isEmpty) {
+      AppToast.showToast('Missing trade id');
+      return;
+    }
+    try {
+      final api = Get.isRegistered<ApiService>()
+          ? Get.find<ApiService>()
+          : Get.put(ApiService(), permanent: true);
+      final response = await api.postFormData(ApiUrl.deleteTrade, {
+        'trade_id': msg.tradeId,
+        'user_id': userId,
+      });
+      if (response.isSuccess) {
+        markActionTaken(tradeId: msg.tradeId, messageId: msg.messageId);
+        await _applyTradingAppBlock(userId);
+        AppToast.showToast('Trade deleted');
+        await loadMessages(refresh: true);
+      } else {
+        AppToast.showToast(
+          response.errorMessage ?? 'Could not record trade deletion',
+        );
+      }
+    } catch (e, stack) {
+      debugPrint('[ChatController] acknowledgeTradeDeleted error: $e\n$stack');
+      AppToast.showToast('Something went wrong. Please try again.');
+    }
+  }
+
+  /// POST `edit/trade` (trade_id + user_id) after user taps SL Trailed.
+  Future<void> acknowledgeSlTrailed(
+    NewTradeOpportunityMessage msg, {
+    String? newEntry,
+    String? newSl,
+    String? newTp,
+    bool isGttEdit = false,
+  }) async {
+    final userId = Common.userData.value?.payload?.id?.toString();
+    if (userId == null || userId.isEmpty) {
+      AppToast.showToast('Please sign in to confirm');
+      return;
+    }
+    if (msg.tradeId.isEmpty) {
+      AppToast.showToast('Missing trade id');
+      return;
+    }
+    try {
+      final api = Get.isRegistered<ApiService>()
+          ? Get.find<ApiService>()
+          : Get.put(ApiService(), permanent: true);
+      final fields = <String, String>{
+        'trade_id': msg.tradeId,
+        'user_id': userId,
+      };
+      final trimmedEntry = (newEntry ?? '').trim();
+      if (trimmedEntry.isNotEmpty) {
+        fields['new_entry'] = trimmedEntry;
+      }
+      final trimmedSl = (newSl ?? '').trim();
+      if (trimmedSl.isNotEmpty) {
+        fields['new_sl'] = trimmedSl;
+      }
+      final trimmedTp = (newTp ?? '').trim();
+      if (trimmedTp.isNotEmpty) {
+        fields['new_tp'] = trimmedTp;
+        fields['new_take_profit'] = trimmedTp;
+        fields['new_target'] = trimmedTp;
+      }
+      final endpoint = isGttEdit ? ApiUrl.editGtt : ApiUrl.editTrade;
+      final response = await api.postFormData(endpoint, fields);
+      if (response.isSuccess) {
+        markActionTaken(tradeId: msg.tradeId, messageId: msg.messageId);
+        await _applyTradingAppBlock(userId);
+        AppToast.showToast(isGttEdit ? 'GTT updated' : 'SL trailed');
+        await loadMessages(refresh: true);
+      } else {
+        AppToast.showToast(
+          response.errorMessage ?? 'Could not record SL trail confirmation',
+        );
+      }
+    } catch (e, stack) {
+      debugPrint('[ChatController] acknowledgeSlTrailed error: $e\n$stack');
+      AppToast.showToast('Something went wrong. Please try again.');
+    }
+  }
+
+  /// POST `trade/gtt-missed` (user_id + trade_id) after user taps GTT Missed.
+  Future<void> acknowledgeGttMissed(AlertHitWithButtonMessage msg) async {
+    final userId = Common.userData.value?.payload?.id?.toString();
+    if (userId == null || userId.isEmpty) {
+      AppToast.showToast('Please sign in to confirm');
+      return;
+    }
+    final tradeId = msg.tradeId.trim().isNotEmpty
+        ? msg.tradeId.trim()
+        : (msg.tradeData?.tradeId.trim() ?? '');
+    if (tradeId.isEmpty) {
+      AppToast.showToast('Missing trade id');
+      return;
+    }
+    try {
+      final api = Get.isRegistered<ApiService>()
+          ? Get.find<ApiService>()
+          : Get.put(ApiService(), permanent: true);
+      final response = await api.postFormData(ApiUrl.gttMissed, {
+        'user_id': userId,
+        'trade_id': tradeId,
+      });
+      if (response.isSuccess) {
+        markActionTaken(tradeId: tradeId, messageId: msg.messageId);
+        loadMessages(refresh: true);
+      } else {
+        AppToast.showToast(
+          response.errorMessage ?? 'Could not mark GTT as missed',
+        );
+      }
+    } catch (e) {
+      AppToast.showToast('Something went wrong. Please try again.');
+      debugPrint('[ChatController] acknowledgeGttMissed failed: $e');
+    }
+  }
+
+  /// POST `trade/executed` after user confirms target hit (optional [hitPrice]).
+  Future<void> acknowledgeTradeExecuted(
+    AlertHitWithButtonMessage msg, {
+    String? hitPrice,
+  }) async {
+    final userId = Common.userData.value?.payload?.id?.toString();
+    if (userId == null || userId.isEmpty) {
+      AppToast.showToast('Please sign in to confirm');
+      return;
+    }
+    if (msg.tradeId.isEmpty) {
+      AppToast.showToast('Missing trade id');
+      return;
+    }
+    final trimmedPrice = (hitPrice ?? '').trim();
+    if (trimmedPrice.isEmpty) {
+      AppToast.showToast('Please enter hit price');
+      return;
+    }
+    if (double.tryParse(trimmedPrice) == null) {
+      AppToast.showToast('Please enter a valid price');
+      return;
+    }
+    try {
+      final api = Get.isRegistered<ApiService>()
+          ? Get.find<ApiService>()
+          : Get.put(ApiService(), permanent: true);
+      final response = await api.postFormData(ApiUrl.tradeExecuted, {
+        'trade_id': msg.tradeId,
+        'user_id': userId,
+        'user_hit_price': trimmedPrice,
+      });
+      if (response.isSuccess) {
+        for (int i = 0; i < messages.length; i++) {
+          final m = messages[i];
+          if (m is AlertHitWithButtonMessage &&
+              (m.messageId == msg.messageId || m.tradeId == msg.tradeId)) {
+            messages[i] = _withActionTaken(m, 1);
+          }
+        }
+        messages.refresh();
+        AppToast.showToast('Trade execution confirmed');
+        await loadMessages(refresh: true);
+      } else {
+        AppToast.showToast(
+          response.errorMessage ?? 'Could not confirm trade execution',
+        );
+      }
+    } catch (e, stack) {
+      debugPrint('[ChatController] acknowledgeTradeExecuted error: $e\n$stack');
+      AppToast.showToast('Something went wrong. Please try again.');
+    }
+  }
+
+  Future<bool> _launchTradingPackageWithUrlLauncher(String packageName) async {
+    final candidateUris = <Uri>[
+      // Android intent URI that targets package directly.
+      Uri.parse('intent://#Intent;package=$packageName;end'),
+      // Alternate app URI format used by Android app links.
+      Uri.parse('android-app://$packageName'),
+    ];
+    for (final uri in candidateUris) {
+      try {
+        final ok = await launchUrl(
+          uri,
+          mode: LaunchMode.externalNonBrowserApplication,
+        );
+        if (ok) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  /// Unblock trading apps and open the first selected broker app (Android).
+  Future<void> openTradingApp() async {
+    try {
+      if (Platform.isAndroid) {
+        final selectedPackages = _selectedBlockedPackages();
+        for (final package in selectedPackages) {
+          await _blockService.unblockApp(package);
+        }
+        // Overlay channel can be absent in some builds; launch should still proceed.
+        await _blockService.unblockAndClose(selectedPackages);
+        await _blockService.stopBlockingService();
+        var launched = false;
+        for (final package in selectedPackages) {
+          final aliases = tradingAppLaunchAliases[package] ?? [package];
+          for (final candidate in aliases) {
+            final ok = await _launchTradingPackageWithUrlLauncher(candidate);
+            if (ok) {
+              launched = true;
+              break;
+            }
+          }
+          if (launched) {
+            break;
+          }
+        }
+        if (!launched) {
+          AppToast.showToast('Selected trading app is not installed/enabled');
+        }
+        AppToast.showToast('Mind Control Guard is Deactivated');
+      } else if (Platform.isIOS) {
+        final limiter = AppLimiter();
+        await limiter.blockAndUnblockIOSApp();
+        AppToast.showToast('Mind Control Guard is Deactivated');
+      }
+    } catch (e) {
+      print('[ChatController] openTradingApp failed: $e');
+    }
+  }
+
+  /// Called when Trade Executed message is received. Unlocks trading apps.
+  Future<void> onTradeExecuted() async {
+    try {
+      if (Platform.isAndroid) {
+        final selectedPackages = _selectedBlockedPackages();
+        for (final package in selectedPackages) {
+          await _blockService.unblockApp(package);
+        }
+        await _blockService.unblockAndClose(selectedPackages);
+        await _blockService.stopBlockingService();
+        AppToast.showToast('Mind Control Guard is Deactivated');
+      } else if (Platform.isIOS) {
+        final limiter = AppLimiter();
+        await limiter.blockAndUnblockIOSApp();
+        AppToast.showToast('Mind Control Guard is Deactivated');
+      }
+    } catch (e) {
+      print('[ChatController] onTradeExecuted failed: $e');
+    }
+  }
+
+  static DateTime? parseMessageTime(String timestamp) {
+    final raw = timestamp.trim();
+    if (raw.isEmpty) return null;
+    final iso = DateTime.tryParse(raw);
+    if (iso != null) return iso.toUtc();
+    final n = int.tryParse(raw);
+    if (n == null) return null;
+    if (n > 9999999999) {
+      return DateTime.fromMillisecondsSinceEpoch(n, isUtc: true);
+    }
+    return DateTime.fromMillisecondsSinceEpoch(n * 1000, isUtc: true);
+  }
+}
