@@ -25,7 +25,8 @@ class DmtUserLevelsSummaryService extends GetxService {
     }
 
     _fetchInFlight = true;
-    isLoading.value = true;
+    // Use microtask to avoid "setState() or markNeedsBuild() called during build"
+    Future.microtask(() => isLoading.value = true);
     error.value = null;
 
     try {
@@ -64,7 +65,7 @@ class DmtUserLevelsSummaryService extends GetxService {
       summaryPayload.value = null;
       return false;
     } finally {
-      isLoading.value = false;
+      Future.microtask(() => isLoading.value = false);
       _fetchInFlight = false;
     }
   }
