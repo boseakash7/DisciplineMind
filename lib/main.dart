@@ -56,8 +56,9 @@ class OverlayApp extends StatelessWidget {
 void _onAppResumed() {
   if (!Platform.isAndroid) return;
   try {
-    const MethodChannel('com.discipline_mind/app_lifecycle')
-        .invokeMethod<void>('hideBlockOverlay');
+    const MethodChannel(
+      'com.discipline_mind/app_lifecycle',
+    ).invokeMethod<void>('hideBlockOverlay');
   } catch (_) {}
   unawaited(checkAndStartTradingBlockIfPermitted());
 }
@@ -93,6 +94,51 @@ void _refreshUserAlertsOnNotification({int attempt = 0}) {
   chatController.loadNewMessages(silent: true);
 }
 
+void _showImmediateNotificationMessage(Map<String, dynamic> data) {
+  _showImmediateNotificationMessageWithRetry(data);
+}
+
+void _showImmediateNotificationMessageWithRetry(
+  Map<String, dynamic> data, {
+  int attempt = 0,
+}) {
+  final type =
+      (data['type'] ??
+              data['notification_type'] ??
+              data['event'] ??
+              data['category'] ??
+              '')
+          .toString()
+          .trim()
+          .toLowerCase();
+  if (type != 'mind_control_guard_deactivated') return;
+
+  final userId = Common.userData.value?.payload?.id?.toString();
+  if (userId == null || userId.isEmpty) {
+    if (attempt < 6) {
+      Future.delayed(Duration(milliseconds: 350 + attempt * 250), () {
+        _showImmediateNotificationMessageWithRetry(data, attempt: attempt + 1);
+      });
+    }
+    return;
+  }
+
+  final chatController = Get.isRegistered<ChatController>()
+      ? Get.find<ChatController>()
+      : Get.put(ChatController(), permanent: true);
+  chatController.addMindControlGuardDeactivatedMessage(
+    notificationKey: data['_notification_key']?.toString() ?? '',
+    messageId:
+        (data['message_id'] ??
+                data['messageId'] ??
+                data['id'] ??
+                data['notification_id'] ??
+                '')
+            .toString(),
+    timestamp: (data['timestamp'] ?? data['created_at'] ?? '').toString(),
+  );
+}
+
 void _refreshChatOnAppResumed() {
   final userId = Common.userData.value?.payload?.id?.toString();
   if (userId == null || userId.isEmpty) return;
@@ -112,7 +158,7 @@ Future<void> main() async {
       debugPrint('FlutterError: ${details.exception} ${details.stack}');
     }
   };
-  
+
   PlatformDispatcher.instance.onError = (error, stack) {
     FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
     return true;
@@ -150,8 +196,8 @@ Future<void> main() async {
   );
 
   // if (Firebase.apps.isEmpty) {
-    await Firebase.initializeApp();
-  
+  await Firebase.initializeApp();
+
   await GetStorage.init();
 
   if (Platform.isAndroid) {
@@ -164,6 +210,8 @@ Future<void> main() async {
   }
 
   NotificationHandler.onNotificationReceived = _refreshUserAlertsOnNotification;
+  NotificationHandler.onNotificationDataReceived =
+      _showImmediateNotificationMessage;
 
   runApp(const MyApp());
 
@@ -219,7 +267,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       title: 'Zeno AI',
       theme: _lightTheme(textTheme),
       darkTheme: _darkTheme(textTheme),
-      themeMode: ThemeService().themeMode,   // ← This enables theme switching
+      themeMode: ThemeService().themeMode, // ← This enables theme switching
       builder: (context, child) {
         final fToast = FToast();
         fToast.init(context);

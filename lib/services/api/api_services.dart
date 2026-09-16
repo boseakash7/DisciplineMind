@@ -34,10 +34,12 @@ class ApiService extends GetxService {
         endpoint.startsWith('http') ? endpoint : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
       ).replace(queryParameters: queryParameters);
 
-      final response = await http.get(
-        uri,
-        headers: {...ApiConfig.defaultHeaders, ...?headers},
-      );
+      final response = await http
+          .get(
+            uri,
+            headers: {...ApiConfig.defaultHeaders, ...?headers},
+          )
+          .timeout(const Duration(seconds: 10));
 
       return _processResponse(response);
     } catch (e) {
@@ -70,7 +72,7 @@ class ApiService extends GetxService {
     }
   }
 
-  /// POST request to messages API (disciplinedminds.in) with form-data
+  /// POST request to messages API
   Future<ApiResponse<dynamic>> postMessagesForm(
     String endpoint,
     Map<String, String> fields, {
@@ -183,11 +185,13 @@ class ApiService extends GetxService {
       final uri = Uri.parse(
         endpoint.startsWith('http') ? endpoint : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
       );
-      final response = await http.post(
-        uri,
-        headers: finalHeaders,
-        body: fields, // Send form fields
-      );
+      final response = await http
+          .post(
+            uri,
+            headers: finalHeaders,
+            body: fields, // Send form fields
+          )
+          .timeout(const Duration(seconds: 10));
 
       persistSessionFromResponse(response);
       debugPrint("API Response: ${response.body}");

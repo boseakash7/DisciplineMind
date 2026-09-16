@@ -18,13 +18,14 @@ class NotificationHandler {
   bool _localInited = false;
   bool _firebaseInited = false;
 
-  static const AndroidNotificationChannel _defaultChannel = AndroidNotificationChannel(
-    'zeno_ai_alerts',
-    'Price Alerts',
-    description: 'Notifications for price alerts',
-    importance: Importance.high,
-    playSound: true,
-  );
+  static const AndroidNotificationChannel _defaultChannel =
+      AndroidNotificationChannel(
+        'zeno_ai_alerts',
+        'Price Alerts',
+        description: 'Notifications for price alerts',
+        importance: Importance.high,
+        playSound: true,
+      );
   static const AndroidNotificationChannel _tradeOpportunityChannel =
       AndroidNotificationChannel(
         'zeno_ai_trade_opportunities',
@@ -37,6 +38,9 @@ class NotificationHandler {
 
   /// Called when a notification is received (foreground, background tap, or opened from terminated).
   static void Function()? onNotificationReceived;
+
+  /// Called with notification data before the legacy refresh callback.
+  static void Function(Map<String, dynamic> data)? onNotificationDataReceived;
 
   // Set when user taps a DMT score notification (or opens it from terminated state).
   // ChatScreen reads this flag to auto-open the DMT score popup.
@@ -53,12 +57,10 @@ class NotificationHandler {
   }
 
   static void _maybeMarkDmtScoreAutoOpen(Map<String, dynamic> data) {
-    final type = (data['type'] ??
-            data['notification_type'] ??
-            data['category'] ??
-            '')
-        .toString()
-        .toLowerCase();
+    final type =
+        (data['type'] ?? data['notification_type'] ?? data['category'] ?? '')
+            .toString()
+            .toLowerCase();
     if (type != 'dmt_score') return;
     _dmtScoreAutoOpenPending = true;
     _dmtScoreAutoOpenScoreDate =
@@ -126,7 +128,7 @@ class NotificationHandler {
       if (payload != null && payload.isNotEmpty) {
         final decoded = jsonDecode(payload);
         if (decoded is Map) {
-          _maybeMarkDmtScoreAutoOpen(
+          instance._notifyNotificationReceived(
             decoded.map((k, v) => MapEntry(k.toString(), v)),
           );
         }
@@ -152,8 +154,10 @@ class NotificationHandler {
     FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       _logNotificationData(source: 'onMessageOpenedApp', message: message);
-      _maybeMarkDmtScoreAutoOpen(message.data);
-      onNotificationReceived?.call();
+      _notifyNotificationReceived(
+        message.data,
+        notificationKey: message.messageId ?? message.hashCode.toString(),
+      );
     });
     _firebaseInited = true;
   }
@@ -161,7 +165,10 @@ class NotificationHandler {
   /// When app is in foreground, FCM does not show system notification on Android — show local instead.
   Future<void> _handleForegroundMessage(RemoteMessage message) async {
     _logNotificationData(source: 'onMessage', message: message);
-    onNotificationReceived?.call();
+    _notifyNotificationReceived(
+      message.data,
+      notificationKey: message.messageId ?? message.hashCode.toString(),
+    );
 
     if (Platform.isAndroid) {
       final notification = message.notification;
@@ -186,9 +193,7 @@ class NotificationHandler {
             icon: '@mipmap/ic_launcher',
             playSound: true,
             sound: isTradeOpportunity
-                ? const RawResourceAndroidNotificationSound(
-                    'trade_opportunity',
-                  )
+                ? const RawResourceAndroidNotificationSound('trade_opportunity')
                 : null,
           ),
           iOS: const DarwinNotificationDetails(
@@ -197,9 +202,25 @@ class NotificationHandler {
             presentSound: true,
           ),
         ),
-        payload: jsonEncode(message.data),
+        payload: jsonEncode({
+          ...message.data,
+          '_notification_key': message.messageId ?? message.hashCode.toString(),
+        }),
       );
     }
+  }
+
+  void _notifyNotificationReceived(
+    Map<String, dynamic> data, {
+    String? notificationKey,
+  }) {
+    final normalized = Map<String, dynamic>.from(data);
+    if (notificationKey != null && notificationKey.isNotEmpty) {
+      normalized['_notification_key'] = notificationKey;
+    }
+    _maybeMarkDmtScoreAutoOpen(normalized);
+    onNotificationDataReceived?.call(normalized);
+    onNotificationReceived?.call();
   }
 
   bool _isNewTradeOpportunity(RemoteMessage message) {
@@ -212,8 +233,9 @@ class NotificationHandler {
                 '')
             .toString()
             .toLowerCase();
-    final isTradeFlag =
-        data['is_new_trade_opportunity']?.toString().toLowerCase();
+    final isTradeFlag = data['is_new_trade_opportunity']
+        ?.toString()
+        .toLowerCase();
 
     return type == 'new_trade_opportunity' || isTradeFlag == 'true';
   }
@@ -273,8 +295,10 @@ class NotificationHandler {
     ) {
       if (message != null) {
         _logNotificationData(source: 'getInitialMessage', message: message);
-        _maybeMarkDmtScoreAutoOpen(message.data);
-        onNotificationReceived?.call();
+        _notifyNotificationReceived(
+          message.data,
+          notificationKey: message.messageId ?? message.hashCode.toString(),
+        );
       }
     });
   }
@@ -288,7 +312,9 @@ class NotificationHandler {
       await FirebaseMessaging.instance.subscribeToTopic(tradeAlertsTopic);
       await FirebaseMessaging.instance.subscribeToTopic(dmtScoreTopic);
       if (kDebugMode) {
-        debugPrint('Subscribed to FCM topics: $tradeAlertsTopic, $dmtScoreTopic');
+        debugPrint(
+          'Subscribed to FCM topics: $tradeAlertsTopic, $dmtScoreTopic',
+        );
       }
     } catch (e) {
       if (kDebugMode) debugPrint('Subscribe to FCM topics failed: $e');

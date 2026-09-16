@@ -36,6 +36,12 @@ class DmtUserLevelsSummaryService extends GetxService {
       );
       if (!response.isSuccess) {
         response = await _api().postFormData(
+          'https://api.disciplinedminds.in/api/v2test/dmt-level/user-levels-summary',
+          {'user_id': userId},
+        );
+      }
+      if (!response.isSuccess) {
+        response = await _api().postFormData(
           'https://api.disciplinedminds.in/api/dmt-level/user-levels-summary',
           {'user_id': userId},
         );

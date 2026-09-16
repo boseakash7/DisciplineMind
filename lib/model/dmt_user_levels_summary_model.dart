@@ -169,6 +169,28 @@ class DmtUserLevelSummaryItem {
   String get displayLabel =>
       name.isNotEmpty ? name : (shortName.isNotEmpty ? shortName : code);
 
+  String get displayTotalAverageReturn {
+    final v = totalAverageReturnPercentage;
+    if (v == null) return '0.00%';
+    final s = v.toString().trim();
+    if (s.isEmpty) return '0.00%';
+    if (s.endsWith('%')) return s;
+    final d = double.tryParse(s);
+    if (d != null) return '${d.toStringAsFixed(2)}%';
+    return '$s%';
+  }
+
+  String get displayTotalMctAverageReturn {
+    final v = totalMctAverageReturnPercentage;
+    if (v == null) return '0.00%';
+    final s = v.toString().trim();
+    if (s.isEmpty) return '0.00%';
+    if (s.endsWith('%')) return s;
+    final d = double.tryParse(s);
+    if (d != null) return '${d.toStringAsFixed(2)}%';
+    return '$s%';
+  }
+
   bool get canExpand => isUnlocked || isCurrent;
 
   List<DmtLevelScoreHistoryEntry> get sortedScoreHistory {

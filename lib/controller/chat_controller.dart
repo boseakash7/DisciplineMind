@@ -21,6 +21,80 @@ class ChatController extends GetxController {
   final NativeAppBlockService _blockService = NativeAppBlockService();
   final AppBlockPreferencesService _prefs = AppBlockPreferencesService();
 
+  static const int tradeWindowSeconds = 120;
+  final _expiredTrades = <String>{};
+
+  static bool _isLegacyReusableTradeId(String id) {
+    if (id.length >= 8) return false;
+    return int.tryParse(id) != null;
+  }
+
+  static String _expiryKey(NewTradeOpportunityMessage msg) {
+    final id = msg.tradeId.trim();
+    if (id.isNotEmpty && !_isLegacyReusableTradeId(id)) return id;
+    final messageId = msg.messageId.trim();
+    if (messageId.isNotEmpty) return messageId;
+    return '${msg.tradeId}_${msg.timestamp}';
+  }
+
+  bool _isActionTakenValue(dynamic value) {
+    if (value == null) return false;
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    final normalized = value.toString().trim().toLowerCase();
+    return normalized.isNotEmpty &&
+        normalized != '0' &&
+        normalized != 'false' &&
+        normalized != 'null';
+  }
+
+  bool _isEditActionMessage(ChatMessage msg) {
+    final trade = msg is NewTradeOpportunityMessage
+        ? msg
+        : (msg is TradeExecutionPromptMessage ? msg.tradeData : null);
+    if (trade == null) return false;
+    final action = trade.action.toLowerCase();
+    final buttonType = trade.buttonType.toLowerCase();
+    return action == 'edit' ||
+        action == 'editgtt' ||
+        action == 'update' ||
+        buttonType.contains('edit') ||
+        trade.slChanged ||
+        trade.tpChanged ||
+        trade.oldStopLoss.trim().isNotEmpty ||
+        trade.oldTakeProfit.trim().isNotEmpty;
+  }
+
+  bool isTradeExpired(NewTradeOpportunityMessage msg) {
+    if (!isTimedTradeAction(msg.action) || msg.actionTaken != null)
+      return false;
+    if (_expiredTrades.contains(_expiryKey(msg))) return true;
+    if (!ApiConfig.isZenoAi) return false;
+    final sentAt = parseMessageTime(msg.timestamp);
+    return sentAt != null &&
+        !DateTime.now().toUtc().isBefore(
+          sentAt.add(const Duration(seconds: tradeWindowSeconds)),
+        );
+  }
+
+  /// Expire locally; the next backend message controls removal of the trade.
+  void onTradeCountdownExpired(NewTradeOpportunityMessage msg) {
+    if (!isTimedTradeAction(msg.action) || msg.actionTaken != null) return;
+    if (!_expiredTrades.add(_expiryKey(msg))) return;
+    messages.refresh();
+    update();
+  }
+
+  /// Only new trades (`add`) have a 120s apply window. Edit flows are not timed out.
+  static bool isTimedTradeAction(String action) =>
+      action.toLowerCase() == 'add';
+
+  /// Add / edit / editGtt / update — show edit-specific UI (not expiry).
+  static bool isEditTradeAction(String action) {
+    final a = action.toLowerCase();
+    return a == 'edit' || a == 'editgtt' || a == 'update';
+  }
+
   final messages = <ChatMessage>[].obs;
   final isLoading = false.obs;
   final isRefreshing = false.obs;
@@ -46,7 +120,10 @@ class ChatController extends GetxController {
   void reset() {
     _sessionVersion++;
     _loadVersion++;
+    _expiredTrades.clear();
     messages.clear();
+    _pendingMindControlGuardNotifications.clear();
+    _shownMindControlGuardNotificationKeys.clear();
     currentUserId = null;
     isLoading.value = false;
     isRefreshing.value = false;
@@ -101,7 +178,9 @@ class ChatController extends GetxController {
   /// Ensures there is AT MOST ONE AI waiting message in the list (the latest/newest one).
   /// Any older AI messages are dropped so only the last active AI message is displayed.
   List<ChatMessage> _keepOnlyLatestAiMessage(List<ChatMessage> list) {
-    final lastAiIndex = list.lastIndexWhere((m) => m.type == ChatMessageType.aiWaiting);
+    final lastAiIndex = list.lastIndexWhere(
+      (m) => m.type == ChatMessageType.aiWaiting,
+    );
     if (lastAiIndex == -1) return list;
 
     final result = <ChatMessage>[];
@@ -117,26 +196,32 @@ class ChatController extends GetxController {
 
   final Set<String> _takenActionMessageIds = <String>{};
   final Set<String> _takenActionTradeIds = <String>{};
+  final Map<String, TradeExecutedMessage>
+  _pendingMindControlGuardNotifications = {};
+  final Set<String> _shownMindControlGuardNotificationKeys = <String>{};
 
   bool isActionTakenFor(ChatMessage msg) {
-    if (msg.actionTaken != null &&
-        msg.actionTaken != 0 &&
-        msg.actionTaken != '0' &&
-        msg.actionTaken != false &&
-        msg.actionTaken != 'false') {
-      return true;
-    }
+    if (_isActionTakenValue(msg.actionTaken)) return true;
     final mId = msg.messageId.trim();
     if (mId.isNotEmpty && _takenActionMessageIds.contains(mId)) return true;
     final tId = msg is NewTradeOpportunityMessage
         ? msg.tradeId.trim()
-        : (msg is TradeExecutionPromptMessage ? msg.tradeData.tradeId.trim() : '');
-    if (tId.isNotEmpty && _takenActionTradeIds.contains(tId)) return true;
+        : (msg is TradeExecutionPromptMessage
+              ? msg.tradeData.tradeId.trim()
+              : '');
+    // A later edit for the same trade is a new action instance. Its message
+    // id, rather than the earlier trade-level action, controls its state.
+    if (!_isEditActionMessage(msg) &&
+        tId.isNotEmpty &&
+        _takenActionTradeIds.contains(tId)) {
+      return true;
+    }
     return false;
   }
 
   List<ChatMessage> _applyLocallyTakenActions(List<ChatMessage> list) {
-    if (_takenActionMessageIds.isEmpty && _takenActionTradeIds.isEmpty) return list;
+    if (_takenActionMessageIds.isEmpty && _takenActionTradeIds.isEmpty)
+      return list;
     final result = list.toList();
     for (int i = 0; i < result.length; i++) {
       final m = result[i];
@@ -144,9 +229,15 @@ class ChatController extends GetxController {
         final mId = m.messageId.trim();
         final tId = m is NewTradeOpportunityMessage
             ? m.tradeId.trim()
-            : (m is TradeExecutionPromptMessage ? m.tradeData.tradeId.trim() : '');
-        if ((mId.isNotEmpty && _takenActionMessageIds.contains(mId)) ||
-            (tId.isNotEmpty && _takenActionTradeIds.contains(tId))) {
+            : (m is TradeExecutionPromptMessage
+                  ? m.tradeData.tradeId.trim()
+                  : '');
+        final actionTakenLocally =
+            (mId.isNotEmpty && _takenActionMessageIds.contains(mId)) ||
+            (!_isEditActionMessage(m) &&
+                tId.isNotEmpty &&
+                _takenActionTradeIds.contains(tId));
+        if (actionTakenLocally) {
           result[i] = _withActionTaken(m, 1);
         }
       }
@@ -165,7 +256,9 @@ class ChatController extends GetxController {
         parsed.addAll(chatMessagesFromJson(item));
       }
     }
-    final deduped = _keepOnlyLatestAiMessage(_dedupeRedundantDeleteTradeButtons(parsed));
+    final deduped = _keepOnlyLatestAiMessage(
+      _dedupeRedundantDeleteTradeButtons(parsed),
+    );
     return _applyLocallyTakenActions(deduped);
   }
 
@@ -190,7 +283,9 @@ class ChatController extends GetxController {
       combined = [...filteredIncoming, ...base];
     } else {
       // If new messages contain an AI message, immediately purge older AI messages from base
-      final incomingHasAi = filteredIncoming.any((m) => m.type == ChatMessageType.aiWaiting);
+      final incomingHasAi = filteredIncoming.any(
+        (m) => m.type == ChatMessageType.aiWaiting,
+      );
       final adjustedBase = incomingHasAi
           ? base.where((m) => m.type != ChatMessageType.aiWaiting).toList()
           : base;
@@ -387,7 +482,8 @@ class ChatController extends GetxController {
     final sessionVersion = _sessionVersion;
     final loadVersion = ++_loadVersion;
     bool isCurrentLoad() =>
-        _isCurrentSession(userId, sessionVersion) && _loadVersion == loadVersion;
+        _isCurrentSession(userId, sessionVersion) &&
+        _loadVersion == loadVersion;
 
     if (!silent) {
       if (refresh) {
@@ -408,7 +504,9 @@ class ChatController extends GetxController {
 
       if (response.isSuccess && response.data != null) {
         final payload = response.data['payload'];
-        final display = _parseDisplayMessages(payload);
+        final display = _withPendingMindControlGuardNotifications(
+          _parseDisplayMessages(payload),
+        );
         messages.assignAll(display);
         hasMoreOlderMessages.value = true;
 
@@ -604,6 +702,68 @@ class ChatController extends GetxController {
     messages.add(msg);
   }
 
+  /// Shows the guard-deactivated message immediately when its push event is
+  /// received. Keep it pending until the API catches up so a refresh cannot
+  /// remove the instant message.
+  void addMindControlGuardDeactivatedMessage({
+    String notificationKey = '',
+    String messageId = '',
+    String timestamp = '',
+  }) {
+    final cleanKey = notificationKey.trim();
+    final cleanMessageId = messageId.trim();
+    final cleanTimestamp = timestamp.trim();
+    final dedupeKey = cleanKey.isNotEmpty
+        ? cleanKey
+        : (cleanMessageId.isNotEmpty
+              ? 'message:$cleanMessageId'
+              : (cleanTimestamp.isNotEmpty ? 'time:$cleanTimestamp' : ''));
+
+    if (dedupeKey.isNotEmpty &&
+        !_shownMindControlGuardNotificationKeys.add(dedupeKey)) {
+      return;
+    }
+    if (cleanMessageId.isNotEmpty &&
+        messages.any((m) => m.messageId.trim() == cleanMessageId)) {
+      return;
+    }
+
+    final message = TradeExecutedMessage(
+      messageId: cleanMessageId,
+      isUnread: true,
+      timestamp: cleanTimestamp.isNotEmpty
+          ? cleanTimestamp
+          : DateTime.now().toUtc().toIso8601String(),
+    );
+    if (dedupeKey.isNotEmpty) {
+      _pendingMindControlGuardNotifications[dedupeKey] = message;
+    }
+    messages.add(message);
+  }
+
+  List<ChatMessage> _withPendingMindControlGuardNotifications(
+    List<ChatMessage> display,
+  ) {
+    if (_pendingMindControlGuardNotifications.isEmpty) return display;
+    final result = display.toList();
+    final displayIds = result
+        .map((m) => m.messageId.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    final pending = <String, TradeExecutedMessage>{};
+    for (final entry in _pendingMindControlGuardNotifications.entries) {
+      final message = entry.value;
+      final id = message.messageId.trim();
+      if (id.isNotEmpty && displayIds.contains(id)) continue;
+      pending[entry.key] = message;
+      result.add(message);
+    }
+    _pendingMindControlGuardNotifications
+      ..clear()
+      ..addAll(pending);
+    return result;
+  }
+
   String _llmAskUrl() {
     return '${ApiConfig.getBaseUrl(ApiUrl.llmAsk)}${ApiUrl.llmAsk}';
   }
@@ -612,33 +772,21 @@ class ChatController extends GetxController {
     final query = text.trim();
     if (query.isEmpty) return;
 
-    addMessage(
-      SimpleTextMessage(
-        text: query,
-        isFromUser: true,
-      ),
-    );
+    addMessage(SimpleTextMessage(text: query, isFromUser: true));
 
     final waitingMsgId = 'ai_waiting_${DateTime.now().millisecondsSinceEpoch}';
-    addMessage(
-      AiWaitingMessage(
-        text: 'Analyzing...',
-        messageId: waitingMsgId,
-      ),
-    );
+    addMessage(AiWaitingMessage(text: 'Analyzing...', messageId: waitingMsgId));
 
     try {
-      final userId = Common.userData.value?.payload?.id?.toString() ??
+      final userId =
+          Common.userData.value?.payload?.id?.toString() ??
           GetStorage().read<String>('user_id') ??
           '123';
 
-      final response = await ApiService().postJson(
-        _llmAskUrl(),
-        {
-          'user_id': userId,
-          'user_query': query,
-        },
-      );
+      final response = await ApiService().postJson(_llmAskUrl(), {
+        'user_id': userId,
+        'user_query': query,
+      });
 
       messages.removeWhere((m) => m.messageId == waitingMsgId);
 
@@ -648,12 +796,7 @@ class ChatController extends GetxController {
             payload['response_markdown'] != null) {
           final replyText = payload['response_markdown'].toString();
           if (replyText.isNotEmpty) {
-            addMessage(
-              SimpleTextMessage(
-                text: replyText,
-                isFromUser: false,
-              ),
-            );
+            addMessage(SimpleTextMessage(text: replyText, isFromUser: false));
             return;
           }
         }
@@ -661,12 +804,7 @@ class ChatController extends GetxController {
 
       final errorMsg =
           response.errorMessage ?? 'Unable to get response from AI.';
-      addMessage(
-        SimpleTextMessage(
-          text: errorMsg,
-          isFromUser: false,
-        ),
-      );
+      addMessage(SimpleTextMessage(text: errorMsg, isFromUser: false));
     } catch (e) {
       messages.removeWhere((m) => m.messageId == waitingMsgId);
       addMessage(
@@ -753,6 +891,10 @@ class ChatController extends GetxController {
     String? stopLoss,
     String? takeProfit,
   }) async {
+    if (isTradeExpired(msg)) {
+      AppToast.showToast('This trade has expired');
+      return false;
+    }
     if (gttPrice.trim().isEmpty) {
       AppToast.showToast('Please enter GTT price');
       return false;
@@ -800,6 +942,10 @@ class ChatController extends GetxController {
         fields['take_profit'] = takeProfit.trim();
         // Optional compatibility key for backends aligned with alert schema.
         fields['upper_price'] = takeProfit.trim();
+      }
+      if (isTradeExpired(msg)) {
+        AppToast.showToast('This trade has expired');
+        return false;
       }
       final response = await api.postFormData(ApiUrl.gttAlertCreate, fields);
       if (response.isSuccess) {
@@ -855,7 +1001,9 @@ class ChatController extends GetxController {
           ? msg.signalId
           : (msg.messageId.isNotEmpty ? msg.messageId : '7');
       final currentPriceClean = msg.currentPrice.replaceAll(',', '').trim();
-      final symbol = msg.tradingsymbol.isNotEmpty ? msg.tradingsymbol : msg.instrument;
+      final symbol = msg.tradingsymbol.isNotEmpty
+          ? msg.tradingsymbol
+          : msg.instrument;
       final instrument = msg.exchange.isNotEmpty
           ? '${msg.exchange}:$symbol'
           : symbol;
@@ -866,9 +1014,12 @@ class ChatController extends GetxController {
         'user_id': userId,
         'trade_id': tradeId,
         'gtt_price': gttPrice.trim(),
-        'current_price': currentPriceClean.isNotEmpty ? currentPriceClean : '0.00',
+        'current_price': currentPriceClean.isNotEmpty
+            ? currentPriceClean
+            : '0.00',
         if (instrument.isNotEmpty) 'instrument': instrument,
-        if (msg.processId.isNotEmpty) 'v2test_trading_process_id': msg.processId,
+        if (msg.processId.isNotEmpty)
+          'v2test_trading_process_id': msg.processId,
       };
       final response = await api.postFormData(ApiUrl.gttAlertCreate, fields);
       if (response.isSuccess) {
@@ -925,7 +1076,9 @@ class ChatController extends GetxController {
           ? msg.signalId
           : (msg.messageId.isNotEmpty ? msg.messageId : '7');
       final currentPriceClean = msg.currentPrice.replaceAll(',', '').trim();
-      final symbol = msg.tradingsymbol.isNotEmpty ? msg.tradingsymbol : msg.instrument;
+      final symbol = msg.tradingsymbol.isNotEmpty
+          ? msg.tradingsymbol
+          : msg.instrument;
       final instrument = msg.exchange.isNotEmpty
           ? '${msg.exchange}:$symbol'
           : symbol;
@@ -935,7 +1088,9 @@ class ChatController extends GetxController {
       final fields = <String, String>{
         'user_id': userId,
         'trade_id': tradeId,
-        'current_price': currentPriceClean.isNotEmpty ? currentPriceClean : '0.00',
+        'current_price': currentPriceClean.isNotEmpty
+            ? currentPriceClean
+            : '0.00',
         'upper_price': upperPrice.trim(),
         'lower_price': lowerPrice.trim(),
         if (instrument.isNotEmpty) 'instrument': instrument,
@@ -948,9 +1103,7 @@ class ChatController extends GetxController {
         loadMessages(refresh: true);
         return true;
       } else {
-        AppToast.showToast(
-          response.errorMessage ?? 'Failed to create alert',
-        );
+        AppToast.showToast(response.errorMessage ?? 'Failed to create alert');
         return false;
       }
     } catch (e, stack) {
@@ -973,13 +1126,20 @@ class ChatController extends GetxController {
       bool match = false;
       if (cleanMsgId.isNotEmpty && m.messageId.trim() == cleanMsgId) {
         match = true;
-      }
-      if (!match && cleanTradeId.isNotEmpty) {
-        if (m is NewTradeOpportunityMessage && m.tradeId.trim() == cleanTradeId) match = true;
-        if (m is TradeExecutionPromptMessage && m.tradeData.tradeId.trim() == cleanTradeId) match = true;
-        if (m is AlertHitWithButtonMessage && m.tradeId.trim() == cleanTradeId) match = true;
-        if (m is SimpleTextMessage && m.tradeId.trim() == cleanTradeId) match = true;
-        if (m is TradeSignalMessage && (m.signalId.trim() == cleanTradeId || m.messageId.trim() == cleanTradeId)) match = true;
+      } else if (cleanMsgId.isEmpty && cleanTradeId.isNotEmpty) {
+        if (m is NewTradeOpportunityMessage && m.tradeId.trim() == cleanTradeId)
+          match = true;
+        if (m is TradeExecutionPromptMessage &&
+            m.tradeData.tradeId.trim() == cleanTradeId)
+          match = true;
+        if (m is AlertHitWithButtonMessage && m.tradeId.trim() == cleanTradeId)
+          match = true;
+        if (m is SimpleTextMessage && m.tradeId.trim() == cleanTradeId)
+          match = true;
+        if (m is TradeSignalMessage &&
+            (m.signalId.trim() == cleanTradeId ||
+                m.messageId.trim() == cleanTradeId))
+          match = true;
       }
       if (match) {
         messages[i] = _withActionTaken(m, 1);

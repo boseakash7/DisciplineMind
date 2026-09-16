@@ -16,6 +16,7 @@ import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:discipline_mind/ui/widgets/audio_wave_visualizer.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
@@ -41,10 +42,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _usageGranted = false;
   bool _isCheckingPermissions = true;
   bool _hideMindControlGateTemporary = false;
-  bool _skippedMindControl = false;
+  bool _mindControlPromptDeclined = false;
+
+  static const String _mindControlPromptDeclinedKey =
+      'mind_control_prompt_declined_';
 
   final _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey _firstNewMessageKey = GlobalKey();
   int _lastMessageCount = 0;
   final Set<String> _revealedUnreadMessageIds = <String>{};
   bool _isLoadingOlder = false;
@@ -288,12 +293,38 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final process = processController.currentProcess.value;
     if (process != null && process.isMindControllActive == 0 && _isMarketOpen) {
       AppToast.showToast('Activate Mind Control Guard');
-      setState(() {
-        _skippedMindControl = false;
-      });
       return true;
     }
     return false;
+  }
+
+  String? _mindControlPromptStorageKey() {
+    final userId = Common.userData.value?.payload?.id?.toString() ??
+        GetStorage().read('user_id')?.toString();
+    if (userId == null || userId.isEmpty) return null;
+    return '$_mindControlPromptDeclinedKey$userId';
+  }
+
+  void _loadMindControlPromptState() {
+    final key = _mindControlPromptStorageKey();
+    if (key == null) return;
+
+    final declined = GetStorage().read<bool>(key) ?? false;
+    if (mounted && declined != _mindControlPromptDeclined) {
+      setState(() => _mindControlPromptDeclined = declined);
+    }
+  }
+
+  Future<void> _declineMindControlPrompt() async {
+    if (mounted) {
+      setState(() => _mindControlPromptDeclined = true);
+    }
+
+    final key = _mindControlPromptStorageKey();
+    if (key != null) {
+      await GetStorage().write(key, true);
+    }
+    _scheduleScrollToBottom();
   }
 
   bool _isDark(BuildContext context) =>
@@ -354,6 +385,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     });
     WidgetsBinding.instance.addObserver(this);
     _checkPermissions();
+    _loadMindControlPromptState();
     _scrollController.addListener(_onChatScroll);
   }
 
@@ -394,10 +426,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void didUpdateWidget(ChatScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
-      if (_hideMindControlGateTemporary || _skippedMindControl) {
+      if (_hideMindControlGateTemporary) {
         setState(() {
           _hideMindControlGateTemporary = false;
-          _skippedMindControl = false;
         });
       }
       _syncOnTabFocus();
@@ -569,13 +600,40 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     });
   }
 
+  /// Bring the first newly received message to the top of the viewport.
+  /// The latest-message arrow still uses [_scheduleScrollToBottom].
+  void _scheduleScrollToFirstNewMessage({int attempt = 0}) {
+    const maxAttempts = 18;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+
+      final targetContext = _firstNewMessageKey.currentContext;
+      if (targetContext != null) {
+        Scrollable.ensureVisible(
+          targetContext,
+          alignment: 0.0,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+        );
+        return;
+      }
+
+      if (attempt >= maxAttempts) return;
+      Future.delayed(Duration(milliseconds: 40 + attempt * 25), () {
+        if (mounted) {
+          _scheduleScrollToFirstNewMessage(attempt: attempt + 1);
+        }
+      });
+    });
+  }
+
   void _scheduleScrollAfterUnreadReveal(
     String messageId,
     ChatController controller,
   ) {
     final isLast = messageId == _lastMessageId(controller.messages);
     if (isLast || _isNearBottom()) {
-      _scheduleScrollToBottom();
+      _scheduleScrollToFirstNewMessage();
     }
   }
 
@@ -704,7 +762,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       Text('Market is Open 🔔', style: titleStyle),
                       const SizedBox(height: 8),
                       Text(
-                        "It's time to activate your\nMind Control.",
+                        _mindControlPromptDeclined
+                            ? 'It is advised to Active MCT to stay Disciplined with your Process as this is from app side'
+                            : "It's time to activate your\nMind Control.",
                         style: textStyle,
                       ),
                       const SizedBox(height: 12),
@@ -765,38 +825,62 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 Row(
                   children: [
                     Expanded(
-                      child: GestureDetector(
-                        onTap: () => _showActivateMindControlBottomSheet(
-                          context,
-                          isDark,
-                        ),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF5A4FCF),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          alignment: Alignment.center,
-                          child: const Text(
-                            'Yes',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
+                      child: Obx(() {
+                        final pCtrl =
+                            Get.isRegistered<TradingProcessController>()
+                            ? Get.find<TradingProcessController>()
+                            : Get.put(TradingProcessController());
+                        if (pCtrl.isUpdating.value) {
+                          return Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF5A4FCF),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            alignment: Alignment.center,
+                            child: const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white,
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+
+                        return GestureDetector(
+                          onTap: () async {
+                            final success = await pCtrl.activateMindControl();
+                            if (success && Get.isRegistered<ChatController>()) {
+                              Get.find<ChatController>().loadMessages();
+                            }
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF5A4FCF),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            alignment: Alignment.center,
+                            child: const Text(
+                              'Yes',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
-                        ),
-                      ),
+                        );
+                      }),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _skippedMindControl = true;
-                          });
-                          _scheduleScrollToBottom();
-                        },
+                        onTap: _declineMindControlPrompt,
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           decoration: BoxDecoration(
@@ -826,153 +910,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ),
         ),
       ],
-    );
-  }
-
-  void _showActivateMindControlBottomSheet(BuildContext context, bool isDark) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return Container(
-          decoration: BoxDecoration(
-            color: _dialogBg(isDark),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          padding: const EdgeInsets.only(
-            top: 12,
-            left: 24,
-            right: 24,
-            bottom: 32,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.withOpacity(0.3),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: 24),
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isDark
-                      ? AppColors.primary.withOpacity(0.2)
-                      : const Color(0xFFEDE9FE),
-                  border: Border.all(color: AppColors.primary, width: 1.5),
-                ),
-                alignment: Alignment.center,
-                child: const Text(
-                  '?',
-                  style: TextStyle(
-                    color: AppColors.primary,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                'Do you wish to activate\nMind Control Guard?',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: _headlineText(isDark),
-                  height: 1.4,
-                ),
-              ),
-              const SizedBox(height: 32),
-              Row(
-                children: [
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => Navigator.pop(ctx),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        decoration: BoxDecoration(
-                          color: Colors.transparent,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: _fieldBorder(isDark),
-                            width: 1,
-                          ),
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          'No',
-                          style: TextStyle(
-                            color: _headlineText(isDark),
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Obx(() {
-                      final pCtrl = Get.find<TradingProcessController>();
-                      if (pCtrl.isUpdating.value) {
-                        return Container(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          alignment: Alignment.center,
-                          child: const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Colors.white,
-                              ),
-                            ),
-                          ),
-                        );
-                      }
-
-                      return GestureDetector(
-                        onTap: () async {
-                          final success = await pCtrl.activateMindControl();
-                          if (success && mounted) {
-                            Navigator.pop(ctx);
-                          }
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          alignment: Alignment.center,
-                          child: const Text(
-                            'Yes',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      );
-                    }),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 
@@ -1047,6 +984,66 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return start;
   }
 
+  bool _isCreateProcessButtonMessage(ChatMessage msg) {
+    if (msg is AgentWithButtonMessage) {
+      final label = msg.buttonLabel.trim().toUpperCase();
+      final text = msg.text.trim().toUpperCase();
+      if (label.isEmpty ||
+          label.contains('PROCESS') ||
+          label.contains('CREATE') ||
+          text.contains('PROCESS') ||
+          text.contains('CREATE')) {
+        return true;
+      }
+    }
+    if (msg is AlertHitWithButtonMessage) {
+      final label = msg.buttonLabel.trim().toUpperCase();
+      final text = msg.text.trim().toUpperCase();
+      if (label.contains('PROCESS') ||
+          label.contains('CREATE') ||
+          text.contains('PROCESS') ||
+          text.contains('CREATE')) {
+        return true;
+      }
+    }
+    if (msg is TradeExecutedMessage) {
+      final label = msg.buttonLabel.trim().toUpperCase();
+      if (label.contains('PROCESS') || label.contains('CREATE')) {
+        return true;
+      }
+    }
+    if (msg.type == ChatMessageType.agentWithButton) {
+      return true;
+    }
+    return false;
+  }
+
+  bool _isCreateProcessMessage(ChatMessage msg) {
+    if (_isCreateProcessButtonMessage(msg)) return true;
+    if (msg is SimpleTextMessage) {
+      final text = msg.text.trim().toUpperCase();
+      if (text.contains('CREATE A PROCESS') ||
+          (text.contains('CREATE') && text.contains('PROCESS'))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  int _findCreateProcessIndex(List<ChatMessage> messages) {
+    for (var i = 0; i < messages.length; i++) {
+      if (_isCreateProcessButtonMessage(messages[i])) {
+        return i;
+      }
+    }
+    for (var i = 0; i < messages.length; i++) {
+      if (_isCreateProcessMessage(messages[i])) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
   List<_ChatFeedItem> _buildChatFeedItems(List<ChatMessage> messages) {
     final items = <_ChatFeedItem>[];
     DateTime? lastDay;
@@ -1055,6 +1052,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       (m) => m.type == ChatMessageType.aiWaiting,
     );
 
+    final btnIdx = _findCreateProcessIndex(messages);
+    bool newMessagesShown = false;
+    bool firstMessageRendered = false;
+    String? deferredDateLabel;
+    DateTime? deferredDay;
+
     for (var i = 0; i < messages.length; i++) {
       final msg = messages[i];
       if (msg.type == ChatMessageType.aiWaiting && i != lastAiIndex) {
@@ -1062,16 +1065,58 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
       final day = _messageDay(msg);
 
-      if (i == newMessagesAt) {
-        items.add(const _ChatFeedNewMessages());
-      }
+      if (btnIdx >= 0 && i <= btnIdx) {
+        // Collect or defer date header so it does NOT show above the Create a Process button
+        if (day != null && (lastDay == null || day != lastDay)) {
+          deferredDateLabel = _chatDateLabel(day);
+          deferredDay = day;
+        }
 
-      if (day != null && (lastDay == null || day != lastDay)) {
-        items.add(_ChatFeedDateHeader(label: _chatDateLabel(day)));
-        lastDay = day;
-      }
+        // Add the message itself (which may be the button or a message preceding it)
+        items.add(_ChatFeedMessage(index: i, message: msg));
 
-      items.add(_ChatFeedMessage(index: i, message: msg));
+        // When we just added the Create a Process button, show "New Messages" and "Today" right AFTER it
+        if (i == btnIdx) {
+          if (newMessagesAt >= 0 &&
+              newMessagesAt <= btnIdx + 1 &&
+              !newMessagesShown) {
+            items.add(const _ChatFeedNewMessages());
+            newMessagesShown = true;
+          }
+
+          final labelToShow =
+              deferredDateLabel ??
+              (lastDay == null ? _chatDateLabel(DateTime.now()) : null);
+          if (labelToShow != null) {
+            items.add(_ChatFeedDateHeader(label: labelToShow));
+            lastDay = deferredDay ?? DateTime.now();
+            deferredDateLabel = null;
+            deferredDay = null;
+          }
+        }
+      } else {
+        // When create a process button is gone (deleted by backend), show Today tag at the start of the first message
+        if (btnIdx == -1 && !firstMessageRendered) {
+          final firstDay = day ?? DateTime.now();
+          items.add(_ChatFeedDateHeader(label: _chatDateLabel(firstDay)));
+          lastDay = firstDay;
+          firstMessageRendered = true;
+        }
+
+        // Normal processing for messages after the Create a Process button (or when no button exists)
+        if (i == newMessagesAt && !newMessagesShown) {
+          items.add(const _ChatFeedNewMessages());
+          newMessagesShown = true;
+        }
+
+        if (day != null && (lastDay == null || day != lastDay)) {
+          items.add(_ChatFeedDateHeader(label: _chatDateLabel(day)));
+          lastDay = day;
+        }
+
+        items.add(_ChatFeedMessage(index: i, message: msg));
+        firstMessageRendered = true;
+      }
     }
     return items;
   }
@@ -1235,8 +1280,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 final process = processController.currentProcess.value;
                 if (process != null &&
                     process.isMindControllActive == 0 &&
-                    _isMarketOpen &&
-                    !_skippedMindControl) {
+                    _isMarketOpen) {
                   return ListView(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
@@ -1268,14 +1312,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       _previousLastMessageId.isNotEmpty &&
                       currentLastId.isNotEmpty &&
                       _previousLastMessageId != currentLastId) {
-                    // New messages appended at bottom -> always take user to latest.
-                    _scheduleScrollToBottom();
+                    // New messages appended at bottom -> show the start of the
+                    // new-message block, leaving the latest-message arrow intact.
+                    _scheduleScrollToFirstNewMessage();
                   } else if (!_suppressAutoBottomScroll &&
                       wasNearBottom &&
                       _previousLastMessageId.isEmpty &&
                       currentLastId.isNotEmpty) {
                     // Fallback: if IDs were absent previously but user was already at end.
-                    _scheduleScrollToBottom();
+                    _scheduleScrollToFirstNewMessage();
                   }
                 }
                 _previousFirstMessageId = currentFirstId;
@@ -1327,6 +1372,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   }
                 }
                 final feedItems = _buildChatFeedItems(controller.messages);
+                final firstNewMessageIndex =
+                    _latestUnreadBurstStartIndex(controller.messages);
                 return Stack(
                   children: [
                     controller.messages.isEmpty
@@ -1363,6 +1410,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                             itemBuilder: (_, i) {
                               final item = feedItems[i];
                               Widget childWidget;
+                              var isFirstNewMessage = false;
                               if (item is _ChatFeedDateHeader) {
                                 childWidget = KeyedSubtree(
                                   key: ValueKey('chat_date_${item.label}'),
@@ -1378,6 +1426,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                                 );
                               } else {
                                 final msgItem = item as _ChatFeedMessage;
+                                isFirstNewMessage =
+                                    msgItem.index == firstNewMessageIndex;
                                 final msg = msgItem.message;
                                 final bubble = _buildMessage(
                                   context,
@@ -1425,6 +1475,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                                   );
                                 }
                               }
+                              if (isFirstNewMessage) {
+                                childWidget = KeyedSubtree(
+                                  key: _firstNewMessageKey,
+                                  child: childWidget,
+                                );
+                              }
                               return RepaintBoundary(child: childWidget);
                             },
                           ),
@@ -1468,8 +1524,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               final isPromptShowing =
                   process != null &&
                   process.isMindControllActive == 0 &&
-                  _isMarketOpen &&
-                  !_skippedMindControl;
+                  _isMarketOpen;
               if (isPromptShowing) return const SizedBox.shrink();
               return _buildInput(context, controller, _textController);
             }),
@@ -2008,6 +2063,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final msgKey = msg.messageId.isNotEmpty
         ? msg.messageId
         : (msg.signalId.isNotEmpty ? msg.signalId : 'ts_${msg.instrument}');
+    final hasOpenedTradingApp = _hasOpenedTradingApp(msg);
     final selectedAction = _selectedSignalActions[msgKey];
     final isDropdownExpanded = _expandedSignalDropdowns.contains(msgKey);
 
@@ -2418,6 +2474,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               label: 'OPEN TRADING APP',
               enabled: true,
               onTap: () async {
+                _markTradingAppOpened(msg);
                 await controller.openTradingApp();
               },
             ),
@@ -2449,15 +2506,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 children: [
                   InkWell(
                     borderRadius: BorderRadius.circular(8),
-                    onTap: () {
-                      setState(() {
-                        if (isDropdownExpanded) {
-                          _expandedSignalDropdowns.remove(msgKey);
-                        } else {
-                          _expandedSignalDropdowns.add(msgKey);
-                        }
-                      });
-                    },
+                    onTap: hasOpenedTradingApp
+                        ? () {
+                            setState(() {
+                              if (isDropdownExpanded) {
+                                _expandedSignalDropdowns.remove(msgKey);
+                              } else {
+                                _expandedSignalDropdowns.add(msgKey);
+                              }
+                            });
+                          }
+                        : null,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 14,
@@ -3429,13 +3488,51 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (mId.isNotEmpty && _actionTakenMessageIds.contains(mId)) return true;
     if (msg is NewTradeOpportunityMessage) {
       final tId = msg.tradeId.trim();
-      if (tId.isNotEmpty && _actionTakenTradeIds.contains(tId)) return true;
+      if (!_isEditTrade(msg) &&
+          tId.isNotEmpty &&
+          _actionTakenTradeIds.contains(tId)) {
+        return true;
+      }
     }
     if (msg is TradeExecutionPromptMessage) {
       final tId = msg.tradeData.tradeId.trim();
-      if (tId.isNotEmpty && _actionTakenTradeIds.contains(tId)) return true;
+      if (!_isEditTrade(msg.tradeData) &&
+          tId.isNotEmpty &&
+          _actionTakenTradeIds.contains(tId)) {
+        return true;
+      }
     }
     return false;
+  }
+
+  String _tradingAppStepKey(ChatMessage msg) {
+    final messageId = msg.messageId.trim();
+    if (messageId.isNotEmpty) return 'message:$messageId';
+    if (msg is NewTradeOpportunityMessage && msg.tradeId.trim().isNotEmpty) {
+      return 'trade:${msg.tradeId.trim()}';
+    }
+    if (msg is TradeExecutionPromptMessage &&
+        msg.tradeData.tradeId.trim().isNotEmpty) {
+      return 'trade:${msg.tradeData.tradeId.trim()}';
+    }
+    if (msg is AlertHitWithButtonMessage && msg.tradeId.trim().isNotEmpty) {
+      return 'trade:${msg.tradeId.trim()}';
+    }
+    if (msg is TradeSignalMessage && msg.signalId.trim().isNotEmpty) {
+      return 'trade:${msg.signalId.trim()}';
+    }
+    return '';
+  }
+
+  bool _hasOpenedTradingApp(ChatMessage msg) {
+    final key = _tradingAppStepKey(msg);
+    return key.isNotEmpty && _openedTradingAppMessageIds.contains(key);
+  }
+
+  void _markTradingAppOpened(ChatMessage msg) {
+    final key = _tradingAppStepKey(msg);
+    if (key.isEmpty) return;
+    setState(() => _openedTradingAppMessageIds.add(key));
   }
 
   bool _sameTradeCardPrice(String a, String b) {
@@ -3445,7 +3542,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return a.trim() == b.trim();
   }
 
-  bool _showButtons(ChatMessage msg) => !_isActionTaken(msg);
+  bool _showButtons(ChatMessage msg) {
+    final trade = msg is NewTradeOpportunityMessage
+        ? msg
+        : msg is TradeExecutionPromptMessage
+        ? msg.tradeData
+        : null;
+    return !_isActionTaken(msg) &&
+        (trade == null || !_chatController.isTradeExpired(trade));
+  }
 
   String _tradeDeleteStepLine(int n, String api, String fallback) {
     final t = api.trim();
@@ -3499,6 +3604,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       return _buildTradeDeleteCombinedMessage(context, msg, controller);
     }
 
+    final setupType = Get.isRegistered<TradingProcessController>()
+        ? Get.find<TradingProcessController>()
+                  .currentProcess
+                  .value
+                  ?.tradingSetupType ??
+              Common.userData.value?.payload?.tradingSetupType
+        : Common.userData.value?.payload?.tradingSetupType;
+    final isZenoAi = setupType == 'zeno_ai_signals';
+
+    final showCountdown =
+        isZenoAi &&
+        ChatController.isTimedTradeAction(msg.action) &&
+        msg.actionTaken == null;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Column(
@@ -3514,10 +3633,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           _buildTradeOpportunityCard(
             context,
             msg,
-            showInvalidOverlay: false,
+            showInvalidOverlay: controller.isTradeExpired(msg),
             hideMarketPrice:
                 _isActionTaken(msg) || !_showButtons(msg) || _isEditTrade(msg),
           ),
+          if (showCountdown) ...[
+            const SizedBox(height: 10),
+            _TradeCountdownTimer(
+              msg: msg,
+              onExpired: () => controller.onTradeCountdownExpired(msg),
+            ),
+          ],
         ],
       ),
     );
@@ -3568,7 +3694,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           _tradePromptPrimaryButton(
             label: 'Open Trading APP',
             enabled: _showButtons(msg),
-            onTap: () => controller.openTradingApp(),
+            onTap: () {
+              _markTradingAppOpened(msg);
+              controller.openTradingApp();
+            },
           ),
           const SizedBox(height: 14),
           Text(_deleteTradeStep2Text(msg), style: stepStyle),
@@ -3579,7 +3708,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 ? Icons.check_circle_outline_rounded
                 : null,
             isCompleted: !_showButtons(msg),
-            enabled: _showButtons(msg),
+            enabled: _showButtons(msg) && _hasOpenedTradingApp(msg),
             onTap: () {
               final mId = msg.messageId.trim();
               final tId = msg.tradeId.trim();
@@ -3657,7 +3786,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           _tradePromptPrimaryButton(
             label: 'Open Trading APP',
             enabled: _showButtons(msg),
-            onTap: () => controller.openTradingApp(),
+            onTap: () {
+              _markTradingAppOpened(msg);
+              controller.openTradingApp();
+            },
           ),
           const SizedBox(height: 14),
           Text(step2Text, style: stepStyle),
@@ -3668,7 +3800,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 ? Icons.check_circle_outline_rounded
                 : null,
             isCompleted: !_showButtons(msg),
-            enabled: _showButtons(msg),
+            enabled: _showButtons(msg) && _hasOpenedTradingApp(msg),
             onTap: () => _showTrailSlDialog(context, msg, controller),
           ),
         ],
@@ -4144,6 +4276,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ChatMessage? sourceMessage,
   }) {
     final isDark = _isDark(context);
+    if (controller.isTradeExpired(msg)) return const SizedBox.shrink();
     final actionSource = sourceMessage ?? msg;
     final bodyStyle = TextStyle(fontSize: 14, color: _headlineText(isDark));
     final stepStyle = TextStyle(
@@ -4165,9 +4298,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               label: 'Open Trading APP',
               enabled: true,
               onTap: () {
-                setState(
-                  () => _openedTradingAppMessageIds.add(actionSource.messageId),
-                );
+                _markTradingAppOpened(actionSource);
                 controller.openTradingApp();
               },
             ),
@@ -4176,9 +4307,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             const SizedBox(height: 8),
             _tradePromptPrimaryButton(
               label: 'GTT / Levels Applied',
-              enabled: _openedTradingAppMessageIds.contains(
-                actionSource.messageId,
-              ),
+              enabled: _hasOpenedTradingApp(actionSource),
               onTap: () => _showGttDialog(context, msg, controller),
             ),
           ] else ...[
@@ -4737,12 +4866,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     final vGtt = gttController.text.trim();
                     final vSl = slController.text.trim();
                     final vTp = tpController.text.trim();
-                    final mId = msg.messageId.trim();
-                    final tId = msg.tradeId.trim();
-                    if (mId.isNotEmpty)
-                      setState(() => _actionTakenMessageIds.add(mId));
-                    if (tId.isNotEmpty)
-                      setState(() => _actionTakenTradeIds.add(tId));
                     Navigator.pop(ctx);
                     if (isGttEdit) {
                       await controller.acknowledgeSlTrailed(
@@ -5123,7 +5246,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               label: 'Open Trading APP',
               enabled: _showButtons(msg),
               onTap: () {
-                setState(() => _openedTradingAppMessageIds.add(msg.messageId));
+                _markTradingAppOpened(msg);
                 controller.openTradingApp();
               },
             ),
@@ -5140,7 +5263,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             enabled:
                 _showButtons(msg) &&
                 (!msg.isGttHit ||
-                    _openedTradingAppMessageIds.contains(msg.messageId)),
+                    _hasOpenedTradingApp(msg)),
             onTap: () {
               final setupType =
                   ApiConfig.activeSetupType ??
@@ -5170,7 +5293,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             const SizedBox(height: 10),
             _tradePromptPrimaryButton(
               label: 'GTT Missed',
-              enabled: _showButtons(msg),
+              enabled: _showButtons(msg) && _hasOpenedTradingApp(msg),
               onTap: () => controller.acknowledgeGttMissed(msg),
             ),
           ],
@@ -5204,7 +5327,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               label: 'Open Trading APP',
               enabled: true,
               onTap: () {
-                setState(() => _openedTradingAppMessageIds.add(msg.messageId));
+                _markTradingAppOpened(msg);
                 controller.openTradingApp();
               },
             ),
@@ -5213,7 +5336,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             const SizedBox(height: 8),
             _tradePromptPrimaryButton(
               label: msg.buttonLabel,
-              enabled: _openedTradingAppMessageIds.contains(msg.messageId),
+              enabled: _hasOpenedTradingApp(msg),
               onTap: () {
                 controller.markActionTaken(messageId: msg.messageId);
                 AppToast.showToast('Thanks for confirming');
@@ -5955,4 +6078,97 @@ class _ChatFeedMessage extends _ChatFeedItem {
   const _ChatFeedMessage({required this.index, required this.message});
   final int index;
   final ChatMessage message;
+}
+
+class _TradeCountdownTimer extends StatefulWidget {
+  const _TradeCountdownTimer({required this.msg, required this.onExpired});
+
+  final NewTradeOpportunityMessage msg;
+  final VoidCallback onExpired;
+
+  @override
+  State<_TradeCountdownTimer> createState() => _TradeCountdownTimerState();
+}
+
+class _TradeCountdownTimerState extends State<_TradeCountdownTimer> {
+  late int _secondsRemaining;
+  Timer? _timer;
+  bool _expired = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _calculateRemaining();
+    if (_secondsRemaining > 0) {
+      _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted) return;
+        setState(() {
+          if (ChatController.parseMessageTime(widget.msg.timestamp) == null) {
+            _secondsRemaining--;
+          } else {
+            _calculateRemaining();
+          }
+          if (_secondsRemaining <= 0) {
+            _secondsRemaining = 0;
+            _expired = true;
+            _timer?.cancel();
+            widget.onExpired();
+          }
+        });
+      });
+    } else {
+      _expired = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onExpired();
+      });
+    }
+  }
+
+  void _calculateRemaining() {
+    final parsed = ChatController.parseMessageTime(widget.msg.timestamp);
+    if (parsed == null) {
+      _secondsRemaining = ChatController.tradeWindowSeconds;
+      return;
+    }
+    final elapsed = DateTime.now().toUtc().difference(parsed).inSeconds;
+    _secondsRemaining = (ChatController.tradeWindowSeconds - elapsed).clamp(
+      0,
+      120,
+    );
+    if (_secondsRemaining <= 0) _expired = true;
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_expired) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.orange.shade300),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.timer_outlined, size: 16, color: Colors.orange.shade700),
+          const SizedBox(width: 6),
+          Text(
+            'Apply GTT within ${_secondsRemaining}s',
+            style: TextStyle(
+              color: Colors.orange.shade800,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
