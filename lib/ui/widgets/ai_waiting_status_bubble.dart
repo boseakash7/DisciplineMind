@@ -166,6 +166,8 @@ class _AiWaitingStatusBubbleState extends State<AiWaitingStatusBubble>
     final subTextColor = isDark ? Colors.white60 : Colors.grey.shade600;
 
     String cleanSubtitle = widget.subtitle.replaceAll(RegExp(r'<[^>]+>'), '').trim();
+    final showSubtitle =
+        cleanSubtitle.isNotEmpty && cleanSubtitle != widget.text.trim();
 
     return FadeTransition(
       opacity: CurvedAnimation(parent: _enter, curve: Curves.easeOut),
@@ -228,17 +230,19 @@ class _AiWaitingStatusBubbleState extends State<AiWaitingStatusBubble>
                                             ? subTextColor
                                             : AppColors.primary,
                                       ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        cleanSubtitle,
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w700,
-                                          letterSpacing: 0.2,
-                                          color: subTextColor,
+                                      if (showSubtitle) ...[
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          cleanSubtitle,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                            letterSpacing: 0.2,
+                                            color: subTextColor,
+                                          ),
                                         ),
-                                      ),
-                                      const SizedBox(width: 8),
+                                        const SizedBox(width: 8),
+                                      ],
                                       _PremiumThinkingDots(
                                         controller: _dots,
                                         color: isUserAction

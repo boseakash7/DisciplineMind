@@ -33,8 +33,87 @@ class _ExpandableTradeCardState extends State<ExpandableTradeCard> {
   }
 
   String fmt(double? v) {
-    if (v == null) return '-';
+    if (v == null) return '';
     return v.toStringAsFixed(2);
+  }
+
+  Color _returnValueColor(double? value, {bool? positiveFallback}) {
+    if (value != null) {
+      return value >= 0 ? const Color(0xFF10B981) : const Color(0xFFEF4444);
+    }
+    if (positiveFallback != null) {
+      return positiveFallback
+          ? const Color(0xFF10B981)
+          : const Color(0xFFEF4444);
+    }
+    return Theme.of(context).brightness == Brightness.dark
+        ? Colors.white70
+        : const Color(0xFF64748B);
+  }
+
+  Widget _returnValue(
+    String label,
+    String value,
+    double? rawValue, {
+    bool? positiveFallback,
+  }) {
+    return RichText(
+      text: TextSpan(
+        style: TextStyle(
+          color: Theme.of(context).brightness == Brightness.dark
+              ? Colors.white
+              : const Color(0xFF161338),
+          fontSize: 12,
+          height: 1.25,
+        ),
+        children: [
+          TextSpan(
+            text: '$label ',
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          TextSpan(
+            text: value,
+            style: TextStyle(
+              color: _returnValueColor(
+                rawValue,
+                positiveFallback: positiveFallback,
+              ),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReturnsRow() {
+    final trade = widget.trade;
+    final myValue = trade?.returnPercent;
+    final mctValue = trade?.mctReturnPercentage;
+    final myLabel = trade?.displayReturn ?? widget.returnLabel;
+    final mctLabel = trade?.displayMctReturn ?? '-';
+
+    final returnWidgets = <Widget>[];
+    if (myLabel.trim().isNotEmpty &&
+        myLabel.trim() != '-' &&
+        myLabel.trim() != '—') {
+      returnWidgets.add(
+        _returnValue(
+          'My Return',
+          myLabel,
+          myValue,
+          positiveFallback: myValue == null ? widget.profit : null,
+        ),
+      );
+    }
+    if (mctLabel.trim().isNotEmpty &&
+        mctLabel.trim() != '-' &&
+        mctLabel.trim() != '—') {
+      returnWidgets.add(_returnValue('MCT Return', mctLabel, mctValue));
+    }
+    if (returnWidgets.isEmpty) return const SizedBox.shrink();
+
+    return Wrap(spacing: 14, runSpacing: 2, children: returnWidgets);
   }
 
   @override
@@ -42,12 +121,18 @@ class _ExpandableTradeCardState extends State<ExpandableTradeCard> {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = dark ? const Color(0xFF1E1B2E) : Colors.white;
     final innerBg = dark ? const Color(0xFF272338) : const Color(0xFFF8F7FD);
-    final borderColor = dark ? const Color(0xFF332F49) : const Color(0xFFF1EEFA);
+    final borderColor = dark
+        ? const Color(0xFF332F49)
+        : const Color(0xFFF1EEFA);
     final titleColor = dark ? Colors.white : const Color(0xFF161338);
     final subColor = dark ? Colors.white70 : const Color(0xFF64748B);
-    final profitColor = widget.profit ? const Color(0xFF10B981) : const Color(0xFFEF4444);
+    final profitColor = widget.profit
+        ? const Color(0xFF10B981)
+        : const Color(0xFFEF4444);
 
-    final initial = widget.title.isNotEmpty ? widget.title.substring(0, 1).toUpperCase() : 'T';
+    final initial = widget.title.isNotEmpty
+        ? widget.title.substring(0, 1).toUpperCase()
+        : 'T';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -77,7 +162,9 @@ class _ExpandableTradeCardState extends State<ExpandableTradeCard> {
                     width: 36,
                     height: 36,
                     decoration: BoxDecoration(
-                      color: dark ? const Color(0xFF2D2644) : const Color(0xFFF3EEFF),
+                      color: dark
+                          ? const Color(0xFF2D2644)
+                          : const Color(0xFFF3EEFF),
                       shape: BoxShape.circle,
                     ),
                     alignment: Alignment.center,
@@ -112,6 +199,8 @@ class _ExpandableTradeCardState extends State<ExpandableTradeCard> {
                             fontWeight: FontWeight.w400,
                           ),
                         ),
+                        const SizedBox(height: 4),
+                        _buildReturnsRow(),
                       ],
                     ),
                   ),
@@ -153,8 +242,9 @@ class _ExpandableTradeCardState extends State<ExpandableTradeCard> {
           ),
           AnimatedCrossFade(
             duration: const Duration(milliseconds: 200),
-            crossFadeState:
-                expanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+            crossFadeState: expanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
             firstChild: const SizedBox.shrink(),
             secondChild: Container(
               width: double.infinity,
@@ -168,18 +258,88 @@ class _ExpandableTradeCardState extends State<ExpandableTradeCard> {
               child: widget.trade == null
                   ? Column(
                       children: [
-                        _buildRow('Date', formatTradeTabDate(widget.date), subColor, titleColor),
-                        _buildRow('Return', widget.returnLabel, subColor, profitColor),
+                        _buildRow(
+                          'Date',
+                          formatTradeTabDate(widget.date),
+                          subColor,
+                          titleColor,
+                        ),
+                        _buildRow(
+                          'Return',
+                          widget.returnLabel,
+                          subColor,
+                          profitColor,
+                        ),
                       ],
                     )
                   : Column(
                       children: [
-                        _buildRow('Hit Price', fmt(widget.trade?.hitPrice), subColor, titleColor),
-                        _buildRow('Target', fmt(widget.trade?.upperPrice), subColor, titleColor),
-                        _buildRow('Stop Loss', fmt(widget.trade?.lowerPrice), subColor, titleColor),
+                        _buildRow(
+                          'Trade Name',
+                          widget.trade?.displayExpandedTradeName ?? '',
+                          subColor,
+                          titleColor,
+                        ),
+                        _buildRow(
+                          'Trade Hit at',
+                          widget.trade?.displayHitAt ?? '',
+                          subColor,
+                          titleColor,
+                        ),
+                        _buildRow(
+                          'Entry Price',
+                          fmt(
+                            widget.trade?.trade?.entryPrice ??
+                                widget.trade?.gttPrice,
+                          ),
+                          subColor,
+                          titleColor,
+                        ),
+                        _buildRow(
+                          'SL placed at',
+                          fmt(
+                            widget.trade?.trade?.stopLoss ??
+                                widget.trade?.lowerPrice,
+                          ),
+                          subColor,
+                          titleColor,
+                        ),
+                        _buildRow(
+                          'Exit Price',
+                          fmt(
+                            widget.trade?.trade?.takeProfit ??
+                                widget.trade?.upperPrice,
+                          ),
+                          subColor,
+                          titleColor,
+                        ),
+                        _buildRow(
+                          'Hit Price',
+                          fmt(widget.trade?.displayHitPrice),
+                          subColor,
+                          titleColor,
+                        ),
+                        _buildRow(
+                          'Target',
+                          fmt(widget.trade?.upperPrice),
+                          subColor,
+                          titleColor,
+                        ),
                         _buildRow(
                           'Created',
                           widget.trade?.displayCreatedAt ?? '',
+                          subColor,
+                          titleColor,
+                        ),
+                        _buildRow(
+                          'My Exit',
+                          widget.trade?.displayMyExitDetail ?? '',
+                          subColor,
+                          titleColor,
+                        ),
+                        _buildRow(
+                          'MCT Exit',
+                          widget.trade?.displayMctExitDetail ?? '',
                           subColor,
                           titleColor,
                         ),
@@ -192,7 +352,13 @@ class _ExpandableTradeCardState extends State<ExpandableTradeCard> {
     );
   }
 
-  Widget _buildRow(String label, String value, Color labelColor, Color valueColor) {
+  Widget _buildRow(
+    String label,
+    String value,
+    Color labelColor,
+    Color valueColor,
+  ) {
+    if (value.trim().isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(

@@ -972,6 +972,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (end < 0) return -1;
 
     var start = end;
+    var hasNonAiMessage = messages[end].type != ChatMessageType.aiWaiting;
     while (start > 0) {
       final prev = messages[start - 1];
       if (!prev.isUnread) break;
@@ -980,8 +981,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       if (tCurr == null || tPrev == null) break;
       if (tCurr.difference(tPrev).abs() > _unreadBurstWindow) break;
       start--;
+      if (messages[start].type != ChatMessageType.aiWaiting) {
+        hasNonAiMessage = true;
+      }
     }
-    return start;
+    return hasNonAiMessage ? start : -1;
   }
 
   bool _isCreateProcessButtonMessage(ChatMessage msg) {
