@@ -35,6 +35,17 @@ class NotificationHandler {
         playSound: true,
         sound: RawResourceAndroidNotificationSound('trade_opportunity'),
       );
+  // Backend still sends the Phase 4 channel id on some notification paths.
+  // Keep this channel so Android does not fall back to the default channel.
+  static const AndroidNotificationChannel _legacyTradeOpportunityChannel =
+      AndroidNotificationChannel(
+        'discipline_mind_trade_opportunities',
+        'Trade Opportunities',
+        description: 'Notifications for new trade opportunities',
+        importance: Importance.high,
+        playSound: true,
+        sound: RawResourceAndroidNotificationSound('trade_opportunity'),
+      );
 
   /// Called when a notification is received (foreground, background tap, or opened from terminated).
   static void Function()? onNotificationReceived;
@@ -117,6 +128,19 @@ class NotificationHandler {
             AndroidFlutterLocalNotificationsPlugin
           >()
           ?.createNotificationChannel(_tradeOpportunityChannel);
+      await _localNotifications
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >()
+          ?.createNotificationChannel(_legacyTradeOpportunityChannel);
+      if (kDebugMode) {
+        debugPrint(
+          '[NotificationSound] channels created: '
+          '${_defaultChannel.id}, ${_tradeOpportunityChannel.id}, '
+          '${_legacyTradeOpportunityChannel.id}; '
+          'customSound=trade_opportunity',
+        );
+      }
     }
     _localInited = true;
   }
@@ -174,39 +198,70 @@ class NotificationHandler {
       final notification = message.notification;
       final title = notification?.title ?? 'Zeno AI';
       final body = notification?.body ?? 'You have a new alert update';
+      final requestedChannelId = _requestedAndroidChannelId(message);
       final isTradeOpportunity = _isNewTradeOpportunity(message);
-      final channel = isTradeOpportunity
-          ? _tradeOpportunityChannel
-          : _defaultChannel;
+      final channel = requestedChannelId == _legacyTradeOpportunityChannel.id
+          ? _legacyTradeOpportunityChannel
+          : (isTradeOpportunity ? _tradeOpportunityChannel : _defaultChannel);
+      final hasCustomSound =
+          channel.id == _tradeOpportunityChannel.id ||
+          channel.id == _legacyTradeOpportunityChannel.id;
 
-      await _localNotifications.show(
-        message.hashCode,
-        title,
-        body,
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            channel.id,
-            channel.name,
-            channelDescription: channel.description,
-            importance: Importance.high,
-            priority: Priority.high,
-            icon: '@mipmap/ic_launcher',
-            playSound: true,
-            sound: isTradeOpportunity
-                ? const RawResourceAndroidNotificationSound('trade_opportunity')
-                : null,
+      if (kDebugMode) {
+        debugPrint(
+          '[NotificationSound] foreground receive: '
+          'messageId=${message.messageId} '
+          'requestedChannel=${requestedChannelId ?? '<none>'} '
+          'selectedChannel=${channel.id} '
+          'isTradeOpportunity=$isTradeOpportunity '
+          'customSound=$hasCustomSound '
+          'data=${message.data}',
+        );
+      }
+
+      try {
+        await _localNotifications.show(
+          message.hashCode,
+          title,
+          body,
+          NotificationDetails(
+            android: AndroidNotificationDetails(
+              channel.id,
+              channel.name,
+              channelDescription: channel.description,
+              importance: Importance.high,
+              priority: Priority.high,
+              icon: '@mipmap/ic_launcher',
+              playSound: true,
+              sound: hasCustomSound
+                  ? const RawResourceAndroidNotificationSound(
+                      'trade_opportunity',
+                    )
+                  : null,
+            ),
+            iOS: const DarwinNotificationDetails(
+              presentAlert: true,
+              presentBadge: true,
+              presentSound: true,
+            ),
           ),
-          iOS: const DarwinNotificationDetails(
-            presentAlert: true,
-            presentBadge: true,
-            presentSound: true,
-          ),
-        ),
-        payload: jsonEncode({
-          ...message.data,
-          '_notification_key': message.messageId ?? message.hashCode.toString(),
-        }),
-      );
+          payload: jsonEncode({
+            ...message.data,
+            '_notification_key':
+                message.messageId ?? message.hashCode.toString(),
+          }),
+        );
+        if (kDebugMode) {
+          debugPrint(
+            '[NotificationSound] foreground notification shown successfully '
+            'on channel=${channel.id}',
+          );
+        }
+      } catch (e, stack) {
+        if (kDebugMode) {
+          debugPrint('[NotificationSound] show failed: $e\n$stack');
+        }
+      }
     }
   }
 
@@ -240,6 +295,23 @@ class NotificationHandler {
     return type == 'new_trade_opportunity' || isTradeFlag == 'true';
   }
 
+  String? _requestedAndroidChannelId(RemoteMessage message) {
+    final notificationChannelId = message.notification?.android?.channelId
+        ?.trim();
+    if (notificationChannelId != null && notificationChannelId.isNotEmpty) {
+      return notificationChannelId;
+    }
+
+    final dataChannelId =
+        (message.data['channel_id'] ??
+                message.data['channelId'] ??
+                message.data['android_channel_id'] ??
+                '')
+            .toString()
+            .trim();
+    return dataChannelId.isEmpty ? null : dataChannelId;
+  }
+
   void _logNotificationData({
     required String source,
     required RemoteMessage message,
@@ -250,6 +322,7 @@ class NotificationHandler {
       'FCM[$source] messageId=${message.messageId} '
       'title=${message.notification?.title} '
       'body=${message.notification?.body} '
+      'androidChannel=${_requestedAndroidChannelId(message)} '
       'isTradeOpportunity=$isTrade '
       'data=${message.data}',
     );

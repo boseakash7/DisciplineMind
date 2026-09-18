@@ -267,7 +267,19 @@ class ChatController extends GetxController {
     required List<ChatMessage> incoming,
     required bool prepend,
   }) {
-    final existingIds = base
+    // A delete update may reuse the original message id. Replace that old
+    // row instead of treating the pending delete confirmation as a duplicate.
+    final deleteUpdateIds = incoming
+        .where(_isDeleteTradeRequestMessage)
+        .map((m) => m.messageId.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    final mergeBase = base.where((m) {
+      final id = m.messageId.trim();
+      return id.isEmpty || !deleteUpdateIds.contains(id);
+    }).toList();
+
+    final existingIds = mergeBase
         .map((m) => m.messageId.trim())
         .where((id) => id.isNotEmpty)
         .toSet();
@@ -280,18 +292,20 @@ class ChatController extends GetxController {
 
     List<ChatMessage> combined;
     if (prepend) {
-      combined = [...filteredIncoming, ...base];
+      combined = [...filteredIncoming, ...mergeBase];
     } else {
       // If new messages contain an AI message, immediately purge older AI messages from base
       final incomingHasAi = filteredIncoming.any(
         (m) => m.type == ChatMessageType.aiWaiting,
       );
       final adjustedBase = incomingHasAi
-          ? base.where((m) => m.type != ChatMessageType.aiWaiting).toList()
-          : base;
+          ? mergeBase.where((m) => m.type != ChatMessageType.aiWaiting).toList()
+          : mergeBase;
       combined = [...adjustedBase, ...filteredIncoming];
     }
-    return _keepOnlyLatestAiMessage(combined);
+    return _keepOnlyLatestAiMessage(
+      _dedupeRedundantDeleteTradeButtons(combined),
+    );
   }
 
   bool _isDeleteTradeRequestMessage(ChatMessage m) {
@@ -303,7 +317,10 @@ class ChatController extends GetxController {
 
   bool _incomingHasDeleteTradeRequest(List<ChatMessage> incoming) {
     for (final m in incoming) {
-      if (_isDeleteTradeRequestMessage(m) && m.actionTaken == null) return true;
+      if (_isDeleteTradeRequestMessage(m) &&
+          !_isActionTakenValue(m.actionTaken)) {
+        return true;
+      }
     }
     return false;
   }
@@ -669,20 +686,50 @@ class ChatController extends GetxController {
   List<ChatMessage> _dedupeRedundantDeleteTradeButtons(
     List<ChatMessage> chronological,
   ) {
-    final openAppDeleteTradeIds = <String>{};
+    final openAppMessagesByTradeId =
+        <String, List<NewTradeOpportunityMessage>>{};
+    final deleteMessagesByTradeId =
+        <String, List<NewTradeOpportunityMessage>>{};
     for (final m in chronological) {
       if (m is! NewTradeOpportunityMessage) continue;
-      if (m.buttonType != 'open_app_button') continue;
       if (m.action.toLowerCase() != 'delete') continue;
       if (m.tradeId.isEmpty) continue;
-      openAppDeleteTradeIds.add(m.tradeId);
+      if (m.buttonType == 'open_app_button') {
+        openAppMessagesByTradeId
+            .putIfAbsent(m.tradeId, () => <NewTradeOpportunityMessage>[])
+            .add(m);
+      } else if (m.buttonType == 'delete_button') {
+        deleteMessagesByTradeId
+            .putIfAbsent(m.tradeId, () => <NewTradeOpportunityMessage>[])
+            .add(m);
+      }
     }
     return chronological.where((m) {
       if (m is! NewTradeOpportunityMessage) return true;
-      if (m.buttonType != 'delete_button') return true;
       if (m.action.toLowerCase() != 'delete') return true;
       if (m.tradeId.isEmpty) return true;
-      return !openAppDeleteTradeIds.contains(m.tradeId);
+
+      final tradeId = m.tradeId;
+      if (m.buttonType == 'delete_button') {
+        final openAppMessages = openAppMessagesByTradeId[tradeId] ?? const [];
+        // Keep the confirmation message when the older open-app message has
+        // already been taken. It is the still-actionable delete flow.
+        return !openAppMessages.any(
+          (openApp) => !_isActionTakenValue(openApp.actionTaken),
+        );
+      }
+
+      if (m.buttonType == 'open_app_button') {
+        final deleteMessages = deleteMessagesByTradeId[tradeId] ?? const [];
+        // If a pending confirmation exists, discard an older completed
+        // open-app row so the pending row remains visible and actionable.
+        return !(_isActionTakenValue(m.actionTaken) &&
+            deleteMessages.any(
+              (delete) => !_isActionTakenValue(delete.actionTaken),
+            ));
+      }
+
+      return true;
     }).toList();
   }
 
