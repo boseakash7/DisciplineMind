@@ -1,6 +1,7 @@
 /// Chat message types
 enum ChatMessageType {
   simpleText,
+  voiceMessage,
   aiWaiting, // Backend AI status bubble (`message_type: ai_msgs`)
   newTradeOpportunity,
   tradeExecutionPrompt,
@@ -17,8 +18,11 @@ abstract class ChatMessage {
   final bool isFromUser;
   final String messageId;
   final bool isUnread;
+  final bool sendFailed;
+
   /// Backend control key: show action buttons only when this is null.
   final dynamic actionTaken;
+
   /// Server timestamp (ISO-8601). Used for date separators and feed sorting.
   final String timestamp;
 
@@ -27,6 +31,7 @@ abstract class ChatMessage {
     this.isFromUser = false,
     this.messageId = '',
     this.isUnread = false,
+    this.sendFailed = false,
     this.actionTaken,
     this.timestamp = '',
   });
@@ -36,16 +41,34 @@ abstract class ChatMessage {
 class SimpleTextMessage extends ChatMessage {
   final String text;
   final String tradeId;
+  final bool animateResponse;
 
   const SimpleTextMessage({
     required this.text,
     this.tradeId = '',
+    this.animateResponse = false,
     super.isFromUser = false,
     super.messageId,
     super.isUnread,
+    super.sendFailed,
     super.actionTaken,
     super.timestamp,
   }) : super(type: ChatMessageType.simpleText);
+}
+
+/// A locally-created outgoing voice note with local delivery state.
+class VoiceMessage extends ChatMessage {
+  final int durationSeconds;
+
+  const VoiceMessage({
+    required this.durationSeconds,
+    super.isFromUser = true,
+    super.messageId,
+    super.isUnread,
+    super.sendFailed,
+    super.actionTaken,
+    super.timestamp,
+  }) : super(type: ChatMessageType.voiceMessage);
 }
 
 /// Backend AI waiting / status bubble (`message_type: ai_msgs`).
@@ -101,19 +124,25 @@ class NewTradeOpportunityMessage extends ChatMessage {
   final String tradeId; // ID of the trade
   /// Previous SL value from payload key `old_stop_loss_history` (edit flow).
   final String oldStopLoss;
+
   /// Previous Target value from payload key `old_take_profit_history` (edit flow).
   final String oldTakeProfit;
+
   /// Whether the SL was edited (extracted from outer json)
   final bool slChanged;
+
   /// Whether the Target was edited (extracted from outer json)
   final bool tpChanged;
+
   /// Outer API `message` when [entity_type] is trade (e.g. instructions).
   final String apiMessage;
 
   /// Outer API `button_type` when [message_type] is button (e.g. open_app_button).
   final String buttonType;
+
   /// Preferred trade card title from payload `name`.
   final String tradeName;
+
   /// Preferred trade card subtitle from payload `symbol`.
   final String tradeSymbol;
 
@@ -297,9 +326,14 @@ class AlertHitWithButtonMessage extends ChatMessage {
   }) : super(type: ChatMessageType.alertHitWithButton);
 }
 
-String _targetHitPriceFromPayload(Map<String, dynamic> p, {bool isSlHit = false}) {
+String _targetHitPriceFromPayload(
+  Map<String, dynamic> p, {
+  bool isSlHit = false,
+}) {
   final hitPrice = p['hit_price'] ?? p['user_hit_price'];
-  if (hitPrice != null && hitPrice.toString().trim().isNotEmpty && hitPrice.toString().trim() != 'null') {
+  if (hitPrice != null &&
+      hitPrice.toString().trim().isNotEmpty &&
+      hitPrice.toString().trim() != 'null') {
     return hitPrice.toString().trim();
   }
 
@@ -308,7 +342,9 @@ String _targetHitPriceFromPayload(Map<String, dynamic> p, {bool isSlHit = false}
       : ['upper_price', 'gtt_price', 'take_profit', 'price'];
   for (final key in keys) {
     final v = p[key];
-    if (v != null && v.toString().trim().isNotEmpty && v.toString().trim() != 'null') {
+    if (v != null &&
+        v.toString().trim().isNotEmpty &&
+        v.toString().trim() != 'null') {
       return v.toString().trim();
     }
   }
@@ -320,7 +356,9 @@ String _targetHitPriceFromPayload(Map<String, dynamic> p, {bool isSlHit = false}
         : ['take_profit', 'current_price', 'entry_price'];
     for (final key in tradeKeys) {
       final v = tp[key];
-      if (v != null && v.toString().trim().isNotEmpty && v.toString().trim() != 'null') {
+      if (v != null &&
+          v.toString().trim().isNotEmpty &&
+          v.toString().trim() != 'null') {
         return v.toString().trim();
       }
     }
@@ -349,13 +387,14 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
   final payloadTradeMap = payloadMap?['trade'] is Map
       ? Map<String, dynamic>.from(payloadMap!['trade'] as Map)
       : null;
-  final relatedTradeId = (payloadMap?['trade_id'] ??
-          payloadMap?['id'] ??
-          payloadTradeMap?['trade_id'] ??
-          payloadTradeMap?['id'] ??
-          payloadTradeMap?['trade_uid'] ??
-          '')
-      .toString();
+  final relatedTradeId =
+      (payloadMap?['trade_id'] ??
+              payloadMap?['id'] ??
+              payloadTradeMap?['trade_id'] ??
+              payloadTradeMap?['id'] ??
+              payloadTradeMap?['trade_uid'] ??
+              '')
+          .toString();
 
   /// Trade map: [entity_type] is trade, or legacy [message_type] == trade.
   /// Button rows with [entity_type] trade (e.g. open_app_button) map here, not alert UI.
@@ -421,10 +460,8 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       DmtScoreMessage(
         headline: message.isNotEmpty ? message : 'DMT Score',
         scoreDate: (p['score_date'] ?? '').toString(),
-        instructionsScore: (p['instructions_score'] ??
-                p['process_score'] ??
-                '0')
-            .toString(),
+        instructionsScore:
+            (p['instructions_score'] ?? p['process_score'] ?? '0').toString(),
         commitmentScore: (p['commitment_score'] ?? '0').toString(),
         acceptanceScore: (p['acceptance_score'] ?? '0').toString(),
         patienceScore: (p['patience_score'] ?? '0').toString(),
@@ -453,8 +490,8 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         processId: (p['v2test_trading_process_id'] ?? '').toString(),
         instrument: (p['instrument'] ?? 'Nifty 50').toString(),
         exchange: (p['exchange'] ?? 'NSE').toString(),
-        tradingsymbol:
-            (p['tradingsymbol'] ?? p['instrument'] ?? 'NIFTY 50').toString(),
+        tradingsymbol: (p['tradingsymbol'] ?? p['instrument'] ?? 'NIFTY 50')
+            .toString(),
         openPrice: (p['open_price'] ?? '').toString(),
         currentPrice: (p['current_price'] ?? '').toString(),
         dayLow: (p['day_low'] ?? '').toString(),
@@ -480,47 +517,55 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
     final buttonType = (json['button_type'] ?? '').toString();
     final hitType = (p['hit_type'] ?? '').toString().toLowerCase().trim();
     final pStatus = (p['status'] ?? '').toString().toLowerCase().trim();
-    final tradeMap = p['trade'] is Map ? Map<String, dynamic>.from(p['trade'] as Map) : null;
-    final tradeStatus = (tradeMap?['status'] ?? '').toString().toLowerCase().trim();
+    final tradeMap = p['trade'] is Map
+        ? Map<String, dynamic>.from(p['trade'] as Map)
+        : null;
+    final tradeStatus = (tradeMap?['status'] ?? '')
+        .toString()
+        .toLowerCase()
+        .trim();
     final jsonStatus = (json['status'] ?? '').toString().toLowerCase().trim();
     final lowerMessage = message.toLowerCase();
 
-    final isGttHit = p['gtt_price'] != null ||
+    final isGttHit =
+        p['gtt_price'] != null ||
         hitType == 'gtt' ||
         tradeStatus.contains('gtt') ||
         pStatus.contains('gtt') ||
         lowerMessage.contains('gtt hit') ||
         lowerMessage.contains('gtt is hit');
 
-    final isSlHit = !isGttHit && (
-        hitType == 'lower' ||
-        hitType.contains('sl') ||
-        tradeStatus == 'hit_lower' ||
-        tradeStatus.contains('lower') ||
-        tradeStatus.contains('sl') ||
-        pStatus == 'hit_lower' ||
-        jsonStatus == 'hit_lower' ||
-        lowerMessage.contains('sl is hit') ||
-        lowerMessage.contains('sl hit') ||
-        lowerMessage.contains('stop loss')
-    );
+    final isSlHit =
+        !isGttHit &&
+        (hitType == 'lower' ||
+            hitType.contains('sl') ||
+            tradeStatus == 'hit_lower' ||
+            tradeStatus.contains('lower') ||
+            tradeStatus.contains('sl') ||
+            pStatus == 'hit_lower' ||
+            jsonStatus == 'hit_lower' ||
+            lowerMessage.contains('sl is hit') ||
+            lowerMessage.contains('sl hit') ||
+            lowerMessage.contains('stop loss'));
 
-    final isTargetHit = !isGttHit && !isSlHit && (
-        hitType == 'upper' ||
-        hitType.contains('target') ||
-        tradeStatus == 'hit_upper' ||
-        tradeStatus.contains('upper') ||
-        tradeStatus.contains('target') ||
-        pStatus == 'hit_upper' ||
-        jsonStatus == 'hit_upper' ||
-        lowerMessage.contains('target order') ||
-        lowerMessage.contains('target hit') ||
-        lowerMessage.contains('target is hit') ||
-        buttonType == 'trade_executed'
-    );
+    final isTargetHit =
+        !isGttHit &&
+        !isSlHit &&
+        (hitType == 'upper' ||
+            hitType.contains('target') ||
+            tradeStatus == 'hit_upper' ||
+            tradeStatus.contains('upper') ||
+            tradeStatus.contains('target') ||
+            pStatus == 'hit_upper' ||
+            jsonStatus == 'hit_upper' ||
+            lowerMessage.contains('target order') ||
+            lowerMessage.contains('target hit') ||
+            lowerMessage.contains('target is hit') ||
+            buttonType == 'trade_executed');
 
     String buttonLabel;
-    if (p['button_label'] != null && p['button_label'].toString().trim().isNotEmpty) {
+    if (p['button_label'] != null &&
+        p['button_label'].toString().trim().isNotEmpty) {
       buttonLabel = p['button_label'].toString().trim();
     } else if (isSlHit) {
       buttonLabel = 'Yes! SL is hit';

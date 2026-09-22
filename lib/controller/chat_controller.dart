@@ -96,6 +96,7 @@ class ChatController extends GetxController {
   }
 
   final messages = <ChatMessage>[].obs;
+  final _localVoiceMessages = <VoiceMessage>[];
   final isLoading = false.obs;
   final isRefreshing = false.obs;
   final hasMoreOlderMessages = true.obs;
@@ -121,6 +122,7 @@ class ChatController extends GetxController {
     _sessionVersion++;
     _loadVersion++;
     _expiredTrades.clear();
+    _localVoiceMessages.clear();
     messages.clear();
     _pendingMindControlGuardNotifications.clear();
     _shownMindControlGuardNotificationKeys.clear();
@@ -332,9 +334,22 @@ class ChatController extends GetxController {
         return SimpleTextMessage(
           text: x.text,
           tradeId: x.tradeId,
+          animateResponse: x.animateResponse,
           isFromUser: x.isFromUser,
           messageId: x.messageId,
           isUnread: x.isUnread,
+          sendFailed: x.sendFailed,
+          actionTaken: actionTaken,
+          timestamp: x.timestamp,
+        );
+      case ChatMessageType.voiceMessage:
+        final x = m as VoiceMessage;
+        return VoiceMessage(
+          durationSeconds: x.durationSeconds,
+          isFromUser: x.isFromUser,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          sendFailed: x.sendFailed,
           actionTaken: actionTaken,
           timestamp: x.timestamp,
         );
@@ -524,7 +539,7 @@ class ChatController extends GetxController {
         final display = _withPendingMindControlGuardNotifications(
           _parseDisplayMessages(payload),
         );
-        messages.assignAll(display);
+        messages.assignAll([...display, ..._localVoiceMessages]);
         hasMoreOlderMessages.value = true;
 
         if (messages.isEmpty && _emptyLoadRetryCount < 3) {
@@ -815,14 +830,60 @@ class ChatController extends GetxController {
     return '${ApiConfig.getBaseUrl(ApiUrl.llmAsk)}${ApiUrl.llmAsk}';
   }
 
-  Future<void> sendTextMessage(String text) async {
+  void _markMessageSendFailed(String messageId) {
+    if (messageId.isEmpty) return;
+    for (var i = 0; i < messages.length; i++) {
+      final message = messages[i];
+      if (message.messageId != messageId) continue;
+      if (message is SimpleTextMessage) {
+        messages[i] = SimpleTextMessage(
+          text: message.text,
+          tradeId: message.tradeId,
+          isFromUser: message.isFromUser,
+          messageId: message.messageId,
+          isUnread: message.isUnread,
+          sendFailed: true,
+          actionTaken: message.actionTaken,
+          timestamp: message.timestamp,
+        );
+      } else if (message is VoiceMessage) {
+        final failedMessage = VoiceMessage(
+          durationSeconds: message.durationSeconds,
+          isFromUser: message.isFromUser,
+          messageId: message.messageId,
+          isUnread: message.isUnread,
+          sendFailed: true,
+          actionTaken: message.actionTaken,
+          timestamp: message.timestamp,
+        );
+        messages[i] = failedMessage;
+        for (var j = 0; j < _localVoiceMessages.length; j++) {
+          if (_localVoiceMessages[j].messageId == message.messageId) {
+            _localVoiceMessages[j] = failedMessage;
+            break;
+          }
+        }
+      }
+    }
+    messages.refresh();
+  }
+
+  Future<bool> sendTextMessage(String text) async {
     final query = text.trim();
-    if (query.isEmpty) return;
+    if (query.isEmpty) return false;
 
-    addMessage(SimpleTextMessage(text: query, isFromUser: true));
+    final localMessageId =
+        'local_text_${DateTime.now().microsecondsSinceEpoch}';
+    addMessage(
+      SimpleTextMessage(
+        text: query,
+        isFromUser: true,
+        messageId: localMessageId,
+      ),
+    );
 
-    final waitingMsgId = 'ai_waiting_${DateTime.now().millisecondsSinceEpoch}';
-    addMessage(AiWaitingMessage(text: 'Analyzing...', messageId: waitingMsgId));
+    final waitingMsgId = 'ai_waiting_${DateTime.now().microsecondsSinceEpoch}';
+    addMessage(AiWaitingMessage(text: 'Thinking...', messageId: waitingMsgId));
 
     try {
       final userId =
@@ -843,23 +904,91 @@ class ChatController extends GetxController {
             payload['response_markdown'] != null) {
           final replyText = payload['response_markdown'].toString();
           if (replyText.isNotEmpty) {
-            addMessage(SimpleTextMessage(text: replyText, isFromUser: false));
-            return;
+            addMessage(
+              SimpleTextMessage(
+                text: replyText,
+                isFromUser: false,
+                animateResponse: true,
+              ),
+            );
+            return true;
           }
         }
       }
 
       final errorMsg =
           response.errorMessage ?? 'Unable to get response from AI.';
-      addMessage(SimpleTextMessage(text: errorMsg, isFromUser: false));
+      debugPrint('[ChatController] sendTextMessage failed: $errorMsg');
+      _markMessageSendFailed(localMessageId);
+      return false;
     } catch (e) {
       messages.removeWhere((m) => m.messageId == waitingMsgId);
-      addMessage(
-        SimpleTextMessage(
-          text: 'Error getting AI response. Please try again.',
-          isFromUser: false,
-        ),
+      debugPrint('[ChatController] sendTextMessage error: $e');
+      _markMessageSendFailed(localMessageId);
+      return false;
+    }
+  }
+
+  /// Uploads a recorded voice note directly to the voice-chat API.
+  /// The backend handles the audio processing and returns the assistant reply.
+  Future<bool> sendVoiceMessage(
+    String filePath, {
+    required int durationSeconds,
+  }) async {
+    final userId = _resolvedUserId;
+    if (userId == null || userId.isEmpty) {
+      AppToast.showToast('Please sign in again before sending a voice message');
+      return false;
+    }
+
+    final waitingMsgId =
+        'voice_waiting_${DateTime.now().millisecondsSinceEpoch}';
+    final localVoiceMessage = VoiceMessage(
+      durationSeconds: durationSeconds,
+      messageId: 'local_voice_${DateTime.now().microsecondsSinceEpoch}',
+      timestamp: DateTime.now().toIso8601String(),
+    );
+    _localVoiceMessages.add(localVoiceMessage);
+    addMessage(localVoiceMessage);
+    addMessage(AiWaitingMessage(text: 'Thinking...', messageId: waitingMsgId));
+
+    try {
+      final response = await ApiService().postMultipartFile(
+        ApiUrl.voiceChatAsk,
+        {'user_id': userId},
+        fileField: 'audio_file',
+        filePath: filePath,
       );
+
+      messages.removeWhere((m) => m.messageId == waitingMsgId);
+
+      if (response.isSuccess && response.data != null) {
+        final payload = response.data['payload'];
+        if (payload is Map<String, dynamic>) {
+          final replyText = payload['response_markdown']?.toString().trim();
+          if (replyText != null && replyText.isNotEmpty) {
+            addMessage(
+              SimpleTextMessage(
+                text: replyText,
+                isFromUser: false,
+                animateResponse: true,
+              ),
+            );
+            return true;
+          }
+        }
+      }
+
+      final errorMsg =
+          response.errorMessage ?? 'Unable to process the voice message.';
+      debugPrint('[ChatController] sendVoiceMessage failed: $errorMsg');
+      _markMessageSendFailed(localVoiceMessage.messageId);
+      return false;
+    } catch (e, stack) {
+      debugPrint('[ChatController] sendVoiceMessage error: $e\n$stack');
+      messages.removeWhere((m) => m.messageId == waitingMsgId);
+      _markMessageSendFailed(localVoiceMessage.messageId);
+      return false;
     }
   }
 

@@ -2,13 +2,15 @@ import 'package:discipline_mind/common/common.dart';
 import 'package:get_storage/get_storage.dart';
 
 class ApiConfig {
-  static const String _v2TestUrl = "https://api.disciplinedminds.in/api/v2test/";
+  static const String _v2TestUrl =
+      "https://api.disciplinedminds.in/api/v2test/";
   static const String _phase5Url = "https://api.disciplinedminds.in/api/";
-  
+
   static String? activeSetupType;
 
   static bool get isZenoAi {
-    String? setupType = activeSetupType ?? Common.userData.value?.payload?.tradingSetupType;
+    String? setupType =
+        activeSetupType ?? Common.userData.value?.payload?.tradingSetupType;
     if (setupType == null) {
       final storedData = GetStorage().read<Map<String, dynamic>>('userData');
       if (storedData != null && storedData['payload'] != null) {
@@ -29,7 +31,6 @@ class ApiConfig {
       'process/fetch',
       'process/edit',
       'user/mind-control-active',
-      'config/keys'
     ];
 
     final isV2 = v2Endpoints.any((e) => endpoint.contains(e));

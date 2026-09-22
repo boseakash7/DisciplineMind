@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
@@ -10,11 +11,15 @@ import 'api_reponse.dart';
 /// Stored from Set-Cookie on auth responses; sent on later form posts.
 const String _kSessionCookieStorageKey = 'dm_session_cookie';
 
+
 class ApiService extends GetxService {
   String _friendlyError(dynamic e, String endpoint) {
     debugPrint('[ApiService Error] $endpoint -> $e');
     final s = e.toString().toLowerCase();
-    if (s.contains('socket') || s.contains('network') || s.contains('connection') || s.contains('failed host lookup')) {
+    if (s.contains('socket') ||
+        s.contains('network') ||
+        s.contains('connection') ||
+        s.contains('failed host lookup')) {
       return 'Unable to connect to server. Please check your internet connection.';
     }
     if (s.contains('timeout')) {
@@ -31,14 +36,13 @@ class ApiService extends GetxService {
   }) async {
     try {
       final uri = Uri.parse(
-        endpoint.startsWith('http') ? endpoint : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
+        endpoint.startsWith('http')
+            ? endpoint
+            : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
       ).replace(queryParameters: queryParameters);
 
       final response = await http
-          .get(
-            uri,
-            headers: {...ApiConfig.defaultHeaders, ...?headers},
-          )
+          .get(uri, headers: {...ApiConfig.defaultHeaders, ...?headers})
           .timeout(const Duration(seconds: 10));
 
       return _processResponse(response);
@@ -55,7 +59,9 @@ class ApiService extends GetxService {
   }) async {
     try {
       final uri = Uri.parse(
-        endpoint.startsWith('http') ? endpoint : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
+        endpoint.startsWith('http')
+            ? endpoint
+            : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
       );
       final response = await http.post(
         uri,
@@ -81,7 +87,9 @@ class ApiService extends GetxService {
   }) async {
     try {
       final uri = Uri.parse(
-        endpoint.startsWith('http') ? endpoint : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
+        endpoint.startsWith('http')
+            ? endpoint
+            : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
       );
       final request = http.MultipartRequest('POST', uri);
       if (headers != null) request.headers.addAll(headers);
@@ -96,7 +104,9 @@ class ApiService extends GetxService {
       for (final e in fields.entries) {
         request.fields[e.key] = e.value;
       }
-      final streamedResponse = await request.send().timeout(const Duration(seconds: 15));
+      final streamedResponse = await request.send().timeout(
+        const Duration(seconds: 15),
+      );
       final response = await http.Response.fromStream(streamedResponse);
       return _processResponse(response);
     } catch (e) {
@@ -114,7 +124,9 @@ class ApiService extends GetxService {
   }) async {
     try {
       final uri = Uri.parse(
-        endpoint.startsWith('http') ? endpoint : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
+        endpoint.startsWith('http')
+            ? endpoint
+            : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
       );
       final request = http.MultipartRequest('POST', uri);
       if (headers != null) request.headers.addAll(headers);
@@ -129,10 +141,62 @@ class ApiService extends GetxService {
       for (final e in fields.entries) {
         request.fields[e.key] = e.value;
       }
-      final streamedResponse = await request.send().timeout(const Duration(seconds: 15));
+      final streamedResponse = await request.send().timeout(
+        const Duration(seconds: 15),
+      );
       final response = await http.Response.fromStream(streamedResponse);
       persistSessionFromResponse(response);
       debugPrint("API Response: ${response.body}");
+      return _processResponse(response);
+    } catch (e) {
+      return ApiResponse.error(_friendlyError(e, endpoint));
+    }
+  }
+
+  /// POST multipart form data with a file attachment.
+  ///
+  /// This is intentionally separate from the regular form helpers because
+  /// callers need to upload the file bytes as `MultipartFile` rather than as
+  /// a string field.
+  Future<ApiResponse<dynamic>> postMultipartFile(
+    String endpoint,
+    Map<String, String> fields, {
+    required String fileField,
+    required String filePath,
+    Map<String, String>? headers,
+    bool usePersistedSessionCookie = true,
+  }) async {
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) {
+        return ApiResponse.error('The recording is no longer available.');
+      }
+
+      final uri = Uri.parse(
+        endpoint.startsWith('http')
+            ? endpoint
+            : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
+      );
+      final request = http.MultipartRequest('POST', uri);
+      if (headers != null) request.headers.addAll(headers);
+
+      final cookies = <String, String>{
+        if (usePersistedSessionCookie) ..._persistedSessionCookies(),
+      };
+      if (cookies.isNotEmpty) {
+        request.headers['Cookie'] = cookies.entries
+            .map((e) => '${e.key}=${e.value}')
+            .join('; ');
+      }
+
+      request.fields.addAll(fields);
+      request.files.add(await http.MultipartFile.fromPath(fileField, filePath));
+
+      final streamedResponse = await request.send().timeout(
+        const Duration(seconds: 60),
+      );
+      final response = await http.Response.fromStream(streamedResponse);
+      persistSessionFromResponse(response);
       return _processResponse(response);
     } catch (e) {
       return ApiResponse.error(_friendlyError(e, endpoint));
@@ -183,7 +247,9 @@ class ApiService extends GetxService {
       };
 
       final uri = Uri.parse(
-        endpoint.startsWith('http') ? endpoint : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
+        endpoint.startsWith('http')
+            ? endpoint
+            : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
       );
       final response = await http
           .post(
@@ -210,7 +276,9 @@ class ApiService extends GetxService {
   }) async {
     try {
       final uri = Uri.parse(
-        endpoint.startsWith('http') ? endpoint : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
+        endpoint.startsWith('http')
+            ? endpoint
+            : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
       );
       final response = await http.patch(
         uri,
@@ -246,7 +314,9 @@ class ApiService extends GetxService {
         final payload = jsonResponse['payload'];
         final msg = payload?.toString().trim() ?? '';
         // If payload is clean string without html tags or stack traces, show it
-        if (msg.isNotEmpty && !msg.startsWith('<') && !msg.contains('Exception:')) {
+        if (msg.isNotEmpty &&
+            !msg.startsWith('<') &&
+            !msg.contains('Exception:')) {
           return ApiResponse.error(msg);
         }
         return ApiResponse.error('Something went wrong. Please try again.');
@@ -254,12 +324,16 @@ class ApiService extends GetxService {
         return ApiResponse.error('Something went wrong. Please try again.');
       }
     } catch (e, stack) {
-      debugPrint('[ApiService] Response parse error: $e\nStatus: ${response.statusCode}\nBody: ${response.body}\n$stack');
+      debugPrint(
+        '[ApiService] Response parse error: $e\nStatus: ${response.statusCode}\nBody: ${response.body}\n$stack',
+      );
       if (response.statusCode >= 500) {
         return ApiResponse.error('Server error. Please try again later.');
       }
       if (response.statusCode == 404) {
-        return ApiResponse.error('Service unavailable. Please try again later.');
+        return ApiResponse.error(
+          'Service unavailable. Please try again later.',
+        );
       }
       return ApiResponse.error('Something went wrong. Please try again.');
     }

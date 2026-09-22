@@ -8,7 +8,6 @@ import 'package:discipline_mind/controller/chat_controller.dart';
 import 'package:discipline_mind/controller/trading_process_controller.dart';
 import 'package:discipline_mind/model/chat_message_model.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
-import 'package:discipline_mind/services/openai_stt_service.dart';
 import 'package:discipline_mind/ui/main_home/trade_process.dart';
 import 'package:discipline_mind/ui/main_home/dmt_score_screen.dart';
 import 'package:discipline_mind/ui/widgets/ai_waiting_status_bubble.dart';
@@ -36,6 +35,8 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
+  static const int _maxVoiceRecordingSeconds = 20;
+
   late final ChatController _chatController;
   final NativeAppBlockService _blockService = NativeAppBlockService();
   bool _overlayGranted = false;
@@ -62,15 +63,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final Set<String> _actionTakenMessageIds = <String>{};
   final Set<String> _actionTakenTradeIds = <String>{};
 
-  /// Voice recording & STT states
+  /// Voice recording states.
   AudioRecorder? _audioRecorder;
   StreamSubscription<Amplitude>? _amplitudeSubscription;
   bool _isRecording = false;
-  bool _isTranscribing = false;
+  bool _hasVoiceRecording = false;
+  bool _isSendingVoice = false;
+  bool _isStoppingRecording = false;
   double _currentAmplitude = 0.0;
   int _recordingSeconds = 0;
   Timer? _recordingTimer;
   String? _currentRecordingPath;
+  int _textSendAttempt = 0;
 
   /// DMT score popup staged animation shown once per message (while unread).
   final Set<String> _dmtScorePopupAnimatedIds = <String>{};
@@ -98,7 +102,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _startRecording() async {
-    if (_isRecording || _isTranscribing) return;
+    if (_isRecording || _hasVoiceRecording || _isSendingVoice) return;
     try {
       await _disposeRecorder();
       _audioRecorder = AudioRecorder();
@@ -118,16 +122,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
       final tempDir = await getTemporaryDirectory();
       final path =
-          '${tempDir.path}/chat_voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+          '${tempDir.path}/chat_voice_${DateTime.now().millisecondsSinceEpoch}.wav';
 
       await _audioRecorder!.start(
-        const RecordConfig(encoder: AudioEncoder.aacLc),
+        const RecordConfig(encoder: AudioEncoder.wav),
         path: path,
       );
 
       setState(() {
         _isRecording = true;
-        _isTranscribing = false;
+        _hasVoiceRecording = false;
+        _isSendingVoice = false;
+        _isStoppingRecording = false;
         _currentAmplitude = 0.0;
         _recordingSeconds = 0;
         _currentRecordingPath = path;
@@ -135,8 +141,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
       _recordingTimer?.cancel();
       _recordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted && _isRecording) {
-          setState(() => _recordingSeconds++);
+        if (!mounted || !_isRecording || _isStoppingRecording) return;
+        final nextSeconds = _recordingSeconds + 1;
+        setState(() => _recordingSeconds = nextSeconds);
+        if (nextSeconds >= _maxVoiceRecordingSeconds) {
+          _stopRecording();
         }
       });
 
@@ -166,8 +175,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _stopRecordingAndTranscribe() async {
-    if (!_isRecording) return;
+  Future<void> _stopRecording() async {
+    if (!_isRecording || _isStoppingRecording) return;
+    _isStoppingRecording = true;
     try {
       _recordingTimer?.cancel();
       await _amplitudeSubscription?.cancel();
@@ -186,51 +196,222 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _audioRecorder = null;
       }
 
-      setState(() {
-        _isRecording = false;
-        _isTranscribing = true;
-      });
-
       final targetPath = path ?? _currentRecordingPath;
-      if (targetPath == null || targetPath.isEmpty) {
-        AppToast.showToast('No audio recorded');
-        setState(() => _isTranscribing = false);
-        return;
-      }
-
-      final text = await OpenAiSttService.transcribeAudio(targetPath);
-
       if (!mounted) return;
       setState(() {
-        _isTranscribing = false;
+        _isRecording = false;
+        _hasVoiceRecording = targetPath != null && targetPath.isNotEmpty;
+        _isStoppingRecording = false;
+        _currentRecordingPath = targetPath;
       });
-
-      if (text != null && text.isNotEmpty) {
-        final currentText = _textController.text;
-        if (currentText.trim().isEmpty) {
-          _textController.text = text;
-        } else {
-          _textController.text = '$currentText $text';
-        }
-        _textController.selection = TextSelection.fromPosition(
-          TextPosition(offset: _textController.text.length),
-        );
-      } else {
-        AppToast.showToast('Could not convert voice to text');
-      }
-
-      try {
-        final f = File(targetPath);
-        if (await f.exists()) await f.delete();
-      } catch (_) {}
+      if (!_hasVoiceRecording) AppToast.showToast('No audio recorded');
     } catch (e) {
-      debugPrint('Error stopping/transcribing audio: $e');
+      debugPrint('Error stopping audio recording: $e');
       await _disposeRecorder();
       if (mounted) {
-        setState(() => _isTranscribing = false);
-        AppToast.showToast('Failed to process voice recording');
+        setState(() {
+          _isRecording = false;
+          _hasVoiceRecording = false;
+          _isStoppingRecording = false;
+        });
+        AppToast.showToast('Failed to stop recording');
       }
     }
+  }
+
+  Future<void> _deleteVoiceRecording() async {
+    if ((!_hasVoiceRecording && !_isRecording) || _isStoppingRecording) return;
+    final isDark = _isDark(context);
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: _dialogBg(isDark),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withOpacity(0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.delete_outline_rounded,
+                  color: Colors.redAccent,
+                  size: 30,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Are you sure you wish to delete this recording?',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: _headlineText(isDark),
+                  fontSize: 16,
+                  height: 1.3,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 22),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(dialogContext, false),
+                      child: const Text('No'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.redAccent,
+                      ),
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      child: const Text('Yes'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (shouldDelete != true) return;
+    if (_isRecording) {
+      await _cancelRecording();
+      return;
+    }
+    final targetPath = _currentRecordingPath;
+    if (targetPath != null && targetPath.isNotEmpty) {
+      try {
+        final file = File(targetPath);
+        if (await file.exists()) await file.delete();
+      } catch (e) {
+        debugPrint('Error deleting voice recording: $e');
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _hasVoiceRecording = false;
+      _currentRecordingPath = null;
+      _recordingSeconds = 0;
+      _currentAmplitude = 0;
+    });
+  }
+
+  Future<void> _sendVoiceRecording(ChatController controller) async {
+    if (_isSendingVoice || !_hasVoiceRecording) return;
+    final targetPath = _currentRecordingPath;
+    if (targetPath == null || targetPath.isEmpty) {
+      AppToast.showToast('No audio recorded');
+      return;
+    }
+
+    setState(() => _isSendingVoice = true);
+    final sendFuture = controller.sendVoiceMessage(
+      targetPath,
+      durationSeconds: _recordingSeconds,
+    );
+    _scheduleScrollToLatestAfterOutgoingMessage();
+    final sent = await sendFuture;
+    if (!sent) {
+      try {
+        final file = File(targetPath);
+        if (await file.exists()) await file.delete();
+      } catch (e) {
+        debugPrint('Error deleting failed voice recording: $e');
+      }
+      if (mounted) {
+        _textController.value = const TextEditingValue();
+        _textController.clearComposing();
+        setState(() {
+          _isSendingVoice = false;
+          _hasVoiceRecording = false;
+          _currentRecordingPath = null;
+          _recordingSeconds = 0;
+          _currentAmplitude = 0;
+        });
+      }
+      return;
+    }
+    try {
+      final file = File(targetPath);
+      if (await file.exists()) await file.delete();
+    } catch (e) {
+      debugPrint('Error deleting sent voice recording: $e');
+    }
+    if (!mounted) return;
+    setState(() {
+      _isSendingVoice = false;
+      _hasVoiceRecording = false;
+      _currentRecordingPath = null;
+      _recordingSeconds = 0;
+      _currentAmplitude = 0;
+    });
+    _scheduleScrollToBottom();
+  }
+
+  void _scheduleScrollToLatestAfterOutgoingMessage() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scheduleScrollToBottom();
+    });
+  }
+
+  void _sendTextMessage(ChatController controller, String text) {
+    final query = text.trim();
+    if (query.isEmpty) return;
+    final attempt = ++_textSendAttempt;
+    _clearTextComposerIfUnchanged(query, attempt);
+    controller
+        .sendTextMessage(query)
+        .then<void>(
+          (sent) => _clearTextComposerAfterResult(query, attempt, sent),
+          onError: (_, __) =>
+              _clearTextComposerAfterResult(query, attempt, false),
+        );
+    _scheduleScrollToLatestAfterOutgoingMessage();
+    _scheduleScrollToBottom();
+  }
+
+  void _clearTextComposerAfterResult(String sentText, int attempt, bool sent) {
+    if (!sent) {
+      _forceClearTextComposer(attempt);
+      return;
+    }
+    _clearTextComposerIfUnchanged(sentText, attempt);
+  }
+
+  void _forceClearTextComposer(int attempt) {
+    if (!mounted || attempt != _textSendAttempt) return;
+    _textController.value = const TextEditingValue();
+    _textController.clearComposing();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || attempt != _textSendAttempt) return;
+      _textController.value = const TextEditingValue();
+      _textController.clearComposing();
+    });
+  }
+
+  void _clearTextComposerIfUnchanged(String sentText, int attempt) {
+    if (!mounted || attempt != _textSendAttempt) return;
+    if (_textController.text.trim() != sentText.trim()) return;
+
+    void clear() {
+      if (!mounted || attempt != _textSendAttempt) return;
+      if (_textController.text.trim() != sentText.trim()) return;
+      _textController.value = const TextEditingValue();
+      _textController.clearComposing();
+    }
+
+    clear();
+    WidgetsBinding.instance.addPostFrameCallback((_) => clear());
   }
 
   Future<void> _cancelRecording() async {
@@ -253,8 +434,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
       setState(() {
         _isRecording = false;
-        _isTranscribing = false;
+        _hasVoiceRecording = false;
+        _isSendingVoice = false;
+        _isStoppingRecording = false;
         _currentAmplitude = 0.0;
+        _recordingSeconds = 0;
+        _currentRecordingPath = null;
       });
 
       final targetPath = path ?? _currentRecordingPath;
@@ -299,7 +484,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   String? _mindControlPromptStorageKey() {
-    final userId = Common.userData.value?.payload?.id?.toString() ??
+    final userId =
+        Common.userData.value?.payload?.id?.toString() ??
         GetStorage().read('user_id')?.toString();
     if (userId == null || userId.isEmpty) return null;
     return '$_mindControlPromptDeclinedKey$userId';
@@ -368,6 +554,35 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// Generic border color for fields/cards in dialogs.
   Color _fieldBorder(bool isDark) =>
       isDark ? Colors.white12 : const Color(0xFFE2E0E9);
+
+  String _formatVoiceTime(int seconds) {
+    final safeSeconds = seconds.clamp(0, 99).toString().padLeft(2, '0');
+    return '00:$safeSeconds';
+  }
+
+  Widget _voiceCircleButton({
+    required Widget child,
+    required VoidCallback onTap,
+    required Color backgroundColor,
+    Color? borderColor,
+    double size = 34,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          shape: BoxShape.circle,
+          border: borderColor == null
+              ? null
+              : Border.all(color: borderColor, width: 1.5),
+        ),
+        child: Center(child: child),
+      ),
+    );
+  }
 
   /// Divider color used inside the (always-white) trade card stays the same
   /// in both themes since the card itself stays white per design.
@@ -1376,8 +1591,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   }
                 }
                 final feedItems = _buildChatFeedItems(controller.messages);
-                final firstNewMessageIndex =
-                    _latestUnreadBurstStartIndex(controller.messages);
+                final firstNewMessageIndex = _latestUnreadBurstStartIndex(
+                  controller.messages,
+                );
                 return Stack(
                   children: [
                     controller.messages.isEmpty
@@ -1920,6 +2136,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     switch (msg.type) {
       case ChatMessageType.simpleText:
         return _buildSimpleText(context, msg as SimpleTextMessage);
+      case ChatMessageType.voiceMessage:
+        return _buildVoiceMessage(context, msg as VoiceMessage);
       case ChatMessageType.aiWaiting:
         return _buildAiWaiting(context, msg as AiWaitingMessage);
       case ChatMessageType.agentWithButton:
@@ -3383,23 +3601,103 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (msg.isFromUser) {
       return Align(
         alignment: Alignment.centerRight,
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(
-            color: AppColors.primary,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Text(
-            msg.text,
-            style: const TextStyle(color: Colors.white, fontSize: 15),
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Container(
+              margin: const EdgeInsets.only(bottom: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Text(
+                msg.text,
+                style: const TextStyle(color: Colors.white, fontSize: 15),
+              ),
+            ),
+            if (msg.sendFailed) _buildSendFailureLabel(isDark),
+            const SizedBox(height: 10),
+          ],
         ),
       );
     }
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: _buildRichMessageContent(msg.text, isDark),
+      child: msg.animateResponse
+          ? _AnimatedChatResponse(
+              text: msg.text,
+              builder: (visibleText) =>
+                  _buildRichMessageContent(visibleText, isDark),
+            )
+          : _buildRichMessageContent(msg.text, isDark),
+    );
+  }
+
+  Widget _buildVoiceMessage(BuildContext context, VoiceMessage msg) {
+    final isDark = _isDark(context);
+    final minutes = msg.durationSeconds ~/ 60;
+    final seconds = (msg.durationSeconds % 60).toString().padLeft(2, '0');
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Container(
+            margin: const EdgeInsets.only(bottom: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.mic_rounded, color: Colors.white, size: 20),
+                const SizedBox(width: 9),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Voice message',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      '$minutes:$seconds',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          if (msg.sendFailed) _buildSendFailureLabel(isDark),
+          const SizedBox(height: 10),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSendFailureLabel(bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: Text(
+        'Sending failed',
+        style: TextStyle(
+          color: isDark ? const Color(0xFFFF8A80) : const Color(0xFFD32F2F),
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 
@@ -5266,8 +5564,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             isCompleted: !_showButtons(msg),
             enabled:
                 _showButtons(msg) &&
-                (!msg.isGttHit ||
-                    _hasOpenedTradingApp(msg)),
+                (!msg.isGttHit || _hasOpenedTradingApp(msg)),
             onTap: () {
               final setupType =
                   ApiConfig.activeSetupType ??
@@ -5367,46 +5664,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   ) {
     final isDark = _isDark(context);
 
-    if (_isTranscribing) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        color: _bottomBarBg(isDark),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF3F0FF),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: isDark ? const Color(0xFF2C3240) : const Color(0xFFE2DCF7),
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: AppColors.primary,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                'Converting voice to text...',
-                style: TextStyle(
-                  color: isDark ? Colors.white70 : const Color(0xFF10122D),
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
+    if (_isRecording) {
+      return _buildListeningVoiceInput(isDark);
     }
 
-    if (_isRecording) {
+    if (_hasVoiceRecording && !_isSendingVoice) {
+      return _buildReadyVoiceInput(isDark, controller);
+    }
+
+    if (_isRecording && !_isSendingVoice) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         color: _bottomBarBg(isDark),
@@ -5443,8 +5709,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 ),
               ),
               const SizedBox(width: 8),
+              Text(
+                _formatVoiceTime(_maxVoiceRecordingSeconds - _recordingSeconds),
+                style: TextStyle(
+                  color: isDark ? Colors.white70 : const Color(0xFF555463),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+              const SizedBox(width: 8),
               GestureDetector(
-                onTap: _stopRecordingAndTranscribe,
+                onTap: _stopRecording,
                 child: Container(
                   width: 34,
                   height: 34,
@@ -5465,7 +5741,74 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               ),
               const SizedBox(width: 8),
               GestureDetector(
-                onTap: _stopRecordingAndTranscribe,
+                onTap: _stopRecording,
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.arrow_upward_rounded,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_hasVoiceRecording && !_isSendingVoice) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        color: _bottomBarBg(isDark),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF3F0FF),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isDark ? const Color(0xFF2C3240) : const Color(0xFFE2DCF7),
+            ),
+          ),
+          child: Row(
+            children: [
+              GestureDetector(
+                onTap: _deleteVoiceRecording,
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  child: Icon(
+                    Icons.delete_outline_rounded,
+                    color: isDark ? Colors.white70 : Colors.grey.shade700,
+                    size: 22,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: AudioWaveVisualizer(
+                  amplitude: _currentAmplitude,
+                  barCount: 26,
+                  height: 32,
+                  barWidth: 3.2,
+                  activeColor: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                _formatVoiceTime(_recordingSeconds),
+                style: TextStyle(
+                  color: _secondaryText(isDark),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () => _sendVoiceRecording(controller),
                 child: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
@@ -5512,7 +5855,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   fontWeight: FontWeight.w500,
                 ),
                 decoration: InputDecoration(
-                  hintText: 'Send a message',
+                  hintText: "What's going in your mind?",
                   hintStyle: TextStyle(
                     color: isDark ? Colors.white38 : const Color(0xFF70717F),
                     fontSize: 14,
@@ -5522,10 +5865,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   contentPadding: const EdgeInsets.symmetric(vertical: 6),
                 ),
                 onSubmitted: (text) {
-                  if (text.trim().isEmpty) return;
-                  controller.sendTextMessage(text);
-                  textController.clear();
-                  _scheduleScrollToBottom();
+                  _sendTextMessage(controller, text);
                 },
               ),
             ),
@@ -5549,11 +5889,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               padding: const EdgeInsets.only(bottom: 2),
               child: GestureDetector(
                 onTap: () {
-                  final text = textController.text;
-                  if (text.trim().isEmpty) return;
-                  controller.sendTextMessage(text);
-                  textController.clear();
-                  _scheduleScrollToBottom();
+                  _sendTextMessage(controller, textController.text);
                 },
                 child: Container(
                   padding: const EdgeInsets.all(7),
@@ -5572,6 +5908,214 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildVoiceStateShell({required bool isDark, required Widget child}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      color: _bottomBarBg(isDark),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF3F0FF),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isDark ? const Color(0xFF2C3240) : const Color(0xFFE2DCF7),
+          ),
+        ),
+        child: child,
+      ),
+    );
+  }
+
+  Widget _buildListeningVoiceInput(bool isDark) {
+    final remainingSeconds = (_maxVoiceRecordingSeconds - _recordingSeconds)
+        .clamp(0, 20);
+    return _buildVoiceStateShell(
+      isDark: isDark,
+      child: Row(
+        children: [
+          Expanded(
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 58,
+                  height: 28,
+                  child: AudioWaveVisualizer(
+                    amplitude: _currentAmplitude == 0
+                        ? 0.45
+                        : _currentAmplitude,
+                    barCount: 7,
+                    height: 28,
+                    barWidth: 3.2,
+                    activeColor: AppColors.primary,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  'Listening...',
+                  style: TextStyle(
+                    color: _bubbleText(isDark),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 7),
+                Text(
+                  remainingSeconds.toString(),
+                  style: const TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          _voiceCircleButton(
+            onTap: _deleteVoiceRecording,
+            backgroundColor: isDark
+                ? const Color(0xFF30333A)
+                : const Color(0xFFE9E9ED),
+            child: Icon(
+              Icons.delete_outline_rounded,
+              color: isDark ? Colors.white70 : const Color(0xFF66666F),
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 10),
+          _voiceCircleButton(
+            onTap: _stopRecording,
+            backgroundColor: AppColors.primary,
+            size: 38,
+            child: const Icon(
+              Icons.stop_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReadyVoiceInput(bool isDark, ChatController controller) {
+    return _buildVoiceStateShell(
+      isDark: isDark,
+      child: Row(
+        children: [
+          Expanded(
+            child: Row(
+              children: [
+                _voiceCircleButton(
+                  onTap: () {},
+                  backgroundColor: Colors.transparent,
+                  borderColor: AppColors.primary,
+                  size: 34,
+                  child: const Icon(
+                    Icons.play_arrow_rounded,
+                    color: AppColors.primary,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  'Ready to send',
+                  style: TextStyle(
+                    color: _bubbleText(isDark),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          _voiceCircleButton(
+            onTap: _deleteVoiceRecording,
+            backgroundColor: isDark
+                ? const Color(0xFF30333A)
+                : const Color(0xFFE9E9ED),
+            child: Icon(
+              Icons.delete_outline_rounded,
+              color: isDark ? Colors.white70 : const Color(0xFF66666F),
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 10),
+          _voiceCircleButton(
+            onTap: () => _sendVoiceRecording(controller),
+            backgroundColor: AppColors.primary,
+            size: 38,
+            child: const Icon(
+              Icons.arrow_upward_rounded,
+              color: Colors.white,
+              size: 19,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AnimatedChatResponse extends StatefulWidget {
+  const _AnimatedChatResponse({required this.text, required this.builder});
+
+  final String text;
+  final Widget Function(String visibleText) builder;
+
+  @override
+  State<_AnimatedChatResponse> createState() => _AnimatedChatResponseState();
+}
+
+class _AnimatedChatResponseState extends State<_AnimatedChatResponse>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  List<int> _wordEndOffsets = const <int>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this);
+    _startAnimation();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AnimatedChatResponse oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text) _startAnimation();
+  }
+
+  void _startAnimation() {
+    _wordEndOffsets = RegExp(
+      r'\S+\s*',
+    ).allMatches(widget.text).map((match) => match.end).toList(growable: false);
+    final durationMs = (_wordEndOffsets.length * 85).clamp(700, 5000).toInt();
+    _controller.duration = Duration(milliseconds: durationMs);
+    _controller.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final visibleWords = (_controller.value * _wordEndOffsets.length)
+            .ceil()
+            .clamp(0, _wordEndOffsets.length);
+        final visibleEnd = visibleWords == 0
+            ? 0
+            : _wordEndOffsets[visibleWords - 1];
+        return widget.builder(widget.text.substring(0, visibleEnd));
+      },
     );
   }
 }
