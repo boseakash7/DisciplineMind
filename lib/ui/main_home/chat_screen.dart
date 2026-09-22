@@ -6092,7 +6092,7 @@ class _AnimatedChatResponseState extends State<_AnimatedChatResponse>
     _wordEndOffsets = RegExp(
       r'\S+\s*',
     ).allMatches(widget.text).map((match) => match.end).toList(growable: false);
-    final durationMs = (_wordEndOffsets.length * 85).clamp(700, 5000).toInt();
+    final durationMs = (_wordEndOffsets.length * 105).clamp(800, 6000).toInt();
     _controller.duration = Duration(milliseconds: durationMs);
     _controller.forward(from: 0);
   }
@@ -6114,7 +6114,29 @@ class _AnimatedChatResponseState extends State<_AnimatedChatResponse>
         final visibleEnd = visibleWords == 0
             ? 0
             : _wordEndOffsets[visibleWords - 1];
-        return widget.builder(widget.text.substring(0, visibleEnd));
+
+        // Keep the current prefix in a keyed switcher so each newly revealed
+        // word fades in instead of appearing as an instant layout change.
+        // The key only changes when another word is revealed, not on every
+        // animation tick.
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 190),
+          reverseDuration: const Duration(milliseconds: 120),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeIn,
+          layoutBuilder: (currentChild, previousChildren) => Stack(
+            alignment: Alignment.topLeft,
+            fit: StackFit.passthrough,
+            children: <Widget>[
+              ...previousChildren,
+              if (currentChild != null) currentChild,
+            ],
+          ),
+          child: KeyedSubtree(
+            key: ValueKey<int>(visibleEnd),
+            child: widget.builder(widget.text.substring(0, visibleEnd)),
+          ),
+        );
       },
     );
   }
