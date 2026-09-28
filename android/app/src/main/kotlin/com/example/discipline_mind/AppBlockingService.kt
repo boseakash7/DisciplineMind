@@ -223,6 +223,13 @@ class AppBlockingService : Service() {
                             )
                         )
                     }
+                    "hasConsentAccepted" -> {
+                        result.success(AppManager.hasConsentAccepted(applicationContext))
+                    }
+                    "saveConsentAccepted" -> {
+                        val accepted = call.argument<Boolean>("accepted") ?: true
+                        result.success(AppManager.saveConsentAccepted(applicationContext, accepted))
+                    }
                     else -> result.notImplemented()
                 }
             }

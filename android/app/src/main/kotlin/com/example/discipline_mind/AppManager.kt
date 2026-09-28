@@ -120,10 +120,17 @@ object AppManager {
         return appPrefs.getBoolean(CONSENT_ACCEPTED_KEY, false) || appPrefs.getBoolean(CONSENT_ACCEPTED_ALT_KEY, false)
     }
 
-    fun saveConsentAccepted(context: Context, accepted: Boolean) {
+    fun saveConsentAccepted(context: Context, accepted: Boolean): Boolean {
         val flutterPrefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-        flutterPrefs.edit().putBoolean(CONSENT_ACCEPTED_KEY, accepted).apply()
+        val flutterSaved = flutterPrefs.edit()
+            .putBoolean(CONSENT_ACCEPTED_KEY, accepted)
+            .putBoolean(CONSENT_ACCEPTED_ALT_KEY, accepted)
+            .commit()
         val appPrefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        appPrefs.edit().putBoolean(CONSENT_ACCEPTED_KEY, accepted).apply()
+        val appSaved = appPrefs.edit()
+            .putBoolean(CONSENT_ACCEPTED_KEY, accepted)
+            .putBoolean(CONSENT_ACCEPTED_ALT_KEY, accepted)
+            .commit()
+        return flutterSaved && appSaved
     }
 }

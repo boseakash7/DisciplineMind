@@ -57,11 +57,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _suppressAutoBottomScroll = false;
   bool _skipNextAutoBottomScroll = false;
   bool _didInitialBottomSnap = false;
+  bool _typingScrollPending = false;
+  DateTime? _lastTypingScrollAt;
   String _previousFirstMessageId = '';
   String _previousLastMessageId = '';
   final Set<String> _openedTradingAppMessageIds = <String>{};
   final Set<String> _actionTakenMessageIds = <String>{};
   final Set<String> _actionTakenTradeIds = <String>{};
+  final Set<String> _animatedResponseKeys = <String>{};
+  final Set<String> _completedResponseKeys = <String>{};
 
   /// Voice recording states.
   AudioRecorder? _audioRecorder;
@@ -709,11 +713,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   String _lastMessageId(List<ChatMessage> list) {
-    for (var i = list.length - 1; i >= 0; i--) {
-      final id = list[i].messageId.trim();
-      if (id.isNotEmpty) return id;
-    }
-    return '';
+    if (list.isEmpty) return '';
+
+    // Local AI replies can exist before the server assigns a message id.
+    // Keep a session-stable fallback so replacing the waiting row with that
+    // reply still triggers the new-message anchor immediately.
+    final last = list.last;
+    final id = last.messageId.trim();
+    if (id.isNotEmpty) return id;
+    final content = last is SimpleTextMessage
+        ? last.text
+        : (last is AiWaitingMessage ? '${last.heading}|${last.text}' : '');
+    return 'local:${last.type.name}:${last.timestamp}:${content.hashCode}';
   }
 
   Future<void> _handleScrollForOlderMessages() async {
@@ -780,6 +791,24 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     } else {
       _scrollController.jumpTo(target);
     }
+  }
+
+  void _scheduleScrollDuringTyping() {
+    if (!mounted || _typingScrollPending) return;
+
+    final now = DateTime.now();
+    final elapsed = _lastTypingScrollAt == null
+        ? const Duration(milliseconds: 100)
+        : now.difference(_lastTypingScrollAt!);
+    if (elapsed < const Duration(milliseconds: 100)) return;
+
+    _typingScrollPending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _typingScrollPending = false;
+      if (!mounted || !_scrollController.hasClients) return;
+      _lastTypingScrollAt = DateTime.now();
+      _scrollToBottom();
+    });
   }
 
   /// Scroll until [maxScrollExtent] stabilizes so tall messages are fully visible.
@@ -1174,33 +1203,165 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return '${day.day} $month ${day.year}';
   }
 
+  String _relativeMessageTime(String timestamp) {
+    final sentAt = ChatController.parseMessageTime(timestamp);
+    if (sentAt == null) return '';
+
+    var elapsed = DateTime.now().toUtc().difference(sentAt);
+    if (elapsed.isNegative) elapsed = Duration.zero;
+
+    final seconds = elapsed.inSeconds;
+    if (seconds < 10) return 'just now';
+    if (seconds < 60) return '${seconds}sec';
+
+    final minutes = elapsed.inMinutes;
+    if (minutes < 2) return '1m';
+    if (minutes < 60) return '${minutes}min';
+
+    final hours = elapsed.inHours;
+    if (hours < 24) return '${hours}h';
+
+    final days = elapsed.inDays;
+    if (days < 7) return '${days}d';
+
+    final local = sentAt.toLocal();
+    const months = <String>[
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final date = '${local.day} ${months[local.month - 1]}';
+    return local.year == DateTime.now().year ? date : '$date ${local.year}';
+  }
+
+  String _responseAnimationKey(SimpleTextMessage msg) {
+    final id = msg.messageId.trim();
+    if (id.isNotEmpty) return 'id:$id';
+    final timestamp = msg.timestamp.trim();
+    if (timestamp.isNotEmpty) return 'time:$timestamp';
+    return 'text:${msg.text.hashCode}';
+  }
+
+  bool _isResponseAnimationComplete(SimpleTextMessage msg) {
+    return !msg.animateResponse ||
+        _completedResponseKeys.contains(_responseAnimationKey(msg));
+  }
+
+  Widget _buildMessageWithTimestamp(
+    BuildContext context,
+    ChatMessage msg,
+    Widget message,
+  ) {
+    // The thinking indicator is temporary UI, not a sent chat message.
+    if (msg.type == ChatMessageType.aiWaiting) return message;
+    // An expired trade prompt intentionally renders no content. Do not leave
+    // its shared timestamp behind as a duplicate under the trade card.
+    if (msg is TradeExecutionPromptMessage &&
+        _chatController.isTradeExpired(msg.tradeData)) {
+      return const SizedBox.shrink();
+    }
+
+    final isOutgoing = msg.isFromUser;
+    final label = _relativeMessageTime(msg.timestamp);
+    if (label.isEmpty) return message;
+    if (msg is SimpleTextMessage && msg.isFromUser) return message;
+    if (msg is SimpleTextMessage &&
+        msg.animateResponse &&
+        !_isResponseAnimationComplete(msg)) {
+      return message;
+    }
+
+    final isDark = _isDark(context);
+    if (isOutgoing) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            message,
+            Transform.translate(
+              offset: const Offset(0, -8),
+              child: Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: isDark ? Colors.white38 : const Color(0xFF8A8F98),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 0.1,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          message,
+          Padding(
+            padding: EdgeInsets.zero,
+            child: Text(
+              '- $label',
+              style: TextStyle(
+                color: isDark ? Colors.white38 : const Color(0xFF8A8F98),
+                fontSize: 10.5,
+                fontWeight: FontWeight.w500,
+                letterSpacing: 0.1,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   static const _unreadBurstWindow = Duration(seconds: 1);
 
   int _latestUnreadBurstStartIndex(List<ChatMessage> messages) {
     var end = -1;
     for (var i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].isUnread) {
+      if (messages[i].isUnread && !messages[i].isFromUser) {
         end = i;
         break;
       }
     }
     if (end < 0) return -1;
 
-    var start = end;
-    var hasNonAiMessage = messages[end].type != ChatMessageType.aiWaiting;
-    while (start > 0) {
-      final prev = messages[start - 1];
+    var burstStart = end;
+    while (burstStart > 0) {
+      final prev = messages[burstStart - 1];
       if (!prev.isUnread) break;
-      final tCurr = ChatController.parseMessageTime(messages[start].timestamp);
+      final tCurr = ChatController.parseMessageTime(
+        messages[burstStart].timestamp,
+      );
       final tPrev = ChatController.parseMessageTime(prev.timestamp);
       if (tCurr == null || tPrev == null) break;
       if (tCurr.difference(tPrev).abs() > _unreadBurstWindow) break;
-      start--;
-      if (messages[start].type != ChatMessageType.aiWaiting) {
-        hasNonAiMessage = true;
-      }
+      burstStart--;
     }
-    return hasNonAiMessage ? start : -1;
+
+    // Keep the separator above an incoming/server message, never above an
+    // outgoing user message even when both records share one unread burst.
+    for (var i = burstStart; i <= end; i++) {
+      if (!messages[i].isFromUser && messages[i].isUnread) return i;
+    }
+    return -1;
   }
 
   bool _isCreateProcessButtonMessage(ChatMessage msg) {
@@ -1267,10 +1428,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final items = <_ChatFeedItem>[];
     DateTime? lastDay;
     final newMessagesAt = _latestUnreadBurstStartIndex(messages);
-    final lastAiIndex = messages.lastIndexWhere(
-      (m) => m.type == ChatMessageType.aiWaiting,
-    );
-
     final btnIdx = _findCreateProcessIndex(messages);
     bool newMessagesShown = false;
     bool firstMessageRendered = false;
@@ -1279,9 +1436,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
     for (var i = 0; i < messages.length; i++) {
       final msg = messages[i];
-      if (msg.type == ChatMessageType.aiWaiting && i != lastAiIndex) {
-        continue; // Only show the latest/last AI message
-      }
       final day = _messageDay(msg);
 
       if (btnIdx >= 0 && i <= btnIdx) {
@@ -1511,13 +1665,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   );
                 }
 
-                final currentFirstId = _firstMessageId(controller.messages);
-                final currentLastId = _lastMessageId(controller.messages);
+                final displayMessages = controller.displayMessages;
+                final currentFirstId = _firstMessageId(displayMessages);
+                final currentLastId = _lastMessageId(displayMessages);
                 final wasNearBottom = _isNearBottom();
-                if (_lastMessageCount != controller.messages.length) {
-                  _lastMessageCount = controller.messages.length;
-                  if (!_didInitialBottomSnap &&
-                      controller.messages.isNotEmpty) {
+                final messageCountChanged =
+                    _lastMessageCount != displayMessages.length;
+                final lastMessageChanged =
+                    _previousLastMessageId.isNotEmpty &&
+                    currentLastId.isNotEmpty &&
+                    _previousLastMessageId != currentLastId;
+                if (messageCountChanged || lastMessageChanged) {
+                  _lastMessageCount = displayMessages.length;
+                  if (!_didInitialBottomSnap && displayMessages.isNotEmpty) {
                     _didInitialBottomSnap = true;
                     _scheduleScrollToBottom();
                   } else if (_skipNextAutoBottomScroll) {
@@ -1590,13 +1750,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     });
                   }
                 }
-                final feedItems = _buildChatFeedItems(controller.messages);
+                final feedItems = _buildChatFeedItems(displayMessages);
                 final firstNewMessageIndex = _latestUnreadBurstStartIndex(
-                  controller.messages,
+                  displayMessages,
                 );
                 return Stack(
                   children: [
-                    controller.messages.isEmpty
+                    displayMessages.isEmpty
                         ? ListView(
                             controller: _scrollController,
                             children: [
@@ -1654,6 +1814,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                                   msg,
                                   controller,
                                 );
+                                final bubbleWithTimestamp =
+                                    _buildMessageWithTimestamp(
+                                      context,
+                                      msg,
+                                      bubble,
+                                    );
                                 final rowKey = msg.messageId.trim().isNotEmpty
                                     ? ValueKey(
                                         'chat_row_${msg.messageId}_${msg.type.name}',
@@ -1662,17 +1828,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                                         'chat_row_fallback_${msg.type.name}_${msgItem.index}',
                                       );
                                 final id = msg.messageId.trim();
-                                if (!msg.isUnread || id.isEmpty) {
+                                if (!msg.isUnread ||
+                                    msg.isFromUser ||
+                                    id.isEmpty) {
                                   childWidget = KeyedSubtree(
                                     key: rowKey,
-                                    child: bubble,
+                                    child: bubbleWithTimestamp,
                                   );
                                 } else if (_revealedUnreadMessageIds.contains(
                                   id,
                                 )) {
                                   childWidget = KeyedSubtree(
                                     key: rowKey,
-                                    child: bubble,
+                                    child: bubbleWithTimestamp,
                                   );
                                 } else {
                                   childWidget = KeyedSubtree(
@@ -3599,36 +3767,94 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Widget _buildSimpleText(BuildContext context, SimpleTextMessage msg) {
     final isDark = _isDark(context);
     if (msg.isFromUser) {
+      final timeLabel = _relativeMessageTime(msg.timestamp);
       return Align(
         alignment: Alignment.centerRight,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Container(
-              margin: const EdgeInsets.only(bottom: 2),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: AppColors.primary,
-                borderRadius: BorderRadius.circular(16),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.64,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              IntrinsicWidth(
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 2),
+                  padding: const EdgeInsets.fromLTRB(12, 8, 10, 6),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF2B2440)
+                        : const Color(0xFFF8F5FF),
+                    border: Border.all(
+                      color: isDark
+                          ? const Color(0xFF8F7BDD)
+                          : const Color(0xFFB9A5FF),
+                      width: 1.4,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        msg.text,
+                        style: TextStyle(
+                          color: isDark
+                              ? Colors.white
+                              : const Color(0xFF252333),
+                          fontSize: 15,
+                        ),
+                      ),
+                      if (timeLabel.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            timeLabel,
+                            style: TextStyle(
+                              color: isDark
+                                  ? Colors.white60
+                                  : const Color(0xFF777184),
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
-              child: Text(
-                msg.text,
-                style: const TextStyle(color: Colors.white, fontSize: 15),
-              ),
-            ),
-            if (msg.sendFailed) _buildSendFailureLabel(isDark),
-            const SizedBox(height: 10),
-          ],
+              if (msg.sendFailed) _buildSendFailureLabel(isDark),
+              const SizedBox(height: 10),
+            ],
+          ),
         ),
       );
     }
+    final animationKey = msg.animateResponse ? _responseAnimationKey(msg) : '';
+    final shouldAnimate =
+        msg.animateResponse && _animatedResponseKeys.add(animationKey);
+    if (msg.animateResponse && !shouldAnimate) {
+      _completedResponseKeys.add(animationKey);
+    }
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: msg.animateResponse
+      padding: const EdgeInsets.only(bottom: 0),
+      child: shouldAnimate
           ? _AnimatedChatResponse(
               text: msg.text,
               builder: (visibleText) =>
                   _buildRichMessageContent(visibleText, isDark),
+              onComplete: () {
+                if (!mounted) return;
+                if (_completedResponseKeys.add(animationKey)) {
+                  setState(() {});
+                }
+                _scheduleScrollToBottom();
+              },
+              onProgress: _scheduleScrollDuringTyping,
             )
           : _buildRichMessageContent(msg.text, isDark),
     );
@@ -3639,42 +3865,66 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final minutes = msg.durationSeconds ~/ 60;
     final seconds = (msg.durationSeconds % 60).toString().padLeft(2, '0');
     return Align(
-      alignment: Alignment.centerRight,
+      alignment: msg.isFromUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
+        crossAxisAlignment: msg.isFromUser
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         children: [
           Container(
             margin: const EdgeInsets.only(bottom: 2),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: AppColors.primary,
+              color: msg.isFromUser
+                  ? AppColors.primary
+                  : (isDark
+                        ? const Color(0xFF2A2D35)
+                        : const Color(0xFFF1F2F5)),
+              border: msg.isFromUser
+                  ? null
+                  : Border.all(
+                      color: isDark ? Colors.white12 : const Color(0xFFE1E3E8),
+                    ),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.mic_rounded, color: Colors.white, size: 20),
+                Icon(
+                  Icons.mic_rounded,
+                  color: msg.isFromUser
+                      ? Colors.white
+                      : (isDark ? Colors.white70 : const Color(0xFF626875)),
+                  size: 20,
+                ),
                 const SizedBox(width: 9),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text(
-                      'Voice message',
+                    Text(
+                      msg.text.trim().isEmpty ? 'Voice message' : msg.text,
                       style: TextStyle(
-                        color: Colors.white,
+                        color: msg.isFromUser
+                            ? Colors.white
+                            : (isDark ? Colors.white : const Color(0xFF252833)),
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    Text(
-                      '$minutes:$seconds',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
+                    if (msg.durationSeconds > 0)
+                      Text(
+                        '$minutes:$seconds',
+                        style: TextStyle(
+                          color: msg.isFromUser
+                              ? Colors.white70
+                              : (isDark
+                                    ? Colors.white60
+                                    : const Color(0xFF777D88)),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ],
@@ -6061,10 +6311,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 }
 
 class _AnimatedChatResponse extends StatefulWidget {
-  const _AnimatedChatResponse({required this.text, required this.builder});
+  const _AnimatedChatResponse({
+    required this.text,
+    required this.builder,
+    this.onComplete,
+    this.onProgress,
+  });
 
   final String text;
   final Widget Function(String visibleText) builder;
+  final VoidCallback? onComplete;
+  final VoidCallback? onProgress;
 
   @override
   State<_AnimatedChatResponse> createState() => _AnimatedChatResponseState();
@@ -6074,11 +6331,17 @@ class _AnimatedChatResponseState extends State<_AnimatedChatResponse>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   List<int> _wordEndOffsets = const <int>[];
+  int _lastReportedVisibleEnd = -1;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(vsync: this);
+    _controller.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        widget.onComplete?.call();
+      }
+    });
     _startAnimation();
   }
 
@@ -6089,6 +6352,7 @@ class _AnimatedChatResponseState extends State<_AnimatedChatResponse>
   }
 
   void _startAnimation() {
+    _lastReportedVisibleEnd = -1;
     _wordEndOffsets = RegExp(
       r'\S+\s*',
     ).allMatches(widget.text).map((match) => match.end).toList(growable: false);
@@ -6115,27 +6379,21 @@ class _AnimatedChatResponseState extends State<_AnimatedChatResponse>
             ? 0
             : _wordEndOffsets[visibleWords - 1];
 
-        // Keep the current prefix in a keyed switcher so each newly revealed
-        // word fades in instead of appearing as an instant layout change.
-        // The key only changes when another word is revealed, not on every
-        // animation tick.
-        return AnimatedSwitcher(
-          duration: const Duration(milliseconds: 190),
-          reverseDuration: const Duration(milliseconds: 120),
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeIn,
-          layoutBuilder: (currentChild, previousChildren) => Stack(
-            alignment: Alignment.topLeft,
-            fit: StackFit.passthrough,
-            children: <Widget>[
-              ...previousChildren,
-              if (currentChild != null) currentChild,
-            ],
-          ),
-          child: KeyedSubtree(
-            key: ValueKey<int>(visibleEnd),
-            child: widget.builder(widget.text.substring(0, visibleEnd)),
-          ),
+        if (visibleEnd != _lastReportedVisibleEnd) {
+          _lastReportedVisibleEnd = visibleEnd;
+          widget.onProgress?.call();
+        }
+
+        // Use a subtle fade on one stable child. This avoids the old/new
+        // layout overlap that caused the chat to flicker during auto-scroll.
+        return TweenAnimationBuilder<double>(
+          key: ValueKey<int>(visibleEnd),
+          tween: Tween<double>(begin: 0.94, end: 1),
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOut,
+          child: widget.builder(widget.text.substring(0, visibleEnd)),
+          builder: (context, opacity, child) =>
+              Opacity(opacity: opacity, child: child),
         );
       },
     );

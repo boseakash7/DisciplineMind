@@ -5,16 +5,20 @@ import 'package:flutter/services.dart';
 /// Native app blocking - no package dependency.
 /// Uses platform channels to communicate with Kotlin code in the app.
 class NativeAppBlockService {
-  static const _channel = MethodChannel('com.discipline_mind/app_block_manager');
-  static const _overlayChannel = MethodChannel('com.discipline_mind/app_blocking_overlay');
+  static const _channel = MethodChannel(
+    'com.discipline_mind/app_block_manager',
+  );
+  static const _overlayChannel = MethodChannel(
+    'com.discipline_mind/app_blocking_overlay',
+  );
 
   /// Block an app by package name.
   Future<bool> blockApp(String packageName) async {
     if (!Platform.isAndroid) return false;
     try {
       return (await _channel.invokeMethod<bool>('blockApp', {
-        'packageName': packageName,
-      })) ??
+            'packageName': packageName,
+          })) ??
           false;
     } catch (e) {
       print('[NativeAppBlock] blockApp failed: $e');
@@ -27,8 +31,8 @@ class NativeAppBlockService {
     if (!Platform.isAndroid) return false;
     try {
       return (await _channel.invokeMethod<bool>('unblockApp', {
-        'packageName': packageName,
-      })) ??
+            'packageName': packageName,
+          })) ??
           false;
     } catch (e) {
       print('[NativeAppBlock] unblockApp failed: $e');
@@ -40,7 +44,9 @@ class NativeAppBlockService {
   Future<List<String>> getBlockedApps() async {
     if (!Platform.isAndroid) return [];
     try {
-      final result = await _channel.invokeMethod<List<dynamic>>('getBlockedApps');
+      final result = await _channel.invokeMethod<List<dynamic>>(
+        'getBlockedApps',
+      );
       return result?.map((e) => e.toString()).toList() ?? [];
     } catch (e) {
       print('[NativeAppBlock] getBlockedApps failed: $e');
@@ -53,8 +59,8 @@ class NativeAppBlockService {
     if (!Platform.isAndroid) return false;
     try {
       return (await _channel.invokeMethod<bool>('isAppBlocked', {
-        'packageName': packageName,
-      })) ??
+            'packageName': packageName,
+          })) ??
           false;
     } catch (e) {
       print('[NativeAppBlock] isAppBlocked failed: $e');
@@ -66,7 +72,8 @@ class NativeAppBlockService {
   Future<bool> startBlockingService() async {
     if (!Platform.isAndroid) return false;
     try {
-      return (await _channel.invokeMethod<bool>('startBlockingService')) ?? false;
+      return (await _channel.invokeMethod<bool>('startBlockingService')) ??
+          false;
     } catch (e) {
       print('[NativeAppBlock] startBlockingService failed: $e');
       return false;
@@ -77,7 +84,8 @@ class NativeAppBlockService {
   Future<bool> stopBlockingService() async {
     if (!Platform.isAndroid) return false;
     try {
-      return (await _channel.invokeMethod<bool>('stopBlockingService')) ?? false;
+      return (await _channel.invokeMethod<bool>('stopBlockingService')) ??
+          false;
     } catch (e) {
       print('[NativeAppBlock] stopBlockingService failed: $e');
       return false;
@@ -90,8 +98,9 @@ class NativeAppBlockService {
       return {'hasOverlayPermission': false, 'hasUsageStatsPermission': false};
     }
     try {
-      final result =
-          await _channel.invokeMethod<Map<Object?, Object?>>('checkPermissions');
+      final result = await _channel.invokeMethod<Map<Object?, Object?>>(
+        'checkPermissions',
+      );
       return {
         'hasOverlayPermission': result?['hasOverlayPermission'] == true,
         'hasUsageStatsPermission': result?['hasUsageStatsPermission'] == true,
@@ -116,10 +125,10 @@ class NativeAppBlockService {
   Future<List<Map<String, dynamic>>> getBlockedAppUsageStats() async {
     if (!Platform.isAndroid) return [];
     try {
-      final result = await _channel.invokeMethod<List<dynamic>>('getBlockedAppUsageStats');
-      return result
-              ?.map((e) => Map<String, dynamic>.from(e as Map))
-              .toList() ??
+      final result = await _channel.invokeMethod<List<dynamic>>(
+        'getBlockedAppUsageStats',
+      );
+      return result?.map((e) => Map<String, dynamic>.from(e as Map)).toList() ??
           [];
     } catch (e) {
       print('[NativeAppBlock] getBlockedAppUsageStats failed: $e');
@@ -137,10 +146,7 @@ class NativeAppBlockService {
     try {
       final result = await _channel.invokeMethod<Map<Object?, Object?>>(
         'pushBlockedAppUsageStats',
-        {
-          'userId': userId,
-          'apiUrl': apiUrl,
-        },
+        {'userId': userId, 'apiUrl': apiUrl},
       );
       return Map<String, dynamic>.from(result ?? const {});
     } catch (e) {
@@ -157,6 +163,49 @@ class NativeAppBlockService {
     } catch (e) {
       print('[NativeAppBlock] saveUserIdForOverlay failed: $e');
     }
+  }
+
+  /// Read the one-time consent value from the native persistent store.
+  Future<bool> hasConsentAccepted() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final result = await _channel.invokeMethod<bool>('hasConsentAccepted');
+      if (result != null) return result;
+    } catch (_) {
+      // The overlay engine exposes this through its overlay channel instead.
+      try {
+        return (await _overlayChannel.invokeMethod<bool>(
+              'hasConsentAccepted',
+            )) ??
+            false;
+      } catch (e) {
+        print('[NativeAppBlock] hasConsentAccepted failed: $e');
+      }
+    }
+    return false;
+  }
+
+  /// Persist the one-time consent value in the native store.
+  Future<bool> saveConsentAccepted({bool accepted = true}) async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final result = await _channel.invokeMethod<bool>('saveConsentAccepted', {
+        'accepted': accepted,
+      });
+      if (result != null) return result;
+    } catch (_) {
+      // The overlay engine exposes this through its overlay channel instead.
+      try {
+        return (await _overlayChannel.invokeMethod<bool>(
+              'saveConsentAccepted',
+              {'accepted': accepted},
+            )) ??
+            false;
+      } catch (e) {
+        print('[NativeAppBlock] saveConsentAccepted failed: $e');
+      }
+    }
+    return false;
   }
 
   /// Sync monitored trading packages for native usage tracking.
@@ -185,7 +234,8 @@ class NativeAppBlockService {
   Future<bool> closeOverlay() async {
     if (!Platform.isAndroid) return false;
     try {
-      return (await _overlayChannel.invokeMethod<bool>('closeOverlay')) ?? false;
+      return (await _overlayChannel.invokeMethod<bool>('closeOverlay')) ??
+          false;
     } catch (e) {
       print('[NativeAppBlock] closeOverlay failed: $e');
       return false;
@@ -196,8 +246,9 @@ class NativeAppBlockService {
   Future<String?> getCurrentBlockedApp() async {
     if (!Platform.isAndroid) return null;
     try {
-      final result =
-          await _overlayChannel.invokeMethod<String>('getCurrentBlockedApp');
+      final result = await _overlayChannel.invokeMethod<String>(
+        'getCurrentBlockedApp',
+      );
       return (result != null && result.isNotEmpty) ? result : null;
     } catch (e) {
       print('[NativeAppBlock] getCurrentBlockedApp failed: $e');
@@ -250,8 +301,8 @@ class NativeAppBlockService {
     if (!Platform.isAndroid) return false;
     try {
       return (await _overlayChannel.invokeMethod<bool>('unblockAndClose', {
-        'packages': packages,
-      })) ??
+            'packages': packages,
+          })) ??
           false;
     } catch (e) {
       print('[NativeAppBlock] unblockAndClose failed: $e');

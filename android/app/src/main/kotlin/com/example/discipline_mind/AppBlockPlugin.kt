@@ -94,6 +94,13 @@ class AppBlockPlugin(private val activity: android.app.Activity) : MethodChannel
                     result.error("ERROR", "packages list required", null)
                 }
             }
+            "hasConsentAccepted" -> {
+                result.success(AppManager.hasConsentAccepted(ctx))
+            }
+            "saveConsentAccepted" -> {
+                val accepted = call.argument<Boolean>("accepted") ?: true
+                result.success(AppManager.saveConsentAccepted(ctx, accepted))
+            }
             "getBlockedAppUsageStats" -> {
                 val packages = AppManager.getMonitoredTradingApps(ctx).toList()
                 val list = AppUsageTracker.getAllUsage(ctx, packages)

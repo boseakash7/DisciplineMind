@@ -177,29 +177,62 @@ class ChatController extends GetxController {
     return '';
   }
 
-  /// Ensures there is AT MOST ONE AI waiting message in the list (the latest/newest one).
-  /// Any older AI messages are dropped so only the last active AI message is displayed.
-  List<ChatMessage> _keepOnlyLatestAiMessage(List<ChatMessage> list) {
-    final lastAiIndex = list.lastIndexWhere(
-      (m) => m.type == ChatMessageType.aiWaiting,
+  /// Keeps backend/local AI waiting messages at the end of the feed.
+  ///
+  /// Do not collapse older AI rows here. A backend `ai_msgs` row is a real
+  /// chat event and may be followed by an app-side LLM response. Removing the
+  /// older row makes it disappear until the next full app restart.
+  List<ChatMessage> _removeAiAfterGuardDeactivation(List<ChatMessage> list) {
+    final lastNonAiIndex = list.lastIndexWhere(
+      (m) => m.type != ChatMessageType.aiWaiting,
     );
-    if (lastAiIndex == -1) return list;
-
-    final result = <ChatMessage>[];
-    for (var i = 0; i < list.length; i++) {
-      final m = list[i];
-      if (m.type == ChatMessageType.aiWaiting && i != lastAiIndex) {
-        continue; // drop older AI message
-      }
-      result.add(m);
+    if (lastNonAiIndex >= 0 &&
+        _isGuardDeactivatedMessage(list[lastNonAiIndex])) {
+      // Guard deactivation is terminal for this chat burst. Do not move an
+      // older/backend waiting bubble after the status message.
+      return list.where((m) => m.type != ChatMessageType.aiWaiting).toList();
     }
-    return result;
+
+    return list;
+  }
+
+  /// Normalize history after API merges. The backend payload order is not
+  /// trusted during tab/lifecycle refreshes, so timestamped rows are sorted
+  /// oldest-to-newest while preserving the original order for equal times.
+  /// Waiting status rows are moved to the end by
+  /// [_removeAiAfterGuardDeactivation] and the split below.
+  List<ChatMessage> _normalizeMessageOrder(List<ChatMessage> list) {
+    final normalized = _removeAiAfterGuardDeactivation(list);
+    final waiting = normalized
+        .where((m) => m.type == ChatMessageType.aiWaiting)
+        .toList();
+    final indexed = normalized
+        .where((m) => m.type != ChatMessageType.aiWaiting)
+        .toList()
+        .asMap()
+        .entries
+        .map((entry) => (index: entry.key, message: entry.value))
+        .toList();
+
+    indexed.sort((a, b) {
+      final aTime = parseMessageTime(a.message.timestamp);
+      final bTime = parseMessageTime(b.message.timestamp);
+      if (aTime == null && bTime == null) {
+        return a.index.compareTo(b.index);
+      }
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+      final timeOrder = aTime.compareTo(bTime);
+      return timeOrder == 0 ? a.index.compareTo(b.index) : timeOrder;
+    });
+
+    return [...indexed.map((entry) => entry.message), ...waiting];
   }
 
   final Set<String> _takenActionMessageIds = <String>{};
   final Set<String> _takenActionTradeIds = <String>{};
-  final Map<String, TradeExecutedMessage>
-  _pendingMindControlGuardNotifications = {};
+  final Map<String, SimpleTextMessage> _pendingMindControlGuardNotifications =
+      {};
   final Set<String> _shownMindControlGuardNotificationKeys = <String>{};
 
   bool isActionTakenFor(ChatMessage msg) {
@@ -258,10 +291,66 @@ class ChatController extends GetxController {
         parsed.addAll(chatMessagesFromJson(item));
       }
     }
-    final deduped = _keepOnlyLatestAiMessage(
-      _dedupeRedundantDeleteTradeButtons(parsed),
-    );
-    return _applyLocallyTakenActions(deduped);
+    final deduped = _dedupeRedundantDeleteTradeButtons(parsed);
+    return _normalizeMessageOrder(_applyLocallyTakenActions(deduped));
+  }
+
+  List<ChatMessage> _activeLocalLlmMessages() {
+    if (!hasActiveLocalLlmRequest) return const <ChatMessage>[];
+
+    return messages.where((message) {
+      final id = message.messageId.trim();
+      return id.startsWith('local_text_') ||
+          id.startsWith('local_voice_') ||
+          id.startsWith('ai_waiting_') ||
+          id.startsWith('voice_waiting_');
+    }).toList();
+  }
+
+  bool get hasActiveLocalLlmRequest => messages.any((message) {
+    if (message.type != ChatMessageType.aiWaiting) return false;
+    final id = message.messageId.trim();
+    return id.startsWith('ai_waiting_') || id.startsWith('voice_waiting_');
+  });
+
+  /// Messages used by the feed. Backend AI status rows stay in [messages] so
+  /// they are not lost during refresh, but remain hidden while the app-side
+  /// LLM request is showing its temporary waiting row. Once that row is
+  /// replaced by the LLM response, backend AI rows are visible again at the
+  /// end of the feed.
+  List<ChatMessage> get displayMessages {
+    if (!hasActiveLocalLlmRequest) return messages.toList();
+    return messages.where((message) {
+      if (message.type != ChatMessageType.aiWaiting) return true;
+      final id = message.messageId.trim();
+      return id.startsWith('ai_waiting_') || id.startsWith('voice_waiting_');
+    }).toList();
+  }
+
+  bool _isGuardDeactivatedMessage(ChatMessage message) {
+    if (message is! SimpleTextMessage) return false;
+    if (message.isGuardDeactivated) return true;
+    final text = message.text.toLowerCase();
+    return text.contains('mind control guard') && text.contains('deactivat');
+  }
+
+  bool _isMarketStatusMessage(ChatMessage message) {
+    if (message is! SimpleTextMessage || message.isFromUser) return false;
+    final text = message.text.toLowerCase();
+    return text.contains('market is closed') ||
+        text.contains('market is live') ||
+        text.contains('mind control guard is auto deactivated') ||
+        text.contains('mind control guard is activated');
+  }
+
+  bool _containsMarketStatusMessage(Iterable<ChatMessage> list) =>
+      list.any(_isMarketStatusMessage);
+
+  bool _containsGuardDeactivatedMessage(Iterable<ChatMessage> list) =>
+      list.any(_isGuardDeactivatedMessage);
+
+  void _discardGuardActionFallback() {
+    _pendingMindControlGuardNotifications.clear();
   }
 
   List<ChatMessage> _mergeUniqueMessages({
@@ -269,6 +358,10 @@ class ChatController extends GetxController {
     required List<ChatMessage> incoming,
     required bool prepend,
   }) {
+    final incomingHasMarketStatus = _containsMarketStatusMessage(incoming);
+    final incomingHasGuardDeactivated = _containsGuardDeactivatedMessage(
+      incoming,
+    );
     // A delete update may reuse the original message id. Replace that old
     // row instead of treating the pending delete confirmation as a duplicate.
     final deleteUpdateIds = incoming
@@ -277,6 +370,10 @@ class ChatController extends GetxController {
         .where((id) => id.isNotEmpty)
         .toSet();
     final mergeBase = base.where((m) {
+      if (incomingHasMarketStatus && m is TradeExecutedMessage) return false;
+      if (incomingHasGuardDeactivated && _isGuardDeactivatedMessage(m)) {
+        return false;
+      }
       final id = m.messageId.trim();
       return id.isEmpty || !deleteUpdateIds.contains(id);
     }).toList();
@@ -292,22 +389,20 @@ class ChatController extends GetxController {
       return !existingIds.contains(id);
     }).toList();
 
+    if (incomingHasMarketStatus || incomingHasGuardDeactivated) {
+      _discardGuardActionFallback();
+    }
+
     List<ChatMessage> combined;
     if (prepend) {
       combined = [...filteredIncoming, ...mergeBase];
     } else {
-      // If new messages contain an AI message, immediately purge older AI messages from base
-      final incomingHasAi = filteredIncoming.any(
-        (m) => m.type == ChatMessageType.aiWaiting,
-      );
-      final adjustedBase = incomingHasAi
-          ? mergeBase.where((m) => m.type != ChatMessageType.aiWaiting).toList()
-          : mergeBase;
-      combined = [...adjustedBase, ...filteredIncoming];
+      // Keep older AI status rows. They are persisted chat events, not
+      // replaceable placeholders; only the active local request row is
+      // removed by sendTextMessage/sendVoiceMessage when its response arrives.
+      combined = [...mergeBase, ...filteredIncoming];
     }
-    return _keepOnlyLatestAiMessage(
-      _dedupeRedundantDeleteTradeButtons(combined),
-    );
+    return _normalizeMessageOrder(_dedupeRedundantDeleteTradeButtons(combined));
   }
 
   bool _isDeleteTradeRequestMessage(ChatMessage m) {
@@ -335,6 +430,7 @@ class ChatController extends GetxController {
           text: x.text,
           tradeId: x.tradeId,
           animateResponse: x.animateResponse,
+          isGuardDeactivated: x.isGuardDeactivated,
           isFromUser: x.isFromUser,
           messageId: x.messageId,
           isUnread: x.isUnread,
@@ -346,6 +442,7 @@ class ChatController extends GetxController {
         final x = m as VoiceMessage;
         return VoiceMessage(
           durationSeconds: x.durationSeconds,
+          text: x.text,
           isFromUser: x.isFromUser,
           messageId: x.messageId,
           isUnread: x.isUnread,
@@ -357,6 +454,7 @@ class ChatController extends GetxController {
         final x = m as AiWaitingMessage;
         return AiWaitingMessage(
           text: x.text,
+          heading: x.heading,
           tradeId: x.tradeId,
           messageId: x.messageId,
           isUnread: x.isUnread,
@@ -536,10 +634,20 @@ class ChatController extends GetxController {
 
       if (response.isSuccess && response.data != null) {
         final payload = response.data['payload'];
+        final parsedDisplay = _parseDisplayMessages(payload);
+        if (_containsMarketStatusMessage(parsedDisplay)) {
+          _discardGuardActionFallback();
+        }
         final display = _withPendingMindControlGuardNotifications(
-          _parseDisplayMessages(payload),
+          parsedDisplay,
         );
-        messages.assignAll([...display, ..._localVoiceMessages]);
+        messages.assignAll(
+          _normalizeMessageOrder([
+            ...display,
+            ..._activeLocalLlmMessages(),
+            ..._localVoiceMessages,
+          ]),
+        );
         hasMoreOlderMessages.value = true;
 
         if (messages.isEmpty && _emptyLoadRetryCount < 3) {
@@ -758,10 +866,7 @@ class ChatController extends GetxController {
   }
 
   void addMessage(ChatMessage msg) {
-    if (msg.type == ChatMessageType.aiWaiting) {
-      messages.removeWhere((m) => m.type == ChatMessageType.aiWaiting);
-    }
-    messages.add(msg);
+    messages.assignAll(_normalizeMessageOrder([...messages, msg]));
   }
 
   /// Shows the guard-deactivated message immediately when its push event is
@@ -772,6 +877,11 @@ class ChatController extends GetxController {
     String messageId = '',
     String timestamp = '',
   }) {
+    if (_containsMarketStatusMessage(messages) ||
+        _containsGuardDeactivatedMessage(messages)) {
+      return;
+    }
+
     final cleanKey = notificationKey.trim();
     final cleanMessageId = messageId.trim();
     final cleanTimestamp = timestamp.trim();
@@ -790,9 +900,11 @@ class ChatController extends GetxController {
       return;
     }
 
-    final message = TradeExecutedMessage(
+    final message = SimpleTextMessage(
+      text: 'Mind Control Guard is Deactivated.',
+      isGuardDeactivated: true,
       messageId: cleanMessageId,
-      isUnread: true,
+      isUnread: false,
       timestamp: cleanTimestamp.isNotEmpty
           ? cleanTimestamp
           : DateTime.now().toUtc().toIso8601String(),
@@ -800,19 +912,24 @@ class ChatController extends GetxController {
     if (dedupeKey.isNotEmpty) {
       _pendingMindControlGuardNotifications[dedupeKey] = message;
     }
-    messages.add(message);
+    addMessage(message);
   }
 
   List<ChatMessage> _withPendingMindControlGuardNotifications(
     List<ChatMessage> display,
   ) {
+    if (_containsMarketStatusMessage(display) ||
+        _containsGuardDeactivatedMessage(display)) {
+      _discardGuardActionFallback();
+      return display;
+    }
     if (_pendingMindControlGuardNotifications.isEmpty) return display;
     final result = display.toList();
     final displayIds = result
         .map((m) => m.messageId.trim())
         .where((id) => id.isNotEmpty)
         .toSet();
-    final pending = <String, TradeExecutedMessage>{};
+    final pending = <String, SimpleTextMessage>{};
     for (final entry in _pendingMindControlGuardNotifications.entries) {
       final message = entry.value;
       final id = message.messageId.trim();
@@ -839,6 +956,7 @@ class ChatController extends GetxController {
         messages[i] = SimpleTextMessage(
           text: message.text,
           tradeId: message.tradeId,
+          isGuardDeactivated: message.isGuardDeactivated,
           isFromUser: message.isFromUser,
           messageId: message.messageId,
           isUnread: message.isUnread,
@@ -849,6 +967,7 @@ class ChatController extends GetxController {
       } else if (message is VoiceMessage) {
         final failedMessage = VoiceMessage(
           durationSeconds: message.durationSeconds,
+          text: message.text,
           isFromUser: message.isFromUser,
           messageId: message.messageId,
           isUnread: message.isUnread,
@@ -879,6 +998,7 @@ class ChatController extends GetxController {
         text: query,
         isFromUser: true,
         messageId: localMessageId,
+        timestamp: DateTime.now().toUtc().toIso8601String(),
       ),
     );
 
@@ -908,7 +1028,9 @@ class ChatController extends GetxController {
               SimpleTextMessage(
                 text: replyText,
                 isFromUser: false,
+                isUnread: true,
                 animateResponse: true,
+                timestamp: DateTime.now().toUtc().toIso8601String(),
               ),
             );
             return true;
@@ -971,6 +1093,7 @@ class ChatController extends GetxController {
               SimpleTextMessage(
                 text: replyText,
                 isFromUser: false,
+                isUnread: true,
                 animateResponse: true,
               ),
             );

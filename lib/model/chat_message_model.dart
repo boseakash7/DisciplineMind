@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 /// Chat message types
 enum ChatMessageType {
   simpleText,
@@ -42,11 +44,13 @@ class SimpleTextMessage extends ChatMessage {
   final String text;
   final String tradeId;
   final bool animateResponse;
+  final bool isGuardDeactivated;
 
   const SimpleTextMessage({
     required this.text,
     this.tradeId = '',
     this.animateResponse = false,
+    this.isGuardDeactivated = false,
     super.isFromUser = false,
     super.messageId,
     super.isUnread,
@@ -59,9 +63,11 @@ class SimpleTextMessage extends ChatMessage {
 /// A locally-created outgoing voice note with local delivery state.
 class VoiceMessage extends ChatMessage {
   final int durationSeconds;
+  final String text;
 
   const VoiceMessage({
     required this.durationSeconds,
+    this.text = 'Voice message',
     super.isFromUser = true,
     super.messageId,
     super.isUnread,
@@ -74,10 +80,12 @@ class VoiceMessage extends ChatMessage {
 /// Backend AI waiting / status bubble (`message_type: ai_msgs`).
 class AiWaitingMessage extends ChatMessage {
   final String text;
+  final String heading;
   final String tradeId;
 
   const AiWaitingMessage({
     required this.text,
+    this.heading = '',
     this.tradeId = '',
     super.messageId,
     super.isUnread,
@@ -87,7 +95,7 @@ class AiWaitingMessage extends ChatMessage {
 
   /// Presentation-only subtitle for the waiting bubble UI.
   String get subtitle {
-    return text;
+    return heading;
   }
 }
 
@@ -370,6 +378,7 @@ String _targetHitPriceFromPayload(
 /// Trade payloads can include both normal text + trade card, so we return a list.
 List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
   final messageType = (json['message_type'] ?? json['type'] ?? '').toString();
+  final normalizedMessageType = messageType.trim().toLowerCase();
   final entityType = (json['entity_type'] ?? '').toString();
   final message = (json['message'] ?? '').toString();
   final messageId = (json['message_id'] ?? '').toString();
@@ -405,6 +414,45 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
 
   final isAlertButton = messageType == 'button' && entityType == 'alert';
 
+  /// Persisted LLM text messages have explicit direction types. Parse the
+  /// incoming response envelope so the chat never displays raw JSON.
+  if (normalizedMessageType == 'outgoing_llm_text_msgs' ||
+      normalizedMessageType == 'incoming_llm_text_msgs') {
+    final isFromUser = normalizedMessageType == 'outgoing_llm_text_msgs';
+    return [
+      SimpleTextMessage(
+        text: isFromUser ? message : _llmResponseText(message),
+        isFromUser: isFromUser,
+        tradeId: relatedTradeId,
+        messageId: messageId,
+        // The backend can return `unread` for the complete conversation
+        // burst. Outgoing records must never trigger an unread UI state.
+        isUnread: isFromUser ? false : isUnread,
+        actionTaken: actionTaken,
+        timestamp: outerTimestamp,
+      ),
+    ];
+  }
+
+  /// Persisted voice messages do not contain an audio file for playback in
+  /// the chat history, but they should still use the voice-note bubble.
+  if (normalizedMessageType == 'outgoing_llm_voice_msgs' ||
+      normalizedMessageType == 'incoming_llm_voice_msgs') {
+    return [
+      VoiceMessage(
+        durationSeconds: 0,
+        text: _voiceMessageLabel(message),
+        isFromUser: normalizedMessageType == 'outgoing_llm_voice_msgs',
+        messageId: messageId,
+        isUnread: normalizedMessageType == 'outgoing_llm_voice_msgs'
+            ? false
+            : isUnread,
+        actionTaken: actionTaken,
+        timestamp: outerTimestamp,
+      ),
+    ];
+  }
+
   /// For `message_type: text`, always show plain text only.
   if (messageType.toLowerCase() == 'text') {
     return [
@@ -426,6 +474,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
     return [
       AiWaitingMessage(
         text: message,
+        heading: (json['heading'] ?? '').toString().trim(),
         tradeId: relatedTradeId,
         messageId: messageId,
         isUnread: isUnread,
@@ -737,6 +786,50 @@ bool _parseBoolFlag(dynamic value) {
   if (value is num) return value != 0;
   final s = value?.toString().toLowerCase().trim() ?? '';
   return s == 'true' || s == '1' || s == 'yes';
+}
+
+String _llmResponseText(String raw) {
+  final value = raw.trim();
+  if (value.isEmpty) return '';
+
+  final candidates = <String>[
+    value,
+    // Some legacy responses contain markdown escapes such as \\* inside a
+    // JSON string. They are not valid JSON escapes, so normalize them before
+    // the fallback decode.
+    value.replaceAll(r'\*', '*'),
+  ];
+
+  for (final candidate in candidates) {
+    try {
+      final decoded = jsonDecode(candidate);
+      if (decoded is Map) {
+        for (final key in const [
+          'response_markdown',
+          'response',
+          'message',
+          'text',
+        ]) {
+          final result = decoded[key];
+          if (result != null && result.toString().trim().isNotEmpty) {
+            return result.toString().trim();
+          }
+        }
+      }
+    } catch (_) {
+      // Keep the original message when the backend sends plain text or
+      // legacy JSON that cannot be decoded.
+    }
+  }
+  return value;
+}
+
+String _voiceMessageLabel(String raw) {
+  final value = raw.trim();
+  if (value.isEmpty || value.toLowerCase().contains('voice message')) {
+    return 'Voice message';
+  }
+  return value;
 }
 
 /// Backward-compatible helper when callers expect a single message.
