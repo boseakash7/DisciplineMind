@@ -21,22 +21,6 @@ class ChatController extends GetxController {
   final NativeAppBlockService _blockService = NativeAppBlockService();
   final AppBlockPreferencesService _prefs = AppBlockPreferencesService();
 
-  static const int tradeWindowSeconds = 120;
-  final _expiredTrades = <String>{};
-
-  static bool _isLegacyReusableTradeId(String id) {
-    if (id.length >= 8) return false;
-    return int.tryParse(id) != null;
-  }
-
-  static String _expiryKey(NewTradeOpportunityMessage msg) {
-    final id = msg.tradeId.trim();
-    if (id.isNotEmpty && !_isLegacyReusableTradeId(id)) return id;
-    final messageId = msg.messageId.trim();
-    if (messageId.isNotEmpty) return messageId;
-    return '${msg.tradeId}_${msg.timestamp}';
-  }
-
   bool _isActionTakenValue(dynamic value) {
     if (value == null) return false;
     if (value is bool) return value;
@@ -55,6 +39,7 @@ class ChatController extends GetxController {
     if (trade == null) return false;
     final action = trade.action.toLowerCase();
     final buttonType = trade.buttonType.toLowerCase();
+    if (action == 'delete') return false;
     return action == 'edit' ||
         action == 'editgtt' ||
         action == 'update' ||
@@ -65,29 +50,18 @@ class ChatController extends GetxController {
         trade.oldTakeProfit.trim().isNotEmpty;
   }
 
+  bool _isDeleteActionMessage(ChatMessage msg) {
+    final trade = msg is NewTradeOpportunityMessage
+        ? msg
+        : (msg is TradeExecutionPromptMessage ? msg.tradeData : null);
+    return trade?.action.toLowerCase() == 'delete';
+  }
+
   bool isTradeExpired(NewTradeOpportunityMessage msg) {
-    if (!isTimedTradeAction(msg.action) || msg.actionTaken != null)
-      return false;
-    if (_expiredTrades.contains(_expiryKey(msg))) return true;
-    if (!ApiConfig.isZenoAi) return false;
-    final sentAt = parseMessageTime(msg.timestamp);
-    return sentAt != null &&
-        !DateTime.now().toUtc().isBefore(
-          sentAt.add(const Duration(seconds: tradeWindowSeconds)),
-        );
+    // App-side trade expiry is intentionally disabled. The backend will own
+    // trade expiration and decide whether an action is still valid.
+    return false;
   }
-
-  /// Expire locally; the next backend message controls removal of the trade.
-  void onTradeCountdownExpired(NewTradeOpportunityMessage msg) {
-    if (!isTimedTradeAction(msg.action) || msg.actionTaken != null) return;
-    if (!_expiredTrades.add(_expiryKey(msg))) return;
-    messages.refresh();
-    update();
-  }
-
-  /// Only new trades (`add`) have a 120s apply window. Edit flows are not timed out.
-  static bool isTimedTradeAction(String action) =>
-      action.toLowerCase() == 'add';
 
   /// Add / edit / editGtt / update — show edit-specific UI (not expiry).
   static bool isEditTradeAction(String action) {
@@ -121,7 +95,6 @@ class ChatController extends GetxController {
   void reset() {
     _sessionVersion++;
     _loadVersion++;
-    _expiredTrades.clear();
     _localVoiceMessages.clear();
     messages.clear();
     _pendingMindControlGuardNotifications.clear();
@@ -247,6 +220,7 @@ class ChatController extends GetxController {
     // A later edit for the same trade is a new action instance. Its message
     // id, rather than the earlier trade-level action, controls its state.
     if (!_isEditActionMessage(msg) &&
+        !_isDeleteActionMessage(msg) &&
         tId.isNotEmpty &&
         _takenActionTradeIds.contains(tId)) {
       return true;
@@ -270,6 +244,7 @@ class ChatController extends GetxController {
         final actionTakenLocally =
             (mId.isNotEmpty && _takenActionMessageIds.contains(mId)) ||
             (!_isEditActionMessage(m) &&
+                !_isDeleteActionMessage(m) &&
                 tId.isNotEmpty &&
                 _takenActionTradeIds.contains(tId));
         if (actionTakenLocally) {
@@ -280,11 +255,26 @@ class ChatController extends GetxController {
     return result;
   }
 
-  List<ChatMessage> _parseDisplayMessages(dynamic payload) {
-    if (payload is! List) return const <ChatMessage>[];
+  ({List<ChatMessage> messages, Set<String> fomoDeleteKeys, bool hasFomoDelete})
+  _parseDisplayMessagesWithControls(dynamic payload) {
+    if (payload is! List) {
+      return (
+        messages: const <ChatMessage>[],
+        fomoDeleteKeys: <String>{},
+        hasFomoDelete: false,
+      );
+    }
+
     final parsed = <ChatMessage>[];
+    final fomoDeleteKeys = <String>{};
+    var hasFomoDelete = false;
     for (final item in payload) {
       if (item is Map<String, dynamic>) {
+        hasFomoDelete = hasFomoDelete || _isFomoDeleteMessage(item);
+        final controlKeys = _fomoDeleteKeys(item);
+        if (controlKeys.isNotEmpty) {
+          fomoDeleteKeys.addAll(controlKeys);
+        }
         // API returns messages oldest → newest (newest last). Chat list is the same.
         // [chatMessagesFromJson] order per row (e.g. trade card then prompt) is already
         // top-to-bottom for that row.
@@ -292,7 +282,66 @@ class ChatController extends GetxController {
       }
     }
     final deduped = _dedupeRedundantDeleteTradeButtons(parsed);
-    return _normalizeMessageOrder(_applyLocallyTakenActions(deduped));
+    return (
+      messages: _normalizeMessageOrder(_applyLocallyTakenActions(deduped)),
+      fomoDeleteKeys: fomoDeleteKeys,
+      hasFomoDelete: hasFomoDelete,
+    );
+  }
+
+  List<ChatMessage> _parseDisplayMessages(dynamic payload) {
+    return _parseDisplayMessagesWithControls(payload).messages;
+  }
+
+  Set<String> _fomoDeleteKeys(Map<String, dynamic> json) {
+    if (!_isFomoDeleteMessage(json)) return const <String>{};
+
+    final keys = <String>{};
+    void addKey(dynamic value) {
+      final key = value?.toString().trim() ?? '';
+      if (key.isNotEmpty && key.toLowerCase() != 'null') keys.add(key);
+    }
+
+    // The server may identify the original trade by row id, trade_uid, or
+    // message id depending on which API version produced the update.
+    addKey(json['message_id']);
+    final payload = json['payload'];
+    if (payload is Map) {
+      final p = Map<String, dynamic>.from(payload);
+      for (final key in const [
+        'id',
+        'trade_id',
+        'trade_uid',
+        'message_id',
+        'tradeId',
+        'tradeUid',
+      ]) {
+        addKey(p[key]);
+      }
+      final trade = p['trade'];
+      if (trade is Map) {
+        final t = Map<String, dynamic>.from(trade);
+        for (final key in const [
+          'id',
+          'trade_id',
+          'trade_uid',
+          'message_id',
+          'tradeId',
+          'tradeUid',
+        ]) {
+          addKey(t[key]);
+        }
+      }
+    }
+    return keys;
+  }
+
+  bool _isFomoDeleteMessage(Map<String, dynamic> json) {
+    final type = (json['message_type'] ?? json['type'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    return type == 'fomo_delete';
   }
 
   List<ChatMessage> _activeLocalLlmMessages() {
@@ -307,24 +356,117 @@ class ChatController extends GetxController {
     }).toList();
   }
 
+  bool _isLocalMessageId(String id) {
+    return id.startsWith('local_text_') ||
+        id.startsWith('local_voice_') ||
+        id.startsWith('ai_waiting_') ||
+        id.startsWith('voice_waiting_');
+  }
+
+  String? _messageContentKey(ChatMessage message) {
+    if (message is SimpleTextMessage) {
+      return 'text|${message.isFromUser}|${message.tradeId.trim()}|'
+          '${message.text.trim()}';
+    }
+    if (message is VoiceMessage) {
+      return 'voice|${message.isFromUser}|${message.text.trim().toLowerCase()}';
+    }
+    return null;
+  }
+
+  bool _isLocalApiDuplicate(ChatMessage first, ChatMessage second) {
+    if (first.type != second.type || first.isFromUser != second.isFromUser) {
+      return false;
+    }
+
+    final firstId = first.messageId.trim();
+    final secondId = second.messageId.trim();
+    final firstIsLocal = firstId.isEmpty || _isLocalMessageId(firstId);
+    final secondIsLocal = secondId.isEmpty || _isLocalMessageId(secondId);
+    if (firstIsLocal == secondIsLocal) return false;
+
+    final firstKey = _messageContentKey(first);
+    final secondKey = _messageContentKey(second);
+    if (firstKey == null || firstKey != secondKey) return false;
+
+    final firstTime = parseMessageTime(first.timestamp);
+    final secondTime = parseMessageTime(second.timestamp);
+    if (firstTime == null || secondTime == null) return false;
+    return firstTime.difference(secondTime).abs() <= const Duration(minutes: 5);
+  }
+
+  /// Removes a persisted message's temporary local copy. The persisted row is
+  /// preferred because it has the server id and timestamp.
+  List<ChatMessage> _dedupeMessages(Iterable<ChatMessage> source) {
+    final result = <ChatMessage>[];
+    for (final message in source) {
+      final messageId = message.messageId.trim();
+      var duplicateIndex = -1;
+      for (var i = 0; i < result.length; i++) {
+        final existing = result[i];
+        final existingId = existing.messageId.trim();
+        if (messageId.isNotEmpty &&
+            existingId.isNotEmpty &&
+            messageId == existingId &&
+            message.type == existing.type) {
+          duplicateIndex = i;
+          break;
+        }
+        if (_isLocalApiDuplicate(existing, message)) {
+          duplicateIndex = i;
+          break;
+        }
+      }
+
+      if (duplicateIndex < 0) {
+        result.add(message);
+        continue;
+      }
+
+      final existing = result[duplicateIndex];
+      final existingId = existing.messageId.trim();
+      final existingIsLocal =
+          existingId.isEmpty || _isLocalMessageId(existingId);
+      final currentIsPersisted =
+          messageId.isNotEmpty && !_isLocalMessageId(messageId);
+      if (existingIsLocal && currentIsPersisted) {
+        result[duplicateIndex] = message;
+      }
+    }
+    return result;
+  }
+
   bool get hasActiveLocalLlmRequest => messages.any((message) {
+    return _isLocalLlmWaitingMessage(message);
+  });
+
+  bool _isLocalLlmWaitingMessage(ChatMessage message) {
     if (message.type != ChatMessageType.aiWaiting) return false;
     final id = message.messageId.trim();
     return id.startsWith('ai_waiting_') || id.startsWith('voice_waiting_');
-  });
+  }
 
-  /// Messages used by the feed. Backend AI status rows stay in [messages] so
-  /// they are not lost during refresh, but remain hidden while the app-side
-  /// LLM request is showing its temporary waiting row. Once that row is
-  /// replaced by the LLM response, backend AI rows are visible again at the
-  /// end of the feed.
+  /// Messages used by the feed. Keep all rows in [messages] for history and
+  /// refreshes, but render only one AI waiting/status row at a time. During a
+  /// local LLM request, the current local `Thinking...` row wins; otherwise
+  /// the newest backend AI status row is shown.
   List<ChatMessage> get displayMessages {
-    if (!hasActiveLocalLlmRequest) return messages.toList();
-    return messages.where((message) {
-      if (message.type != ChatMessageType.aiWaiting) return true;
-      final id = message.messageId.trim();
-      return id.startsWith('ai_waiting_') || id.startsWith('voice_waiting_');
-    }).toList();
+    final latestWaitingIndex = hasActiveLocalLlmRequest
+        ? messages.lastIndexWhere(_isLocalLlmWaitingMessage)
+        : messages.lastIndexWhere(
+            (message) => message.type == ChatMessageType.aiWaiting,
+          );
+    if (latestWaitingIndex < 0) return messages.toList();
+
+    return messages
+        .asMap()
+        .entries
+        .where((entry) {
+          if (entry.value.type != ChatMessageType.aiWaiting) return true;
+          return entry.key == latestWaitingIndex;
+        })
+        .map((entry) => entry.value)
+        .toList();
   }
 
   bool _isGuardDeactivatedMessage(ChatMessage message) {
@@ -378,15 +520,15 @@ class ChatController extends GetxController {
       return id.isEmpty || !deleteUpdateIds.contains(id);
     }).toList();
 
-    final existingIds = mergeBase
-        .map((m) => m.messageId.trim())
-        .where((id) => id.isNotEmpty)
+    final existingMessageKeys = mergeBase
+        .map((m) => '${m.messageId.trim()}|${m.type.name}')
+        .where((key) => !key.startsWith('|'))
         .toSet();
 
     final filteredIncoming = incoming.where((m) {
       final id = m.messageId.trim();
       if (id.isEmpty) return true;
-      return !existingIds.contains(id);
+      return !existingMessageKeys.contains('${id}|${m.type.name}');
     }).toList();
 
     if (incomingHasMarketStatus || incomingHasGuardDeactivated) {
@@ -402,7 +544,9 @@ class ChatController extends GetxController {
       // removed by sendTextMessage/sendVoiceMessage when its response arrives.
       combined = [...mergeBase, ...filteredIncoming];
     }
-    return _normalizeMessageOrder(_dedupeRedundantDeleteTradeButtons(combined));
+    return _normalizeMessageOrder(
+      _dedupeMessages(_dedupeRedundantDeleteTradeButtons(combined)),
+    );
   }
 
   bool _isDeleteTradeRequestMessage(ChatMessage m) {
@@ -585,9 +729,17 @@ class ChatController extends GetxController {
   }
 
   List<ChatMessage> _markAllActionsTaken(List<ChatMessage> list) {
-    return list
-        .map((m) => m.actionTaken == null ? _withActionTaken(m, 1) : m)
-        .toList();
+    return list.map((m) {
+      if (m.actionTaken != null) return m;
+
+      // Keep older rows in the feed, but remember their disabled state so the
+      // silent full refresh cannot re-enable their buttons.
+      final messageId = m.messageId.trim();
+      if (messageId.isNotEmpty) {
+        _takenActionMessageIds.add(messageId);
+      }
+      return _withActionTaken(m, 1);
+    }).toList();
   }
 
   /// Fetch messages from API
@@ -642,11 +794,13 @@ class ChatController extends GetxController {
           parsedDisplay,
         );
         messages.assignAll(
-          _normalizeMessageOrder([
-            ...display,
-            ..._activeLocalLlmMessages(),
-            ..._localVoiceMessages,
-          ]),
+          _normalizeMessageOrder(
+            _dedupeMessages([
+              ...display,
+              ..._activeLocalLlmMessages(),
+              ..._localVoiceMessages,
+            ]),
+          ),
         );
         hasMoreOlderMessages.value = true;
 
@@ -719,7 +873,10 @@ class ChatController extends GetxController {
       );
       if (!_isCurrentSession(userId, sessionVersion)) return;
       if (response.isSuccess && response.data != null) {
-        final incoming = _parseDisplayMessages(response.data['payload']);
+        final parsed = _parseDisplayMessagesWithControls(
+          response.data['payload'],
+        );
+        final incoming = parsed.messages;
         if (incoming.isNotEmpty) {
           final base = messages.toList();
           final hasDeleteRequest = _incomingHasDeleteTradeRequest(incoming);
@@ -729,6 +886,13 @@ class ChatController extends GetxController {
             prepend: false,
           );
           messages.assignAll(merged);
+
+          // A newly received fomo_delete updates an older server row. Refresh
+          // the complete conversation once, silently, so the server remains
+          // the source of truth for the final chat contents.
+          if (parsed.hasFomoDelete) {
+            await loadMessages(silent: true);
+          }
 
           // After disabling old actions locally, refresh from backend so older messages
           // load with correct `action_taken` state.
@@ -779,7 +943,10 @@ class ChatController extends GetxController {
       );
       if (!_isCurrentSession(userId, sessionVersion)) return;
       if (response.isSuccess && response.data != null) {
-        final incoming = _parseDisplayMessages(response.data['payload']);
+        final parsed = _parseDisplayMessagesWithControls(
+          response.data['payload'],
+        );
+        final incoming = parsed.messages;
         if (incoming.isNotEmpty) {
           final merged = _mergeUniqueMessages(
             base: messages.toList(),
@@ -804,56 +971,13 @@ class ChatController extends GetxController {
     }
   }
 
-  /// If the same trade has both `open_app_button` and `delete_button`, the UI
-  /// already shows one combined bubble — drop the redundant `delete_button` row.
+  /// Keep every server row. Older action rows are disabled locally when a new
+  /// delete request arrives; removing them would make the old message/button
+  /// disappear from the chat history.
   List<ChatMessage> _dedupeRedundantDeleteTradeButtons(
     List<ChatMessage> chronological,
   ) {
-    final openAppMessagesByTradeId =
-        <String, List<NewTradeOpportunityMessage>>{};
-    final deleteMessagesByTradeId =
-        <String, List<NewTradeOpportunityMessage>>{};
-    for (final m in chronological) {
-      if (m is! NewTradeOpportunityMessage) continue;
-      if (m.action.toLowerCase() != 'delete') continue;
-      if (m.tradeId.isEmpty) continue;
-      if (m.buttonType == 'open_app_button') {
-        openAppMessagesByTradeId
-            .putIfAbsent(m.tradeId, () => <NewTradeOpportunityMessage>[])
-            .add(m);
-      } else if (m.buttonType == 'delete_button') {
-        deleteMessagesByTradeId
-            .putIfAbsent(m.tradeId, () => <NewTradeOpportunityMessage>[])
-            .add(m);
-      }
-    }
-    return chronological.where((m) {
-      if (m is! NewTradeOpportunityMessage) return true;
-      if (m.action.toLowerCase() != 'delete') return true;
-      if (m.tradeId.isEmpty) return true;
-
-      final tradeId = m.tradeId;
-      if (m.buttonType == 'delete_button') {
-        final openAppMessages = openAppMessagesByTradeId[tradeId] ?? const [];
-        // Keep the confirmation message when the older open-app message has
-        // already been taken. It is the still-actionable delete flow.
-        return !openAppMessages.any(
-          (openApp) => !_isActionTakenValue(openApp.actionTaken),
-        );
-      }
-
-      if (m.buttonType == 'open_app_button') {
-        final deleteMessages = deleteMessagesByTradeId[tradeId] ?? const [];
-        // If a pending confirmation exists, discard an older completed
-        // open-app row so the pending row remains visible and actionable.
-        return !(_isActionTakenValue(m.actionTaken) &&
-            deleteMessages.any(
-              (delete) => !_isActionTakenValue(delete.actionTaken),
-            ));
-      }
-
-      return true;
-    }).toList();
+    return chronological;
   }
 
   void _loadSampleMessages() {
@@ -866,7 +990,9 @@ class ChatController extends GetxController {
   }
 
   void addMessage(ChatMessage msg) {
-    messages.assignAll(_normalizeMessageOrder([...messages, msg]));
+    messages.assignAll(
+      _normalizeMessageOrder(_dedupeMessages([...messages, msg])),
+    );
   }
 
   /// Shows the guard-deactivated message immediately when its push event is
@@ -1095,6 +1221,7 @@ class ChatController extends GetxController {
                 isFromUser: false,
                 isUnread: true,
                 animateResponse: true,
+                timestamp: DateTime.now().toUtc().toIso8601String(),
               ),
             );
             return true;

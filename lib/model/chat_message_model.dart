@@ -467,6 +467,21 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
     ];
   }
 
+  /// `fomo_delete` is a backend control row. It tells the client that the
+  /// previously published trade represented by this row should disappear.
+  if (normalizedMessageType == 'fomo_delete') {
+    return [
+      SimpleTextMessage(
+        text: message,
+        tradeId: relatedTradeId,
+        messageId: messageId,
+        isUnread: isUnread,
+        actionTaken: actionTaken,
+        timestamp: outerTimestamp,
+      ),
+    ];
+  }
+
   /// Backend AI waiting/status messages — animated thinking / status bubble.
   /// `message_type: ai_msgs` always wins; do not inspect `entity_type`.
   if (messageType.toLowerCase() == 'ai_msgs' ||

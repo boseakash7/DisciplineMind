@@ -1207,40 +1207,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final sentAt = ChatController.parseMessageTime(timestamp);
     if (sentAt == null) return '';
 
-    var elapsed = DateTime.now().toUtc().difference(sentAt);
-    if (elapsed.isNegative) elapsed = Duration.zero;
-
-    final seconds = elapsed.inSeconds;
-    if (seconds < 10) return 'just now';
-    if (seconds < 60) return '${seconds}sec';
-
-    final minutes = elapsed.inMinutes;
-    if (minutes < 2) return '1m';
-    if (minutes < 60) return '${minutes}min';
-
-    final hours = elapsed.inHours;
-    if (hours < 24) return '${hours}h';
-
-    final days = elapsed.inDays;
-    if (days < 7) return '${days}d';
-
     final local = sentAt.toLocal();
-    const months = <String>[
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    final date = '${local.day} ${months[local.month - 1]}';
-    return local.year == DateTime.now().year ? date : '$date ${local.year}';
+    final hour = local.hour == 0
+        ? 12
+        : (local.hour > 12 ? local.hour - 12 : local.hour);
+    final period = local.hour >= 12 ? 'PM' : 'AM';
+    if (local.minute == 0) return '$hour $period';
+
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '$hour:$minute $period';
   }
 
   String _responseAnimationKey(SimpleTextMessage msg) {
@@ -1273,7 +1248,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final isOutgoing = msg.isFromUser;
     final label = _relativeMessageTime(msg.timestamp);
     if (label.isEmpty) return message;
-    if (msg is SimpleTextMessage && msg.isFromUser) return message;
+    if (msg.isFromUser) return message;
     if (msg is SimpleTextMessage &&
         msg.animateResponse &&
         !_isResponseAnimationComplete(msg)) {
@@ -1308,16 +1283,51 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       );
     }
 
+    final isTradeCardMessage =
+        msg is AgentWithButtonMessage ||
+        msg is NewTradeOpportunityMessage ||
+        msg is TradeExecutionPromptMessage ||
+        msg is TradeExecutedMessage ||
+        msg is AlertHitWithButtonMessage ||
+        msg is DmtScoreMessage ||
+        msg is TradeSignalMessage;
+    if (isTradeCardMessage) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            message,
+            Align(
+              alignment: Alignment.centerRight,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: isDark ? Colors.white38 : const Color(0xFF8A8F98),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 0.1,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          message,
+          Expanded(child: message),
           Padding(
-            padding: EdgeInsets.zero,
+            padding: const EdgeInsets.only(left: 6, bottom: 2),
             child: Text(
-              '- $label',
+              label,
               style: TextStyle(
                 color: isDark ? Colors.white38 : const Color(0xFF8A8F98),
                 fontSize: 10.5,
@@ -1534,7 +1544,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildNewMessagesSeparator() {
+  Widget _buildNewMessagesSeparator(BuildContext context) {
+    final isDark = _isDark(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 14),
       child: Row(
@@ -1544,7 +1555,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               height: 1,
               child: CustomPaint(
                 painter: _DottedLinePainter(
-                  color: AppColors.primary,
+                  color: isDark
+                      ? const Color(0xFF8F7BDD)
+                      : const Color(0xFFB9A5FF),
                   strokeWidth: 1.5,
                   dashWidth: 5,
                   gap: 4,
@@ -1556,15 +1569,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             margin: const EdgeInsets.symmetric(horizontal: 10),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
             decoration: BoxDecoration(
-              color: AppColors.primary,
+              color: isDark ? const Color(0xFF2B2440) : const Color(0xFFE7DEFF),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: const Text(
+            child: Text(
               'New Messages',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
-                color: Colors.white,
+                color: isDark ? Colors.white : AppColors.primary,
               ),
             ),
           ),
@@ -1573,7 +1586,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               height: 1,
               child: CustomPaint(
                 painter: _DottedLinePainter(
-                  color: AppColors.primary,
+                  color: isDark
+                      ? const Color(0xFF8F7BDD)
+                      : const Color(0xFFB9A5FF),
                   strokeWidth: 1.5,
                   dashWidth: 5,
                   gap: 4,
@@ -1802,7 +1817,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                               } else if (item is _ChatFeedNewMessages) {
                                 childWidget = KeyedSubtree(
                                   key: const ValueKey('chat_new_messages'),
-                                  child: _buildNewMessagesSeparator(),
+                                  child: _buildNewMessagesSeparator(context),
                                 );
                               } else {
                                 final msgItem = item as _ChatFeedMessage;
@@ -3780,6 +3795,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             children: [
               IntrinsicWidth(
                 child: Container(
+                  constraints: const BoxConstraints(minWidth: 72),
                   margin: const EdgeInsets.only(bottom: 2),
                   padding: const EdgeInsets.fromLTRB(12, 8, 10, 6),
                   decoration: BoxDecoration(
@@ -3862,6 +3878,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Widget _buildVoiceMessage(BuildContext context, VoiceMessage msg) {
     final isDark = _isDark(context);
+    final timeLabel = _relativeMessageTime(msg.timestamp);
     final minutes = msg.durationSeconds ~/ 60;
     final seconds = (msg.durationSeconds % 60).toString().padLeft(2, '0');
     return Align(
@@ -3876,58 +3893,101 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
               color: msg.isFromUser
-                  ? AppColors.primary
+                  ? (isDark ? const Color(0xFF2B2440) : const Color(0xFFF8F5FF))
                   : (isDark
                         ? const Color(0xFF2A2D35)
                         : const Color(0xFFF1F2F5)),
               border: msg.isFromUser
-                  ? null
+                  ? Border.all(
+                      color: isDark
+                          ? const Color(0xFF8F7BDD)
+                          : const Color(0xFFB9A5FF),
+                      width: 1.4,
+                    )
                   : Border.all(
                       color: isDark ? Colors.white12 : const Color(0xFFE1E3E8),
                     ),
               borderRadius: BorderRadius.circular(16),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.mic_rounded,
-                  color: msg.isFromUser
-                      ? Colors.white
-                      : (isDark ? Colors.white70 : const Color(0xFF626875)),
-                  size: 20,
-                ),
-                const SizedBox(width: 9),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      msg.text.trim().isEmpty ? 'Voice message' : msg.text,
-                      style: TextStyle(
+            child: SizedBox(
+              width: 139,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.mic_rounded,
                         color: msg.isFromUser
-                            ? Colors.white
-                            : (isDark ? Colors.white : const Color(0xFF252833)),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
+                            ? (isDark ? Colors.white : AppColors.primary)
+                            : (isDark
+                                  ? Colors.white70
+                                  : const Color(0xFF626875)),
+                        size: 20,
                       ),
-                    ),
-                    if (msg.durationSeconds > 0)
-                      Text(
-                        '$minutes:$seconds',
-                        style: TextStyle(
-                          color: msg.isFromUser
-                              ? Colors.white70
-                              : (isDark
-                                    ? Colors.white60
-                                    : const Color(0xFF777D88)),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
+                      const SizedBox(width: 9),
+                      SizedBox(
+                        width: 110,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              msg.text.trim().isEmpty
+                                  ? 'Voice message'
+                                  : msg.text,
+                              style: TextStyle(
+                                color: msg.isFromUser
+                                    ? (isDark
+                                          ? Colors.white
+                                          : const Color(0xFF252333))
+                                    : (isDark
+                                          ? Colors.white
+                                          : const Color(0xFF252833)),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            if (msg.durationSeconds > 0)
+                              Text(
+                                '$minutes:$seconds',
+                                style: TextStyle(
+                                  color: msg.isFromUser
+                                      ? (isDark
+                                            ? Colors.white60
+                                            : const Color(0xFF777184))
+                                      : (isDark
+                                            ? Colors.white60
+                                            : const Color(0xFF777D88)),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                          ],
                         ),
                       ),
+                    ],
+                  ),
+                  if (msg.isFromUser && timeLabel.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        timeLabel,
+                        style: TextStyle(
+                          color: isDark
+                              ? Colors.white60
+                              : const Color(0xFF777184),
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
                   ],
-                ),
-              ],
+                ],
+              ),
             ),
           ),
           if (msg.sendFailed) _buildSendFailureLabel(isDark),
@@ -4023,6 +4083,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   bool _isEditTrade(NewTradeOpportunityMessage msg) {
+    // Delete rows can carry old SL/target history from the backend. That
+    // history is informational and must not route the row into the
+    // SL/Target Trailed edit UI.
+    if (_isDeleteTradeAction(msg)) return false;
     if (_isEditTradeAction(msg)) return true;
     if (_isEditTradeButton(msg)) return true;
     if (msg.slChanged || msg.tpChanged) return true;
@@ -4156,19 +4220,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       return _buildTradeDeleteCombinedMessage(context, msg, controller);
     }
 
-    final setupType = Get.isRegistered<TradingProcessController>()
-        ? Get.find<TradingProcessController>()
-                  .currentProcess
-                  .value
-                  ?.tradingSetupType ??
-              Common.userData.value?.payload?.tradingSetupType
-        : Common.userData.value?.payload?.tradingSetupType;
-    final isZenoAi = setupType == 'zeno_ai_signals';
+    final hasExecutionPrompt = controller.messages.any(
+      (message) =>
+          message is TradeExecutionPromptMessage &&
+          message.messageId == msg.messageId &&
+          message.tradeData.tradeId == msg.tradeId,
+    );
+    final showDisabledActionFallback =
+        _isActionTaken(msg) && !hasExecutionPrompt;
 
-    final showCountdown =
-        isZenoAi &&
-        ChatController.isTimedTradeAction(msg.action) &&
-        msg.actionTaken == null;
+    // App-side 120-second trade countdown is disabled. The backend controls
+    // whether a trade is still valid.
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -4189,11 +4251,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             hideMarketPrice:
                 _isActionTaken(msg) || !_showButtons(msg) || _isEditTrade(msg),
           ),
-          if (showCountdown) ...[
-            const SizedBox(height: 10),
-            _TradeCountdownTimer(
-              msg: msg,
-              onExpired: () => controller.onTradeCountdownExpired(msg),
+          if (showDisabledActionFallback) ...[
+            const SizedBox(height: 12),
+            _tradePromptPrimaryButton(
+              label: 'GTT / Levels Applied',
+              icon: Icons.check_circle_outline_rounded,
+              isCompleted: true,
+              enabled: false,
             ),
           ],
         ],
@@ -6906,97 +6970,4 @@ class _ChatFeedMessage extends _ChatFeedItem {
   const _ChatFeedMessage({required this.index, required this.message});
   final int index;
   final ChatMessage message;
-}
-
-class _TradeCountdownTimer extends StatefulWidget {
-  const _TradeCountdownTimer({required this.msg, required this.onExpired});
-
-  final NewTradeOpportunityMessage msg;
-  final VoidCallback onExpired;
-
-  @override
-  State<_TradeCountdownTimer> createState() => _TradeCountdownTimerState();
-}
-
-class _TradeCountdownTimerState extends State<_TradeCountdownTimer> {
-  late int _secondsRemaining;
-  Timer? _timer;
-  bool _expired = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _calculateRemaining();
-    if (_secondsRemaining > 0) {
-      _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (!mounted) return;
-        setState(() {
-          if (ChatController.parseMessageTime(widget.msg.timestamp) == null) {
-            _secondsRemaining--;
-          } else {
-            _calculateRemaining();
-          }
-          if (_secondsRemaining <= 0) {
-            _secondsRemaining = 0;
-            _expired = true;
-            _timer?.cancel();
-            widget.onExpired();
-          }
-        });
-      });
-    } else {
-      _expired = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) widget.onExpired();
-      });
-    }
-  }
-
-  void _calculateRemaining() {
-    final parsed = ChatController.parseMessageTime(widget.msg.timestamp);
-    if (parsed == null) {
-      _secondsRemaining = ChatController.tradeWindowSeconds;
-      return;
-    }
-    final elapsed = DateTime.now().toUtc().difference(parsed).inSeconds;
-    _secondsRemaining = (ChatController.tradeWindowSeconds - elapsed).clamp(
-      0,
-      120,
-    );
-    if (_secondsRemaining <= 0) _expired = true;
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_expired) return const SizedBox.shrink();
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.orange.shade50,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.orange.shade300),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.timer_outlined, size: 16, color: Colors.orange.shade700),
-          const SizedBox(width: 6),
-          Text(
-            'Apply GTT within ${_secondsRemaining}s',
-            style: TextStyle(
-              color: Colors.orange.shade800,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }

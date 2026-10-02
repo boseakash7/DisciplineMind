@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/controller/chat_controller.dart';
+import 'package:discipline_mind/model/chat_message_model.dart';
 import 'package:discipline_mind/model/login_reponse_model.dart';
 import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/api/api_reponse.dart';
@@ -15,9 +16,12 @@ class FakeChatApi extends ApiService {
   final responses = <Completer<ApiResponse<dynamic>>>[];
 
   @override
-  Future<ApiResponse<dynamic>> postMessagesForm(String endpoint,
-      Map<String, String> fields,
-      {Map<String, String>? headers, bool usePersistedSessionCookie = true}) {
+  Future<ApiResponse<dynamic>> postMessagesForm(
+    String endpoint,
+    Map<String, String> fields, {
+    Map<String, String>? headers,
+    bool usePersistedSessionCookie = true,
+  }) {
     requests.add(fields['user_id']!);
     final response = Completer<ApiResponse<dynamic>>();
     responses.add(response);
@@ -25,9 +29,17 @@ class FakeChatApi extends ApiService {
   }
 
   void complete(int index, String text) {
-    responses[index].complete(ApiResponse.success({
-      'payload': [{'message_id': text, 'message_type': 'text', 'message': text}]
-    }));
+    responses[index].complete(
+      ApiResponse.success({
+        'payload': [
+          {'message_id': text, 'message_type': 'text', 'message': text},
+        ],
+      }),
+    );
+  }
+
+  void completePayload(int index, List<Map<String, dynamic>> payload) {
+    responses[index].complete(ApiResponse.success({'payload': payload}));
   }
 }
 
@@ -35,12 +47,14 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory storageDirectory;
   setUpAll(() async {
-    storageDirectory = await Directory.systemTemp.createTemp('chat_session_test');
+    storageDirectory = await Directory.systemTemp.createTemp(
+      'chat_session_test',
+    );
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (_) async => storageDirectory.path,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (_) async => storageDirectory.path,
+        );
     await GetStorage.init();
   });
   tearDown(() {
@@ -49,21 +63,24 @@ void main() {
     Common.userData.value = null;
   });
 
-  test('Account changes reload chat and ignore the previous account response', () async {
-    Common.userData.value = LoginResponseModel(payload: Payload(id: 'old'));
-    final api = Get.put<ApiService>(FakeChatApi()) as FakeChatApi;
-    final chat = Get.put(ChatController());
-    expect(api.requests, ['old']);
-    Common.userData.value = LoginResponseModel(payload: Payload(id: 'new'));
-    expect(api.requests, ['old', 'new']);
-    api.complete(1, 'new-message');
-    await Future<void>.delayed(Duration.zero);
-    api.complete(0, 'old-message');
-    await Future<void>.delayed(Duration.zero);
-    expect(chat.currentUserId, 'new');
-    expect(chat.messages.single.messageId, 'new-message');
-    expect(chat.isLoading.value, isFalse);
-  });
+  test(
+    'Account changes reload chat and ignore the previous account response',
+    () async {
+      Common.userData.value = LoginResponseModel(payload: Payload(id: 'old'));
+      final api = Get.put<ApiService>(FakeChatApi()) as FakeChatApi;
+      final chat = Get.put(ChatController());
+      expect(api.requests, ['old']);
+      Common.userData.value = LoginResponseModel(payload: Payload(id: 'new'));
+      expect(api.requests, ['old', 'new']);
+      api.complete(1, 'new-message');
+      await Future<void>.delayed(Duration.zero);
+      api.complete(0, 'old-message');
+      await Future<void>.delayed(Duration.zero);
+      expect(chat.currentUserId, 'new');
+      expect(chat.messages.single.messageId, 'new-message');
+      expect(chat.isLoading.value, isFalse);
+    },
+  );
 
   test('An older full load cannot overwrite a newer tab refresh', () async {
     Common.userData.value = LoginResponseModel(payload: Payload(id: 'user'));
@@ -76,4 +93,86 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(chat.messages.single.messageId, 'latest');
   });
+
+  test(
+    'fomo_delete shows its text and silently refreshes away the old trade',
+    () async {
+      final oldTrade = <String, dynamic>{
+        'message_id': '10',
+        'message_type': 'trade',
+        'entity_type': 'trade',
+        'message': '',
+        'timestamp': '2026-10-01T07:44:15.615Z',
+        'payload': {
+          'id': '1',
+          'trade_uid': 'TvOB-mup8adixJO7433',
+          'header': 'HDFCBANK',
+          'symbol': 'HDFCBANK',
+          'exchange': 'NSE',
+          'entry_price': '716.00',
+          'stop_loss': '710.00',
+          'take_profit': '750.00',
+          'current_price': '715.60',
+          'action': 'add',
+        },
+      };
+      final fomoDelete = <String, dynamic>{
+        'message_id': '10',
+        'message_type': 'fomo_delete',
+        'entity_type': 'trade',
+        'message':
+            'Old published Trade is deleted to save your mind from FOMO.',
+        'payload': oldTrade['payload'],
+      };
+
+      final parsedFomoDelete = chatMessagesFromJson(fomoDelete);
+      expect(parsedFomoDelete, hasLength(1));
+      expect(
+        (parsedFomoDelete.single as SimpleTextMessage).text,
+        contains('FOMO'),
+      );
+
+      Common.userData.value = LoginResponseModel(payload: Payload(id: 'user'));
+      final api = Get.put<ApiService>(FakeChatApi()) as FakeChatApi;
+      final chat = Get.put(ChatController());
+      api.completePayload(0, [oldTrade]);
+      await Future<void>.delayed(Duration.zero);
+      expect(chat.messages, hasLength(2));
+
+      final refresh = chat.loadNewMessages(silent: true);
+      api.completePayload(1, [fomoDelete]);
+      for (var i = 0; i < 5 && api.responses.length < 3; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(api.responses, hasLength(3));
+      api.completePayload(2, [
+        {
+          'message_id': '11',
+          'message_type': 'text',
+          'message': 'Keep this message',
+        },
+        fomoDelete,
+      ]);
+      await refresh;
+
+      expect(chat.messages, hasLength(2));
+      expect(
+        chat.messages.any(
+          (message) =>
+              message is SimpleTextMessage &&
+              message.text.contains('Keep this message'),
+        ),
+        isTrue,
+      );
+      expect(
+        chat.messages.any(
+          (message) =>
+              message is SimpleTextMessage && message.text.contains('FOMO'),
+        ),
+        isTrue,
+      );
+      expect(chat.isLoading.value, isFalse);
+      expect(chat.isRefreshing.value, isFalse);
+    },
+  );
 }
