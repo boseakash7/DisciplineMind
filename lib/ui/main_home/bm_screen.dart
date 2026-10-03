@@ -716,6 +716,9 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
                       final avgReturn = apiLevel?.totalAverageReturnPercentage != null
                           ? '${apiLevel!.totalAverageReturnPercentage}%'
                           : '0.00%';
+                      final mctAvgReturn = apiLevel?.totalMctAverageReturnPercentage != null
+                          ? '${apiLevel!.totalMctAverageReturnPercentage}%'
+                          : '0.00%';
 
                       return _TimelineItem(
                         index: index,
@@ -732,6 +735,7 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
                         wins: '$winsCount',
                         accuracy: accuracyText,
                         returns: avgReturn,
+                        mctAvg: mctAvgReturn,
                         isDark: isDark,
                         onTap: canInteract
                             ? () {
@@ -759,7 +763,7 @@ class _TimelineItem extends StatelessWidget {
   final dynamic icon;
   final Color color;
   final bool isAchieved, isUnlocked, isCurrent, canInteract;
-  final String trades, wins, accuracy, returns;
+  final String trades, wins, accuracy, returns, mctAvg;
   final bool isDark;
   final VoidCallback? onTap;
 
@@ -778,6 +782,7 @@ class _TimelineItem extends StatelessWidget {
     required this.wins,
     required this.accuracy,
     required this.returns,
+    required this.mctAvg,
     required this.isDark,
     this.onTap,
   });
@@ -899,6 +904,7 @@ class _TimelineItem extends StatelessWidget {
                         wins: wins,
                         accuracy: accuracy,
                         returns: returns,
+                        mctAvg: mctAvg,
                         isDark: isDark,
                       ),
                     ],
@@ -917,7 +923,7 @@ class _CardContent extends StatelessWidget {
   final String title, tagline;
   final Color color;
   final bool isAchieved, isCurrent, canInteract;
-  final String trades, wins, accuracy, returns;
+  final String trades, wins, accuracy, returns, mctAvg;
   final bool isDark;
 
   const _CardContent({
@@ -931,6 +937,7 @@ class _CardContent extends StatelessWidget {
     required this.wins,
     required this.accuracy,
     required this.returns,
+    required this.mctAvg,
     required this.isDark,
   });
 
@@ -1034,6 +1041,17 @@ class _CardContent extends StatelessWidget {
           const SizedBox(height: 14),
           Row(
             children: [
+              _StatItem(
+                label: 'MCT Avg',
+                value: mctAvg,
+                labelColor: statsLabelColor,
+                valueColor: statsValueColor,
+              ),
+              Container(
+                width: 1,
+                height: 30,
+                color: Colors.grey.withValues(alpha: 0.1),
+              ),
               _StatItem(
                 label: 'Accuracy',
                 value: accuracy,

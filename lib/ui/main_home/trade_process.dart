@@ -5,6 +5,7 @@ import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
+import 'package:discipline_mind/services/trading_apps_service.dart';
 import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:discipline_mind/services/app_url_launcher.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
@@ -169,6 +170,11 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   @override
   void initState() {
     super.initState();
+
+    if (!Get.isRegistered<TradingAppsService>()) {
+      Get.put(TradingAppsService(), permanent: true);
+    }
+    Get.find<TradingAppsService>().ensureLoaded();
 
     WidgetsBinding.instance.addObserver(this);
     _refreshPermissions();
@@ -1659,95 +1665,481 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   // STEP 4
   // ============================================================
 
+  static final List<_BrokerItem> _brokerList = [
+    _BrokerItem(
+      name: 'Groww',
+      isSupported: true,
+      assetPath: 'assets/groww.png',
+      brandColor: const Color(0xFF00D09C),
+      customLogoBuilder: () => _buildGrowwLogo(),
+    ),
+    _BrokerItem(
+      name: 'Zerodha',
+      isSupported: true,
+      assetPath: 'assets/ZerodhaKite.png',
+      brandColor: const Color(0xFF387ED1),
+      customLogoBuilder: () => _buildZerodhaLogo(),
+    ),
+    _BrokerItem(
+      name: 'Angel One',
+      isSupported: true,
+      brandColor: const Color(0xFFEB5B28),
+      customLogoBuilder: () => _buildAngelOneLogo(),
+    ),
+    _BrokerItem(
+      name: 'ICICI Direct',
+      isSupported: false,
+      brandColor: const Color(0xFFB01D22),
+      customLogoBuilder: () => _buildIciciLogo(),
+    ),
+    _BrokerItem(
+      name: 'Upstox',
+      isSupported: true,
+      assetPath: 'assets/upsocks.png',
+      brandColor: const Color(0xFF702FB2),
+      customLogoBuilder: () => _buildUpstoxLogo(),
+    ),
+    _BrokerItem(
+      name: 'Kotak Neo',
+      isSupported: false,
+      brandColor: const Color(0xFFE31B23),
+      customLogoBuilder: () => _buildKotakLogo(),
+    ),
+    _BrokerItem(
+      name: 'HDFC Securities',
+      isSupported: false,
+      brandColor: const Color(0xFF004C8F),
+      customLogoBuilder: () => _buildHdfcLogo(),
+    ),
+    _BrokerItem(
+      name: 'SBI Securities',
+      isSupported: false,
+      brandColor: const Color(0xFF0081C6),
+      customLogoBuilder: () => _buildSbiLogo(),
+    ),
+    _BrokerItem(
+      name: 'Dhan',
+      isSupported: true,
+      brandColor: const Color(0xFF00A669),
+      customLogoBuilder: () => _buildDhanLogo(),
+    ),
+    _BrokerItem(
+      name: 'Motilal Oswal',
+      isSupported: false,
+      brandColor: const Color(0xFFF39200),
+      customLogoBuilder: () => _buildMotilalLogo(),
+    ),
+    _BrokerItem(
+      name: 'Paytm Money',
+      isSupported: false,
+      brandColor: const Color(0xFF002E6C),
+      customLogoBuilder: () => _buildPaytmLogo(),
+    ),
+    _BrokerItem(
+      name: 'INDmoney',
+      isSupported: false,
+      brandColor: const Color(0xFF000000),
+      customLogoBuilder: () => _buildIndMoneyLogo(),
+    ),
+    _BrokerItem(
+      name: 'Sharekhan',
+      isSupported: false,
+      brandColor: const Color(0xFFF26522),
+      customLogoBuilder: () => _buildSharekhanLogo(),
+    ),
+    _BrokerItem(
+      name: 'Axis Securities',
+      isSupported: false,
+      brandColor: const Color(0xFF97123A),
+      customLogoBuilder: () => _buildAxisLogo(),
+    ),
+    _BrokerItem(
+      name: 'IIFL Securities',
+      isSupported: false,
+      brandColor: const Color(0xFFF37023),
+      customLogoBuilder: () => _buildIiflLogo(),
+    ),
+    _BrokerItem(
+      name: '5paisa',
+      isSupported: false,
+      brandColor: const Color(0xFFCF1222),
+      customLogoBuilder: () => _buildFivePaisaLogo(),
+    ),
+    _BrokerItem(
+      name: 'Choice',
+      isSupported: false,
+      brandColor: const Color(0xFF0068B3),
+      customLogoBuilder: () => _buildChoiceLogo(),
+    ),
+    _BrokerItem(
+      name: 'Geojit',
+      isSupported: false,
+      brandColor: const Color(0xFF008269),
+      customLogoBuilder: () => _buildGeojitLogo(),
+    ),
+    _BrokerItem(
+      name: 'Mirae Asset',
+      isSupported: false,
+      brandColor: const Color(0xFF00457C),
+      customLogoBuilder: () => _buildMiraeLogo(),
+    ),
+    _BrokerItem(
+      name: 'Sahi',
+      isSupported: false,
+      brandColor: const Color(0xFF0E1E38),
+      customLogoBuilder: () => _buildSahiLogo(),
+    ),
+  ];
+
+  static String _normalizeBroker(String name) {
+    final lower = name.toLowerCase().trim();
+    if (lower.contains('zerodha') || lower.contains('kite')) return 'zerodha';
+    if (lower.contains('upstox')) return 'upstox';
+    if (lower.contains('groww')) return 'groww';
+    if (lower.contains('angel')) return 'angel_one';
+    if (lower.contains('dhan')) return 'dhan';
+    if (lower.contains('icici')) return 'icici_direct';
+    if (lower.contains('kotak')) return 'kotak_neo';
+    if (lower.contains('hdfc')) return 'hdfc_securities';
+    if (lower.contains('sbi')) return 'sbi_securities';
+    if (lower.contains('motilal')) return 'motilal_oswal';
+    if (lower.contains('paytm')) return 'paytm_money';
+    if (lower.contains('ind')) return 'ind_money';
+    if (lower.contains('sharekhan')) return 'sharekhan';
+    if (lower.contains('axis')) return 'axis_securities';
+    if (lower.contains('iifl')) return 'iifl_securities';
+    if (lower.contains('5paisa')) return '5paisa';
+    if (lower.contains('choice')) return 'choice';
+    if (lower.contains('geojit')) return 'geojit';
+    if (lower.contains('mirae')) return 'mirae_asset';
+    if (lower.contains('sahi')) return 'sahi';
+    return lower;
+  }
+
+  bool _isSameBroker(String? a, String? b) {
+    if (a == null || b == null) return false;
+    return _normalizeBroker(a) == _normalizeBroker(b);
+  }
+
+  bool _isSupportedBroker(_BrokerItem item) {
+    if (Get.isRegistered<TradingAppsService>()) {
+      final svc = Get.find<TradingAppsService>();
+      if (svc.apps.isNotEmpty) {
+        for (final app in svc.apps) {
+          if (_isSameBroker(app.name, item.name) ||
+              (app.packageName.isNotEmpty &&
+                  app.packageName == _getBrokerPackageName(item.name))) {
+            return true;
+          }
+        }
+      }
+    }
+    return item.isSupported;
+  }
+
+  List<_BrokerItem> _getEffectiveBrokerList() {
+    final list = List<_BrokerItem>.from(_brokerList);
+
+    if (Get.isRegistered<TradingAppsService>()) {
+      final svc = Get.find<TradingAppsService>();
+      for (final app in svc.apps) {
+        final exists = list.any((item) => _isSameBroker(item.name, app.name));
+        if (!exists && app.name.isNotEmpty) {
+          list.add(
+            _BrokerItem(
+              name: app.name,
+              isSupported: true,
+              brandColor: const Color(0xFF4A22F4),
+            ),
+          );
+        }
+      }
+    }
+
+    return list;
+  }
+
   Widget _step4Screen() {
+    final isBrokerSelected = brokerage != null && brokerage!.isNotEmpty;
+
     return _normalStep(
       step: 5,
-      title: 'Select Your Broking App',
+      title: 'Select Your Broker App',
       subtitle:
-          'Choose the app you will use\n'
-          'exclusively for Mind Control Trading.',
+          'Choose the trading app you use. Zeno AI will monitor '
+          'only this app to help you stay focused and disciplined.',
       onNext: () {
-        if (brokerage == null) {
+        if (!isBrokerSelected) {
           AppToast.showToast('Please select your trading broker app');
           return;
         }
         nextPage();
       },
+      isNextEnabled: isBrokerSelected,
       content: [
-        _brokerCard(
-          title: 'Zerodha Kite',
-          logo: 'K',
-          logoColor: const Color(0xFFF15B35),
-        ),
-        _brokerCard(
-          title: 'Upstox',
-          logo: 'U',
-          logoColor: const Color(0xFF5B35A5),
-        ),
-        _brokerCard(
-          title: 'Groww',
-          logo: 'G',
-          logoColor: const Color(0xFF28B9A7),
-        ),
-        const SizedBox(height: 3),
-        _brokerInfoCard(),
+        _brokerGrid(),
+        const SizedBox(height: 12),
       ],
     );
   }
 
-  Widget _brokerCard({
-    required String title,
-    required String logo,
-    required Color logoColor,
-  }) {
-    final selected = brokerage == title;
-
-    return GestureDetector(
-      onTap: () async {
-        setState(() => brokerage = title);
-        final pkg = _getBrokerPackageName(title);
-        await _prefs.saveSelectedPackage(
-          userId: widget.userId,
-          packageName: pkg,
-        );
-        if (Platform.isAndroid) {
-          await _blockService.saveUserIdForOverlay(widget.userId);
-          await _blockService.blockApp(pkg);
-        }
-      },
-      child: Container(
-        width: double.infinity,
-        height: 44,
-        margin: const EdgeInsets.only(bottom: 7),
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          color: selected ? const Color(0xFFFBF8FF) : Colors.white,
-          borderRadius: BorderRadius.circular(9),
-          border: Border.all(
-            color: selected ? purple : border,
-            width: selected ? 1.2 : 1,
-          ),
-        ),
-        child: Row(
+  Widget _brokerGrid() {
+    final list = _getEffectiveBrokerList();
+    final rows = <Widget>[];
+    for (var i = 0; i < list.length; i += 4) {
+      final chunk = list.sublist(
+        i,
+        math.min(i + 4, list.length),
+      );
+      rows.add(
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _brokerLogo(logo, logoColor),
-            const SizedBox(width: 11),
-            Expanded(
-              child: Text(
-                title,
-                style: const TextStyle(
-                  fontSize: _Type.label,
-                  fontWeight: FontWeight.w700,
-                  color: ink,
+            for (var j = 0; j < 4; j++) ...[
+              if (j > 0) const SizedBox(width: 8),
+              Expanded(
+                child: j < chunk.length
+                    ? _buildBrokerGridCard(chunk[j])
+                    : const SizedBox.shrink(),
+              ),
+            ],
+          ],
+        ),
+      );
+      if (i + 4 < list.length) {
+        rows.add(const SizedBox(height: 10));
+      }
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: rows,
+    );
+  }
+
+  Widget _buildBrokerGridCard(_BrokerItem item) {
+    final isSelected = _isSameBroker(brokerage, item.name);
+    final supported = _isSupportedBroker(item);
+
+    return Material(
+      color: isSelected ? const Color(0xFFFAF7FE) : Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: () async {
+          if (supported) {
+            setState(() => brokerage = item.name);
+            final pkg = _getBrokerPackageName(item.name);
+            await _prefs.saveSelectedPackage(
+              userId: widget.userId,
+              packageName: pkg,
+            );
+            if (Platform.isAndroid) {
+              await _blockService.saveUserIdForOverlay(widget.userId);
+              await _blockService.blockApp(pkg);
+            }
+          } else {
+            _showUnsupportedBrokerDialog(context);
+          }
+        },
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isSelected ? purple : const Color(0xFFE2E0E9),
+              width: isSelected ? 1.8 : 1.0,
+            ),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: purple.withOpacity(0.12),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 40,
+                height: 40,
+                child: _buildBrokerLogoWidget(item),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                item.name,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                  color: isSelected ? purple : ink,
+                  height: 1.15,
                 ),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBrokerLogoWidget(_BrokerItem item) {
+    if (item.assetPath != null) {
+      return Image.asset(
+        item.assetPath!,
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) {
+          if (item.customLogoBuilder != null) {
+            return item.customLogoBuilder!();
+          }
+          return _defaultBrokerLogo(item.name, item.brandColor);
+        },
+      );
+    }
+    if (item.customLogoBuilder != null) {
+      return item.customLogoBuilder!();
+    }
+    return _defaultBrokerLogo(item.name, item.brandColor);
+  }
+
+  static Widget _defaultBrokerLogo(String name, Color color) {
+    final letter = name.isNotEmpty ? name[0].toUpperCase() : 'B';
+    return Container(
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        letter,
+        style: TextStyle(
+          color: color,
+          fontSize: 18,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+
+  static Widget _buildGrowwLogo() {
+    return Container(
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          colors: [Color(0xFF00D09C), Color(0xFF00B587)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: const Icon(Icons.trending_up_rounded, color: Colors.white, size: 24),
+    );
+  }
+
+  static Widget _buildZerodhaLogo() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF387ED1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Center(
+        child: Transform.rotate(
+          angle: math.pi / 4,
+          child: Container(
+            width: 18,
+            height: 18,
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.white, width: 2.5),
+              borderRadius: BorderRadius.circular(3),
             ),
-            Icon(
-              selected
-                  ? Icons.radio_button_checked
-                  : Icons.radio_button_unchecked,
-              color: selected ? purple : const Color(0xFF85838F),
-              size: 18,
+          ),
+        ),
+      ),
+    );
+  }
+
+  static Widget _buildAngelOneLogo() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF2EC),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFFFE0D2)),
+      ),
+      child: const Center(
+        child: Icon(
+          Icons.change_history_rounded,
+          color: Color(0xFFEB5B28),
+          size: 24,
+        ),
+      ),
+    );
+  }
+
+  static Widget _buildIciciLogo() {
+    return Container(
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          colors: [Color(0xFFB01D22), Color(0xFFE35300)],
+        ),
+      ),
+      child: const Center(
+        child: Text(
+          'i',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 22,
+            fontWeight: FontWeight.w900,
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+      ),
+    );
+  }
+
+  static Widget _buildUpstoxLogo() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF702FB2),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Center(
+        child: Text(
+          'up',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -1,
+          ),
+        ),
+      ),
+    );
+  }
+
+  static Widget _buildKotakLogo() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFE31B23),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.all_inclusive_rounded, color: Colors.white, size: 16),
+            Text(
+              'neo',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 9,
+                fontWeight: FontWeight.w800,
+                height: 0.9,
+              ),
             ),
           ],
         ),
@@ -1755,61 +2147,356 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     );
   }
 
-  Widget _brokerLogo(String text, Color color) {
+  static Widget _buildHdfcLogo() {
     return Container(
-      width: 27,
-      height: 27,
       decoration: BoxDecoration(
-        color: color.withOpacity(.12),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE31B23), width: 2),
       ),
-      alignment: Alignment.center,
-      child: Text(
-        text,
-        style: TextStyle(
-          color: color,
-          fontSize: _Type.body,
-          fontWeight: FontWeight.w900,
+      child: Center(
+        child: Container(
+          width: 14,
+          height: 14,
+          decoration: BoxDecoration(
+            color: const Color(0xFF004C8F),
+            borderRadius: BorderRadius.circular(2),
+          ),
         ),
       ),
     );
   }
 
-  Widget _brokerInfoCard() {
+  static Widget _buildSbiLogo() {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8F4FF),
-        borderRadius: BorderRadius.circular(10),
+      decoration: const BoxDecoration(
+        color: Color(0xFF0081C6),
+        shape: BoxShape.circle,
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 29,
-            height: 29,
-            decoration: BoxDecoration(
-              color: const Color(0xFFEAE3FF),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.shield_outlined, color: purple, size: 18),
+      child: Center(
+        child: Container(
+          width: 14,
+          height: 14,
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
           ),
-          const SizedBox(width: 9),
-          const Expanded(
-            child: Text(
-              'Use only this selected app for\n'
-              'Mind Control Trading to unlock\n'
-              'its full power over time.',
-              style: TextStyle(
-                fontSize: _Type.caption,
-                height: 1.35,
-                fontWeight: FontWeight.w600,
-                color: ink,
+          child: Center(
+            child: Container(
+              width: 6,
+              height: 6,
+              decoration: const BoxDecoration(
+                color: Color(0xFF0081C6),
+                shape: BoxShape.circle,
               ),
             ),
           ),
-        ],
+        ),
       ),
+    );
+  }
+
+  static Widget _buildDhanLogo() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF00A669),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Center(
+        child: Text(
+          'ध',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+
+  static Widget _buildMotilalLogo() {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Color(0xFFF39200),
+        shape: BoxShape.circle,
+      ),
+      child: const Center(
+        child: Text(
+          'M',
+          style: TextStyle(
+            color: Color(0xFF10122D),
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+    );
+  }
+
+  static Widget _buildPaytmLogo() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF002E6C),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Center(
+        child: Text(
+          '₹',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+
+  static Widget _buildIndMoneyLogo() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE2E0E9)),
+      ),
+      child: const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.arrow_upward_rounded, color: Colors.black, size: 14),
+            Text(
+              'IND',
+              style: TextStyle(
+                color: Colors.black,
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+                height: 0.9,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static Widget _buildSharekhanLogo() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF0E6),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFFFD4BD)),
+      ),
+      child: const Center(
+        child: Icon(Icons.pets_rounded, color: Color(0xFFF26522), size: 22),
+      ),
+    );
+  }
+
+  static Widget _buildAxisLogo() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF97123A),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Center(
+        child: Text(
+          'A',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 22,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+    );
+  }
+
+  static Widget _buildIiflLogo() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF37023),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Center(
+        child: Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 22),
+      ),
+    );
+  }
+
+  static Widget _buildFivePaisaLogo() {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFCF1222), Color(0xFF9A0B17)],
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Center(
+        child: Text(
+          '5',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 22,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+    );
+  }
+
+  static Widget _buildChoiceLogo() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF0068B3), width: 2),
+      ),
+      child: const Center(
+        child: Text(
+          'C',
+          style: TextStyle(
+            color: Color(0xFF0068B3),
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+    );
+  }
+
+  static Widget _buildGeojitLogo() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF008269),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Center(
+        child: Text(
+          'G',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 22,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+    );
+  }
+
+  static Widget _buildMiraeLogo() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE2E0E9)),
+      ),
+      child: const Center(
+        child: Icon(Icons.show_chart_rounded, color: Color(0xFF00457C), size: 22),
+      ),
+    );
+  }
+
+  static Widget _buildSahiLogo() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0E1E38),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Center(
+        child: Text(
+          'S',
+          style: TextStyle(
+            color: Color(0xFF00E676),
+            fontSize: 22,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showUnsupportedBrokerDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 68,
+                  height: 68,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFF0ECFF),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.account_balance_rounded,
+                    color: Color(0xFF5124FF),
+                    size: 34,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'Currently we support\nonly selected brokers',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                    color: ink,
+                    height: 1.25,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'You can create your trading account on one of these apps and then come back on Zeno AI to start Mind Control Trading.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.4,
+                    fontWeight: FontWeight.w400,
+                    color: Color(0xFF6B6978),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF6C38FF),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Got It',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -2962,6 +3649,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     required String subtitle,
     required List<Widget> content,
     VoidCallback? onNext,
+    bool isNextEnabled = true,
   }) {
     return _page(
       child: Column(
@@ -2990,7 +3678,11 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
           const SizedBox(height: 20),
           ...content,
           const Spacer(),
-          _gradientButton(text: 'Next', onTap: onNext ?? nextPage),
+          _gradientButton(
+            text: 'Next',
+            onTap: onNext ?? nextPage,
+            enabled: isNextEnabled,
+          ),
           const SizedBox(height: 2),
         ],
       ),
@@ -3258,17 +3950,32 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     );
   }
 
-  Widget _gradientButton({required String text, required VoidCallback? onTap}) {
-    final enabled = onTap != null;
+  Widget _gradientButton({
+    required String text,
+    required VoidCallback? onTap,
+    bool enabled = true,
+  }) {
+    final isActuallyEnabled = enabled && onTap != null;
 
     return Container(
       width: double.infinity,
       height: 46,
       decoration: BoxDecoration(
-        gradient: enabled
+        gradient: isActuallyEnabled
             ? primaryGradient
-            : const LinearGradient(colors: [disabled, disabled]),
+            : const LinearGradient(
+                colors: [Color(0xFFDCD8E8), Color(0xFFDCD8E8)],
+              ),
         borderRadius: BorderRadius.circular(10),
+        boxShadow: isActuallyEnabled
+            ? [
+                BoxShadow(
+                  color: purple.withOpacity(0.2),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ]
+            : null,
       ),
       child: ElevatedButton(
         onPressed: onTap,
@@ -3284,9 +3991,10 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         ),
         child: Text(
           text,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: _Type.buttonLabel,
             fontWeight: FontWeight.w700,
+            color: isActuallyEnabled ? Colors.white : const Color(0xFF8E8B99),
           ),
         ),
       ),
@@ -3485,3 +4193,24 @@ class _DottedBorderPainter extends CustomPainter {
       oldDelegate.dashLength != dashLength ||
       oldDelegate.gapLength != gapLength;
 }
+
+// ================================================================
+// BROKER ITEM DATA MODEL
+// ================================================================
+
+class _BrokerItem {
+  final String name;
+  final bool isSupported;
+  final String? assetPath;
+  final Color brandColor;
+  final Widget Function()? customLogoBuilder;
+
+  const _BrokerItem({
+    required this.name,
+    required this.isSupported,
+    this.assetPath,
+    this.brandColor = const Color(0xFF4A22F4),
+    this.customLogoBuilder,
+  });
+}
+
