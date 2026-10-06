@@ -1,10 +1,12 @@
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
+import 'package:discipline_mind/controller/mct_plan_notification_controller.dart';
 import 'package:discipline_mind/controller/trading_process_controller.dart';
 import 'package:discipline_mind/ui/main_home/analysis_screen.dart';
 import 'package:discipline_mind/ui/main_home/bm_screen.dart';
 import 'package:discipline_mind/ui/main_home/chat_screen.dart';
 import 'package:discipline_mind/ui/main_home/chat_screencopy.dart';
+import 'package:discipline_mind/ui/main_home/mct_analysis_popup.dart';
 import 'package:discipline_mind/ui/credits/widgets/credits_header_avatar.dart';
 import 'package:discipline_mind/ui/main_home/more_screen.dart';
 import 'package:discipline_mind/ui/main_home/trade_screen.dart';
@@ -23,11 +25,28 @@ class MainHomeScreen extends StatefulWidget {
 
 class _MainHomeScreenState extends State<MainHomeScreen> {
   late int currentIndex;
+  late final MctPlanNotificationController _mctPlanController;
 
   @override
   void initState() {
     super.initState();
     currentIndex = widget.initialIndex;
+    _mctPlanController = Get.isRegistered<MctPlanNotificationController>()
+        ? Get.find<MctPlanNotificationController>()
+        : Get.put(MctPlanNotificationController(), permanent: true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _mctPlanController.fetchToday();
+    });
+  }
+
+  Future<void> _openMctPlanNotification() async {
+    await _mctPlanController.fetchToday();
+    if (!mounted) return;
+    final notification = _mctPlanController.notification.value;
+    if (notification == null) return;
+    await showMctAnalysisPopup(context, notification: notification);
+    // Refresh after dismissal so the next open always uses today's latest plan.
+    await _mctPlanController.fetchToday();
   }
 
   void _openMoreTab() {
@@ -97,6 +116,8 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
                       children: [
                         Expanded(
                           child: Obx(() {
+                            final mctNotification =
+                                _mctPlanController.notification.value;
                             final user = Common.userData.value?.payload;
                             final rawName = (user?.fullName ?? user?.phone ?? '').trim();
                             final userName = rawName.isNotEmpty ? rawName : 'User';
@@ -106,58 +127,74 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
 
                             return Row(
                               children: [
-                                Container(
-                                  width: 38,
-                                  height: 38,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: isDark
-                                        ? const Color(0xFF2C3240)
-                                        : const Color(0xFFF3F0FF),
-                                    border: Border.all(
-                                      color: AppColors.primary,
-                                      width: 1.8,
-                                    ),
-                                  ),
-                                  child: Center(
-                                    child: Text(
-                                      avatarLetter,
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w800,
-                                        color: AppColors.primary,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
                                 Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        userName,
-                                        style: TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w700,
-                                          color: textColor,
-                                          height: 1.1,
+                                  child: GestureDetector(
+                                    onTap: mctNotification == null
+                                        ? null
+                                        : _openMctPlanNotification,
+                                    behavior: HitTestBehavior.opaque,
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 38,
+                                          height: 38,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: isDark
+                                                ? const Color(0xFF2C3240)
+                                                : const Color(0xFFF3F0FF),
+                                            border: Border.all(
+                                              color: AppColors.primary,
+                                              width: 1.8,
+                                            ),
+                                          ),
+                                          child: Center(
+                                            child: Text(
+                                              avatarLetter,
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w800,
+                                                color: AppColors.primary,
+                                              ),
+                                            ),
+                                          ),
                                         ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      Text(
-                                        "Have a good Day !",
-                                        style: TextStyle(
-                                          fontSize: 11.5,
-                                          fontWeight: FontWeight.w500,
-                                          color: subTextColor,
-                                          height: 1.1,
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(
+                                                userName,
+                                                style: TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: textColor,
+                                                  height: 1.1,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              Text(
+                                                mctNotification != null
+                                                    ? 'MCT plan for today'
+                                                    : 'Have a good Day !',
+                                                style: TextStyle(
+                                                  fontSize: 11.5,
+                                                  fontWeight: FontWeight.w500,
+                                                  color: subTextColor,
+                                                  height: 1.1,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                 ),
                                 if (isZenoAi) const CreditsHeaderAvatar(),

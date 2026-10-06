@@ -72,4 +72,8 @@ class ApiUrl {
 
   /// Activate Mind Control (POST form: user_id, is_mind_controll_active).
   static const String mindControlActive = "user/mind-control-active";
+
+  /// Fetches today's optional MCT plan (POST form: user_id).
+  static const String notificationToday =
+      'https://api.disciplinedminds.in/api/notification/today';
 }

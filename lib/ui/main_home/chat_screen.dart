@@ -2371,6 +2371,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Widget _buildDmtScore(BuildContext context, DmtScoreMessage msg) {
     final isDark = _isDark(context);
+    final mctAnalysisText = _dmtMctAnalysisText(msg);
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Column(
@@ -2382,6 +2383,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 : 'Your daily discipline analysis is ready.',
             isDark,
           ),
+          if (mctAnalysisText.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _buildRichMessageContent(mctAnalysisText, isDark),
+          ],
           const SizedBox(height: 12),
           _tradePromptPrimaryButton(
             label: 'View Discipline Analysis',
@@ -2415,6 +2420,26 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ],
       ),
     );
+  }
+
+  String _dmtMctAnalysisText(DmtScoreMessage msg) {
+    final paragraphs = <String>[];
+    if (msg.mctAnalysisTitle.isNotEmpty) {
+      paragraphs.add('**${msg.mctAnalysisTitle}**');
+    }
+    if (msg.mctAnalysisBody.isNotEmpty) paragraphs.add(msg.mctAnalysisBody);
+    for (final section in msg.mctAnalysisSections) {
+      final heading = section.heading.trim();
+      final content = section.content.trim();
+      if (heading.isNotEmpty && content.isNotEmpty) {
+        paragraphs.add('**$heading**\n$content');
+      } else if (heading.isNotEmpty) {
+        paragraphs.add('**$heading**');
+      } else if (content.isNotEmpty) {
+        paragraphs.add(content);
+      }
+    }
+    return paragraphs.join('\n\n');
   }
 
   static String _formatIndianCurrency(String raw) {

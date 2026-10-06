@@ -237,6 +237,11 @@ class DmtScoreMessage extends ChatMessage {
   /// API `acceptance_note` shown when [acceptanceIsNa] is true.
   final String acceptanceNote;
 
+  /// Optional MCT analysis displayed above the DMT analysis button.
+  final String mctAnalysisTitle;
+  final String mctAnalysisBody;
+  final List<DmtAnalysisSection> mctAnalysisSections;
+
   const DmtScoreMessage({
     this.headline = 'DMT Score',
     this.scoreDate = '',
@@ -251,11 +256,22 @@ class DmtScoreMessage extends ChatMessage {
     this.hasAcceptanceScore = false,
     this.acceptanceIsNa = false,
     this.acceptanceNote = '',
+    this.mctAnalysisTitle = '',
+    this.mctAnalysisBody = '',
+    this.mctAnalysisSections = const [],
     super.timestamp,
     super.messageId,
     super.isUnread,
     super.actionTaken,
   }) : super(type: ChatMessageType.dmtScore);
+}
+
+/// A heading/content pair from the optional DMT MCT analysis.
+class DmtAnalysisSection {
+  final String heading;
+  final String content;
+
+  const DmtAnalysisSection({this.heading = '', this.content = ''});
 }
 
 /// Trade Signal / Market Overview message with day range and quick actions
@@ -516,6 +532,23 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
 
   if (messageType == 'dmt_score' || entityType == 'dmt_score') {
     final p = payloadMap ?? <String, dynamic>{};
+    final mctAnalysis = p['mct_analysis'] is Map
+        ? Map<String, dynamic>.from(p['mct_analysis'] as Map)
+        : <String, dynamic>{};
+    final mctSections = <DmtAnalysisSection>[];
+    final rawMctSections = mctAnalysis['sections'];
+    if (rawMctSections is List) {
+      for (final rawSection in rawMctSections) {
+        if (rawSection is! Map) continue;
+        final section = Map<String, dynamic>.from(rawSection);
+        mctSections.add(
+          DmtAnalysisSection(
+            heading: (section['heading'] ?? '').toString().trim(),
+            content: (section['content'] ?? '').toString().trim(),
+          ),
+        );
+      }
+    }
     final hasAcceptance = p.containsKey('acceptance_score');
     final acceptanceIsNa = p.containsKey('acceptance_is_na')
         ? _parseBoolFlag(p['acceptance_is_na'])
@@ -536,6 +569,9 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         hasAcceptanceScore: hasAcceptance,
         acceptanceIsNa: acceptanceIsNa,
         acceptanceNote: (p['acceptance_note'] ?? '').toString().trim(),
+        mctAnalysisTitle: (mctAnalysis['title'] ?? '').toString().trim(),
+        mctAnalysisBody: (mctAnalysis['body'] ?? '').toString().trim(),
+        mctAnalysisSections: mctSections,
         messageId: messageId,
         isUnread: isUnread,
         actionTaken: actionTaken,

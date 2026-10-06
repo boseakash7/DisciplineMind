@@ -7,6 +7,7 @@ import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/controller/alert_controller.dart';
 import 'package:discipline_mind/controller/chat_controller.dart';
+import 'package:discipline_mind/controller/mct_plan_notification_controller.dart';
 import 'package:discipline_mind/firebase_options.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
@@ -95,7 +96,26 @@ void _refreshUserAlertsOnNotification({int attempt = 0}) {
 }
 
 void _showImmediateNotificationMessage(Map<String, dynamic> data) {
+  _refreshMctPlanOnNotification(data);
   _showImmediateNotificationMessageWithRetry(data);
+}
+
+void _refreshMctPlanOnNotification(Map<String, dynamic> data) {
+  final type =
+      (data['type'] ??
+              data['notification_type'] ??
+              data['event'] ??
+              data['category'] ??
+              '')
+          .toString()
+          .trim()
+          .toLowerCase();
+  if (type != 'mct_plan') return;
+
+  final controller = Get.isRegistered<MctPlanNotificationController>()
+      ? Get.find<MctPlanNotificationController>()
+      : Get.put(MctPlanNotificationController(), permanent: true);
+  unawaited(controller.fetchToday());
 }
 
 void _showImmediateNotificationMessageWithRetry(
