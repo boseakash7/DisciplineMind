@@ -5,6 +5,7 @@ import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/services/api/api_config.dart';
 import 'package:discipline_mind/controller/chat_controller.dart';
+import 'package:discipline_mind/controller/mct_plan_notification_controller.dart';
 import 'package:discipline_mind/controller/trading_process_controller.dart';
 import 'package:discipline_mind/model/chat_message_model.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
@@ -1289,6 +1290,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         msg is TradeExecutionPromptMessage ||
         msg is TradeExecutedMessage ||
         msg is AlertHitWithButtonMessage ||
+        msg is MctPlanMessage ||
         msg is DmtScoreMessage ||
         msg is TradeSignalMessage;
     if (isTradeCardMessage) {
@@ -2424,83 +2426,29 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildMctPlan(BuildContext context, MctPlanMessage msg) {
+  Widget _buildMctPlan(BuildContext context, MctPlanMessage _) {
     final isDark = _isDark(context);
-    final headingColor = isDark ? Colors.white : const Color(0xFF10122D);
-    final bodyColor = isDark ? Colors.white70 : const Color(0xFF4E5368);
-    final showOuterMessage = msg.message.isNotEmpty && msg.message != msg.body;
-    final showPayloadTitle = msg.title.isNotEmpty && msg.title != msg.heading;
-    final showPayloadBody = msg.body.isNotEmpty && msg.body != msg.message;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (msg.heading.isNotEmpty || msg.title.isNotEmpty)
-            Text(
-              msg.heading.isNotEmpty ? msg.heading : msg.title,
-              style: TextStyle(
-                color: headingColor,
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          if (showOuterMessage)
-            Padding(
-              padding: const EdgeInsets.only(top: 5),
-              child: Text(
-                msg.message,
-                style: TextStyle(color: bodyColor, fontSize: 14, height: 1.4),
-              ),
-            ),
-          if (showPayloadTitle)
-            Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: Text(
-                msg.title,
-                style: TextStyle(
-                  color: headingColor,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-          if (showPayloadBody)
-            Padding(
-              padding: const EdgeInsets.only(top: 5),
-              child: Text(
-                msg.body,
-                style: TextStyle(color: bodyColor, fontSize: 14, height: 1.4),
-              ),
-            ),
-          ...msg.sections.expand(
-            (section) => [
-              if (section.heading.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 10),
-                  child: Text(
-                    section.heading,
-                    style: TextStyle(
-                      color: headingColor,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-              if (section.content.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    section.content,
-                    style: TextStyle(
-                      color: bodyColor,
-                      fontSize: 14,
-                      height: 1.4,
-                    ),
-                  ),
-                ),
-            ],
+          _buildRichMessageContent(
+            'Your MCT plan for today is available.',
+            isDark,
+          ),
+          const SizedBox(height: 12),
+          _tradePromptPrimaryButton(
+            label: 'View MCT Plan',
+            icon: Icons.event_note_outlined,
+            onTap: () {
+              final mctController =
+                  Get.isRegistered<MctPlanNotificationController>()
+                  ? Get.find<MctPlanNotificationController>()
+                  : Get.put(MctPlanNotificationController(), permanent: true);
+              mctController.requestOpen();
+            },
           ),
         ],
       ),

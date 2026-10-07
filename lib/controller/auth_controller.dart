@@ -186,11 +186,10 @@ class AuthController extends GetxController {
         fields,
       );
 
-      isLoading.value = false;
-
       if (response.isSuccess) {
         final raw = response.data;
         if (raw is! Map) {
+          isLoading.value = false;
           AppToast.showToast(
             "Account created, but login failed. Please login.",
           );
@@ -201,6 +200,7 @@ class AuthController extends GetxController {
         final data = Map<String, dynamic>.from(raw);
         final loginModel = LoginResponseModel.fromJson(data);
         if (loginModel.payload?.id == null || loginModel.payload!.id!.isEmpty) {
+          isLoading.value = false;
           AppToast.showToast(
             "Account created, but login failed. Please login.",
           );
@@ -214,7 +214,11 @@ class AuthController extends GetxController {
           loginModel,
           navigateAfterLogin: navigateAfterLogin,
         );
+        if (!navigateAfterLogin) {
+          isLoading.value = false;
+        }
       } else {
+        isLoading.value = false;
         AppToast.showToast(response.errorMessage ?? "Failed to create account");
       }
     } catch (e, stack) {

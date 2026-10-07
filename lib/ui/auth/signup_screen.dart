@@ -10,11 +10,7 @@ class SignUpScreen extends StatefulWidget {
   final String? lockedPhone;
   final String? initialName;
 
-  const SignUpScreen({
-    super.key,
-    this.lockedPhone,
-    this.initialName,
-  });
+  const SignUpScreen({super.key, this.lockedPhone, this.initialName});
 
   @override
   State<SignUpScreen> createState() => _SignUpScreenState();
@@ -137,17 +133,20 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       ? "Signing Up..."
                       : "SIGN UP",
                   color: AppColors.primary,
+                  isLoading: authController.isLoading.value,
                   onPressed: authController.isLoading.value
                       ? null
                       : () {
                           if (_formKey.currentState!.validate()) {
                             final phone = phoneLocked
-                                ? widget.lockedPhone!
-                                    .trim()
-                                    .replaceAll(RegExp(r'\s+'), '')
-                                : phoneController.text
-                                    .trim()
-                                    .replaceAll(RegExp(r'\s+'), '');
+                                ? widget.lockedPhone!.trim().replaceAll(
+                                    RegExp(r'\s+'),
+                                    '',
+                                  )
+                                : phoneController.text.trim().replaceAll(
+                                    RegExp(r'\s+'),
+                                    '',
+                                  );
                             authController.signUp(
                               fullname: nameController.text.trim(),
                               email: emailController.text.trim(),
@@ -205,7 +204,11 @@ class _LockedPhoneField extends StatelessWidget {
                   ),
                 ),
               ),
-              const Icon(Icons.lock_outline, size: 20, color: AppColors.textGrey),
+              const Icon(
+                Icons.lock_outline,
+                size: 20,
+                color: AppColors.textGrey,
+              ),
             ],
           ),
         ),
