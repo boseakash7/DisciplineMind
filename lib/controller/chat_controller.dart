@@ -679,6 +679,19 @@ class ChatController extends GetxController {
           actionTaken: actionTaken,
           timestamp: x.timestamp,
         );
+      case ChatMessageType.mctPlan:
+        final x = m as MctPlanMessage;
+        return MctPlanMessage(
+          heading: x.heading,
+          message: x.message,
+          title: x.title,
+          body: x.body,
+          sections: x.sections,
+          messageId: x.messageId,
+          isUnread: x.isUnread,
+          actionTaken: actionTaken,
+          timestamp: x.timestamp,
+        );
       case ChatMessageType.dmtScore:
         final x = m as DmtScoreMessage;
         return DmtScoreMessage(

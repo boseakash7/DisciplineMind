@@ -26,6 +26,7 @@ class MainHomeScreen extends StatefulWidget {
 class _MainHomeScreenState extends State<MainHomeScreen> {
   late int currentIndex;
   late final MctPlanNotificationController _mctPlanController;
+  Worker? _mctOpenWorker;
 
   @override
   void initState() {
@@ -34,9 +35,28 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
     _mctPlanController = Get.isRegistered<MctPlanNotificationController>()
         ? Get.find<MctPlanNotificationController>()
         : Get.put(MctPlanNotificationController(), permanent: true);
+    _mctOpenWorker = ever<bool>(
+      _mctPlanController.openRequested,
+      (_) => _openPendingMctPlan(),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _mctPlanController.fetchToday();
+      if (_mctPlanController.openRequested.value) {
+        _openPendingMctPlan();
+      } else {
+        _mctPlanController.fetchToday();
+      }
     });
+  }
+
+  Future<void> _openPendingMctPlan() async {
+    if (!_mctPlanController.openRequested.value) return;
+    await _mctPlanController.fetchToday();
+    if (!mounted) return;
+    final notification = _mctPlanController.notification.value;
+    if (notification == null) return;
+    _mctPlanController.consumeOpenRequest();
+    await showMctAnalysisPopup(context, notification: notification);
+    await _mctPlanController.fetchToday();
   }
 
   Future<void> _openMctPlanNotification() async {
@@ -55,6 +75,12 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
 
   void _onTabSelected(int index) {
     setState(() => currentIndex = index);
+  }
+
+  @override
+  void dispose() {
+    _mctOpenWorker?.dispose();
+    super.dispose();
   }
 
   @override

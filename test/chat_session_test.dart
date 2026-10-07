@@ -175,4 +175,28 @@ void main() {
       expect(chat.isRefreshing.value, isFalse);
     },
   );
+
+  test('mct_plan parses heading, title, body, and sections', () {
+    final parsed = chatMessagesFromJson({
+      'message_id': '218',
+      'message_type': 'mct_plan',
+      'heading': 'MCT plan for today',
+      'message': "Here is your trading discipline audit for today's session.",
+      'payload': {
+        'title': 'MCT plan for today',
+        'body': "Here is your trading discipline audit for today's session.",
+        'sections': [
+          {'heading': "Today's Behavior", 'content': 'Keep the process.'},
+        ],
+      },
+    });
+
+    expect(parsed, hasLength(1));
+    final message = parsed.single as MctPlanMessage;
+    expect(message.heading, 'MCT plan for today');
+    expect(message.title, 'MCT plan for today');
+    expect(message.body, contains('trading discipline audit'));
+    expect(message.sections.single.heading, "Today's Behavior");
+    expect(message.sections.single.content, 'Keep the process.');
+  });
 }

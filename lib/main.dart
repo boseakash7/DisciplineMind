@@ -104,6 +104,7 @@ void _refreshMctPlanOnNotification(Map<String, dynamic> data) {
   final type =
       (data['type'] ??
               data['notification_type'] ??
+              data['message_type'] ??
               data['event'] ??
               data['category'] ??
               '')
@@ -115,6 +116,26 @@ void _refreshMctPlanOnNotification(Map<String, dynamic> data) {
   final controller = Get.isRegistered<MctPlanNotificationController>()
       ? Get.find<MctPlanNotificationController>()
       : Get.put(MctPlanNotificationController(), permanent: true);
+  unawaited(controller.fetchToday());
+}
+
+void _openMctPlanFromNotification(Map<String, dynamic> data) {
+  final type =
+      (data['type'] ??
+              data['notification_type'] ??
+              data['message_type'] ??
+              data['event'] ??
+              data['category'] ??
+              '')
+          .toString()
+          .trim()
+          .toLowerCase();
+  if (type != 'mct_plan') return;
+
+  final controller = Get.isRegistered<MctPlanNotificationController>()
+      ? Get.find<MctPlanNotificationController>()
+      : Get.put(MctPlanNotificationController(), permanent: true);
+  controller.requestOpen();
   unawaited(controller.fetchToday());
 }
 
@@ -232,6 +253,7 @@ Future<void> main() async {
   NotificationHandler.onNotificationReceived = _refreshUserAlertsOnNotification;
   NotificationHandler.onNotificationDataReceived =
       _showImmediateNotificationMessage;
+  NotificationHandler.onNotificationOpened = _openMctPlanFromNotification;
 
   runApp(const MyApp());
 

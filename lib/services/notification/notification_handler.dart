@@ -53,6 +53,9 @@ class NotificationHandler {
   /// Called with notification data before the legacy refresh callback.
   static void Function(Map<String, dynamic> data)? onNotificationDataReceived;
 
+  /// Called only when the user taps/opens a notification.
+  static void Function(Map<String, dynamic> data)? onNotificationOpened;
+
   // Set when user taps a DMT score notification (or opens it from terminated state).
   // ChatScreen reads this flag to auto-open the DMT score popup.
   static bool _dmtScoreAutoOpenPending = false;
@@ -152,9 +155,9 @@ class NotificationHandler {
       if (payload != null && payload.isNotEmpty) {
         final decoded = jsonDecode(payload);
         if (decoded is Map) {
-          instance._notifyNotificationReceived(
-            decoded.map((k, v) => MapEntry(k.toString(), v)),
-          );
+          final data = decoded.map((k, v) => MapEntry(k.toString(), v));
+          instance._notifyNotificationReceived(data);
+          onNotificationOpened?.call(data);
         }
       }
     } catch (_) {
@@ -182,6 +185,7 @@ class NotificationHandler {
         message.data,
         notificationKey: message.messageId ?? message.hashCode.toString(),
       );
+      onNotificationOpened?.call(Map<String, dynamic>.from(message.data));
     });
     _firebaseInited = true;
   }
@@ -372,6 +376,7 @@ class NotificationHandler {
           message.data,
           notificationKey: message.messageId ?? message.hashCode.toString(),
         );
+        onNotificationOpened?.call(Map<String, dynamic>.from(message.data));
       }
     });
   }

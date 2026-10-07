@@ -6,7 +6,12 @@ import 'package:get/get.dart';
 
 class MctPlanNotificationController extends GetxController {
   final notification = Rxn<MctPlanNotification>();
+  final openRequested = false.obs;
   Future<void>? _activeRequest;
+
+  void requestOpen() => openRequested.value = true;
+
+  void consumeOpenRequest() => openRequested.value = false;
 
   Future<void> fetchToday() {
     return _activeRequest ??= _fetchToday().whenComplete(() {

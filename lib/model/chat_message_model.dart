@@ -10,6 +10,7 @@ enum ChatMessageType {
   tradeExecuted,
   agentWithButton, // e.g. "Register for Demo" button
   alertHitWithButton, // GTT or upper/lower alert hit - shows text + button to unlock
+  mctPlan, // Daily MCT plan message
   dmtScore, // Daily discipline analysis score card
   tradeSignal, // Process overview / Market signal card with quick actions
 }
@@ -264,6 +265,27 @@ class DmtScoreMessage extends ChatMessage {
     super.isUnread,
     super.actionTaken,
   }) : super(type: ChatMessageType.dmtScore);
+}
+
+/// Daily MCT plan message (`message_type: mct_plan`).
+class MctPlanMessage extends ChatMessage {
+  final String heading;
+  final String message;
+  final String title;
+  final String body;
+  final List<DmtAnalysisSection> sections;
+
+  const MctPlanMessage({
+    this.heading = '',
+    this.message = '',
+    this.title = '',
+    this.body = '',
+    this.sections = const [],
+    super.timestamp,
+    super.messageId,
+    super.isUnread,
+    super.actionTaken,
+  }) : super(type: ChatMessageType.mctPlan);
 }
 
 /// A heading/content pair from the optional DMT MCT analysis.
@@ -572,6 +594,38 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         mctAnalysisTitle: (mctAnalysis['title'] ?? '').toString().trim(),
         mctAnalysisBody: (mctAnalysis['body'] ?? '').toString().trim(),
         mctAnalysisSections: mctSections,
+        messageId: messageId,
+        isUnread: isUnread,
+        actionTaken: actionTaken,
+        timestamp: outerTimestamp,
+      ),
+    ];
+  }
+
+  if (normalizedMessageType == 'mct_plan' ||
+      entityType.trim().toLowerCase() == 'mct_plan') {
+    final p = payloadMap ?? <String, dynamic>{};
+    final sections = <DmtAnalysisSection>[];
+    final rawSections = p['sections'];
+    if (rawSections is List) {
+      for (final rawSection in rawSections) {
+        if (rawSection is! Map) continue;
+        final section = Map<String, dynamic>.from(rawSection);
+        sections.add(
+          DmtAnalysisSection(
+            heading: (section['heading'] ?? '').toString().trim(),
+            content: (section['content'] ?? '').toString().trim(),
+          ),
+        );
+      }
+    }
+    return [
+      MctPlanMessage(
+        heading: (json['heading'] ?? '').toString().trim(),
+        message: message.trim(),
+        title: (p['title'] ?? '').toString().trim(),
+        body: (p['body'] ?? '').toString().trim(),
+        sections: sections,
         messageId: messageId,
         isUnread: isUnread,
         actionTaken: actionTaken,

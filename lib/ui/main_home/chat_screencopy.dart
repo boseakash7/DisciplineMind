@@ -555,6 +555,8 @@ class _chat_screencopyState extends State<chat_screencopy> {
           msg as AlertHitWithButtonMessage,
           controller,
         );
+      case ChatMessageType.mctPlan:
+        return _buildMctPlan(context, msg as MctPlanMessage);
       case ChatMessageType.dmtScore:
         return _buildDmtScore(context, msg as DmtScoreMessage);
       case ChatMessageType.tradeSignal:
@@ -631,6 +633,77 @@ class _chat_screencopyState extends State<chat_screencopy> {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMctPlan(BuildContext context, MctPlanMessage msg) {
+    final isDark = _isDark(context);
+    final headingColor = _headlineText(isDark);
+    final bodyColor = _bubbleText(isDark);
+    final showMessage = msg.message.isNotEmpty && msg.message != msg.body;
+    final showTitle = msg.title.isNotEmpty && msg.title != msg.heading;
+    final showBody = msg.body.isNotEmpty && msg.body != msg.message;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (msg.heading.isNotEmpty || msg.title.isNotEmpty)
+            Text(
+              msg.heading.isNotEmpty ? msg.heading : msg.title,
+              style: TextStyle(
+                color: headingColor,
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          if (showMessage)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(msg.message, style: TextStyle(color: bodyColor)),
+            ),
+          if (showTitle)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                msg.title,
+                style: TextStyle(
+                  color: headingColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          if (showBody)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(msg.body, style: TextStyle(color: bodyColor)),
+            ),
+          ...msg.sections.expand(
+            (section) => [
+              if (section.heading.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    section.heading,
+                    style: TextStyle(
+                      color: headingColor,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              if (section.content.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 3),
+                  child: Text(
+                    section.content,
+                    style: TextStyle(color: bodyColor),
+                  ),
+                ),
+            ],
           ),
         ],
       ),
