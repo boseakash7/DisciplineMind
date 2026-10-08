@@ -99,6 +99,9 @@ class ChatController extends GetxController {
     messages.clear();
     _pendingMindControlGuardNotifications.clear();
     _shownMindControlGuardNotificationKeys.clear();
+    _takenActionMessageIds.clear();
+    _takenActionTradeIds.clear();
+    _supersededActionKeys.clear();
     currentUserId = null;
     isLoading.value = false;
     isRefreshing.value = false;
@@ -204,6 +207,9 @@ class ChatController extends GetxController {
 
   final Set<String> _takenActionMessageIds = <String>{};
   final Set<String> _takenActionTradeIds = <String>{};
+  // Older rows disabled by a newer delete request. Include the row identity
+  // because the backend can reuse a message_id for the delete update.
+  final Set<String> _supersededActionKeys = <String>{};
   final Map<String, SimpleTextMessage> _pendingMindControlGuardNotifications =
       {};
   final Set<String> _shownMindControlGuardNotificationKeys = <String>{};
@@ -212,6 +218,11 @@ class ChatController extends GetxController {
     if (_isActionTakenValue(msg.actionTaken)) return true;
     final mId = msg.messageId.trim();
     if (mId.isNotEmpty && _takenActionMessageIds.contains(mId)) return true;
+    final supersededKey = _supersededActionKey(msg);
+    if (supersededKey.isNotEmpty &&
+        _supersededActionKeys.contains(supersededKey)) {
+      return true;
+    }
     final tId = msg is NewTradeOpportunityMessage
         ? msg.tradeId.trim()
         : (msg is TradeExecutionPromptMessage
@@ -229,7 +240,9 @@ class ChatController extends GetxController {
   }
 
   List<ChatMessage> _applyLocallyTakenActions(List<ChatMessage> list) {
-    if (_takenActionMessageIds.isEmpty && _takenActionTradeIds.isEmpty)
+    if (_takenActionMessageIds.isEmpty &&
+        _takenActionTradeIds.isEmpty &&
+        _supersededActionKeys.isEmpty)
       return list;
     final result = list.toList();
     for (int i = 0; i < result.length; i++) {
@@ -243,6 +256,7 @@ class ChatController extends GetxController {
                   : '');
         final actionTakenLocally =
             (mId.isNotEmpty && _takenActionMessageIds.contains(mId)) ||
+            _supersededActionKeys.contains(_supersededActionKey(m)) ||
             (!_isEditActionMessage(m) &&
                 !_isDeleteActionMessage(m) &&
                 tId.isNotEmpty &&
@@ -253,6 +267,21 @@ class ChatController extends GetxController {
       }
     }
     return result;
+  }
+
+  String _supersededActionKey(ChatMessage m) {
+    final messageId = m.messageId.trim();
+    if (messageId.isEmpty) return '';
+    if (m is NewTradeOpportunityMessage) {
+      return '$messageId|${m.action.trim().toLowerCase()}|'
+          '${m.buttonType.trim().toLowerCase()}|${m.tradeId.trim()}';
+    }
+    if (m is TradeExecutionPromptMessage) {
+      final trade = m.tradeData;
+      return '$messageId|${trade.action.trim().toLowerCase()}|'
+          '${trade.buttonType.trim().toLowerCase()}|${trade.tradeId.trim()}';
+    }
+    return '$messageId|${m.type.name}';
   }
 
   ({List<ChatMessage> messages, Set<String> fomoDeleteKeys, bool hasFomoDelete})
@@ -752,7 +781,7 @@ class ChatController extends GetxController {
       // silent full refresh cannot re-enable their buttons.
       final messageId = m.messageId.trim();
       if (messageId.isNotEmpty) {
-        _takenActionMessageIds.add(messageId);
+        _supersededActionKeys.add(_supersededActionKey(m));
       }
       return _withActionTaken(m, 1);
     }).toList();

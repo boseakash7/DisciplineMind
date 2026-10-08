@@ -650,6 +650,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     required String subtitle,
     required List<Widget> content,
     bool capital = false,
+    bool stickyNext = false,
     VoidCallback? onNext,
   }) {
     return Theme(
@@ -660,6 +661,81 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         style: const TextStyle(fontFamily: 'Roboto', color: ink),
         child: LayoutBuilder(
           builder: (context, constraints) {
+            final stepChildren = <Widget>[
+              _header(step, reference: true),
+              SizedBox(height: capital ? 26 : 24),
+              Text(
+                title,
+                style: TextStyle(
+                  fontFamily: 'Roboto',
+                  fontSize: capital ? 23 : 21,
+                  fontWeight: FontWeight.w600,
+                  color: ink,
+                  height: 1.2,
+                  letterSpacing: -0.4,
+                ),
+              ),
+              SizedBox(height: capital ? 8 : 7),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontFamily: 'Roboto',
+                  fontSize: capital ? 15 : 13,
+                  height: capital ? 1.5 : 1.35,
+                  color: ink,
+                ),
+              ),
+              SizedBox(height: capital ? 25 : 17),
+              ...content,
+            ];
+
+            final nextButton = Container(
+              height: capital ? 48 : 44,
+              decoration: BoxDecoration(
+                gradient: _referenceGradient,
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(9),
+                  onTap: onNext ?? nextPage,
+                  child: Center(
+                    child: Text(
+                      'Next',
+                      style: TextStyle(
+                        fontFamily: 'Roboto',
+                        color: Colors.white,
+                        fontSize: capital ? 17 : 16,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+
+            if (stickyNext) {
+              return Column(
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(18, 10, 18, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: stepChildren,
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+                    child: nextButton,
+                  ),
+                ],
+              );
+            }
+
             return SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(18, 10, 18, 12),
               child: ConstrainedBox(
@@ -669,59 +745,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                 child: IntrinsicHeight(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _header(step, reference: true),
-                      SizedBox(height: capital ? 26 : 24),
-                      Text(
-                        title,
-                        style: TextStyle(
-                          fontFamily: 'Roboto',
-                          fontSize: capital ? 23 : 21,
-                          fontWeight: FontWeight.w600,
-                          color: ink,
-                          height: 1.2,
-                          letterSpacing: -0.4,
-                        ),
-                      ),
-                      SizedBox(height: capital ? 8 : 7),
-                      Text(
-                        subtitle,
-                        style: TextStyle(
-                          fontFamily: 'Roboto',
-                          fontSize: capital ? 15 : 13,
-                          height: capital ? 1.5 : 1.35,
-                          color: ink,
-                        ),
-                      ),
-                      SizedBox(height: capital ? 25 : 17),
-                      ...content,
-                      const Spacer(),
-                      Container(
-                        height: capital ? 48 : 44,
-                        decoration: BoxDecoration(
-                          gradient: _referenceGradient,
-                          borderRadius: BorderRadius.circular(9),
-                        ),
-                        child: Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(9),
-                            onTap: onNext ?? nextPage,
-                            child: Center(
-                              child: Text(
-                                'Next',
-                                style: TextStyle(
-                                  fontFamily: 'Roboto',
-                                  color: Colors.white,
-                                  fontSize: capital ? 17 : 16,
-                                  fontWeight: FontWeight.w400,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+                    children: [...stepChildren, const Spacer(), nextButton],
                   ),
                 ),
               ),
@@ -737,6 +761,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       step: 3,
       title: 'Select Trading Setup',
       subtitle: 'Choose how you want to get your trade setups',
+      stickyNext: true,
       content: [
         _setupOptionCard(
           setup: _TradingSetup.zenoSignals,
@@ -2919,7 +2944,9 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     final fields = <String, String>{
       'user_id': widget.userId,
       'trading_segment': (tradingSegment ?? 'options').toLowerCase(),
-      'trading_setup_type': _followsZenoSignals ? 'zeno_ai_signals' : 'own_setup',
+      'trading_setup_type': _followsZenoSignals
+          ? 'zeno_ai_signals'
+          : 'own_setup',
       'instrument': instrument ?? 'NIFTY 50',
       'trading_capital': tradingCapital.toString(),
       'trades_per_day': (_effectiveTradesPerDay ?? 1).toString(),

@@ -1436,11 +1436,22 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return -1;
   }
 
-  List<_ChatFeedItem> _buildChatFeedItems(List<ChatMessage> messages) {
+  List<_ChatFeedItem> _buildChatFeedItems(
+    List<ChatMessage> messages, {
+    required bool hasProcess,
+  }) {
+    if (!hasProcess) {
+      return [
+        for (var i = 0; i < messages.length; i++)
+          _ChatFeedMessage(index: i, message: messages[i]),
+      ];
+    }
+
     final items = <_ChatFeedItem>[];
     DateTime? lastDay;
     final newMessagesAt = _latestUnreadBurstStartIndex(messages);
     final btnIdx = _findCreateProcessIndex(messages);
+
     bool newMessagesShown = false;
     bool firstMessageRendered = false;
     String? deferredDateLabel;
@@ -1767,7 +1778,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     });
                   }
                 }
-                final feedItems = _buildChatFeedItems(displayMessages);
+                final feedItems = _buildChatFeedItems(
+                  displayMessages,
+                  hasProcess: process != null,
+                );
                 final firstNewMessageIndex = _latestUnreadBurstStartIndex(
                   displayMessages,
                 );

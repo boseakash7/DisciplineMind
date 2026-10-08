@@ -176,6 +176,61 @@ void main() {
     },
   );
 
+  test(
+    'reused delete message id does not inherit superseded action state',
+    () async {
+      final oldTrade = <String, dynamic>{
+        'message_id': '460',
+        'message_type': 'trade',
+        'entity_type': 'trade',
+        'message': '',
+        'payload': {
+          'id': '16',
+          'trade_uid': 'TvOB-muxti17d5GCJ7Z',
+          'header': 'BSX261008P72500',
+          'symbol': 'BSX261008P72500',
+          'exchange': 'BSE',
+          'entry_price': '275.00',
+          'stop_loss': '225.00',
+          'take_profit': '325.00',
+          'current_price': '253.25',
+          'action': 'add',
+        },
+      };
+      final deleteTrade = <String, dynamic>{
+        'message_id': '460',
+        'message_type': 'button',
+        'button_type': 'delete_button',
+        'entity_type': 'trade',
+        'action_taken': null,
+        'message': 'Go to Trading APP and delete the Trade',
+        'payload': {
+          ...oldTrade['payload'] as Map<String, dynamic>,
+          'action': 'delete',
+        },
+      };
+
+      Common.userData.value = LoginResponseModel(payload: Payload(id: 'user'));
+      final api = Get.put<ApiService>(FakeChatApi()) as FakeChatApi;
+      final chat = Get.put(ChatController());
+      api.completePayload(0, [oldTrade]);
+      await Future<void>.delayed(Duration.zero);
+
+      final refresh = chat.loadNewMessages(silent: true);
+      api.completePayload(1, [deleteTrade]);
+      await refresh;
+
+      final current = chat.messages
+          .whereType<NewTradeOpportunityMessage>()
+          .single;
+      expect(current.messageId, '460');
+      expect(current.actionTaken, isNull);
+      expect(current.action, 'delete');
+      expect(current.buttonType, 'delete_button');
+      expect(chat.isActionTakenFor(current), isFalse);
+    },
+  );
+
   test('mct_plan parses heading, title, body, and sections', () {
     final parsed = chatMessagesFromJson({
       'message_id': '218',
