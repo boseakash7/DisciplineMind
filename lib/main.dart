@@ -11,6 +11,7 @@ import 'package:discipline_mind/controller/mct_plan_notification_controller.dart
 import 'package:discipline_mind/firebase_options.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
+import 'package:discipline_mind/services/app_diagnostic_logger.dart';
 import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:discipline_mind/ui/onboarding/post_login_trading_block_screen.dart';
 import 'package:discipline_mind/ui/android_app_block/blocked_app_overlay_page.dart';
@@ -240,6 +241,7 @@ Future<void> main() async {
   await Firebase.initializeApp();
 
   await GetStorage.init();
+  await AppDiagnosticLogger.initialize();
 
   if (Platform.isAndroid) {
     final blockService = NativeAppBlockService();

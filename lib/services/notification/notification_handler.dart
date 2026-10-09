@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:discipline_mind/services/app_diagnostic_logger.dart';
 
 /// Handles FCM and local notifications: shows notification when app is open (foreground)
 /// and triggers callback to refresh data (e.g. user alerts).
@@ -320,8 +322,22 @@ class NotificationHandler {
     required String source,
     required RemoteMessage message,
   }) {
-    if (!kDebugMode) return;
     final isTrade = _isNewTradeOpportunity(message);
+    unawaited(
+      AppDiagnosticLogger.logNotification(
+        source: source,
+        messageId: message.messageId,
+        title: message.notification?.title,
+        body: message.notification?.body,
+        data: {
+          ...message.data,
+          'isTradeOpportunity': isTrade,
+          'androidChannel': _requestedAndroidChannelId(message),
+        },
+      ),
+    );
+
+    if (!kDebugMode) return;
     debugPrint(
       'FCM[$source] messageId=${message.messageId} '
       'title=${message.notification?.title} '
@@ -340,6 +356,15 @@ class NotificationHandler {
     );
 
     debugPrint('FCM permission status: ${settings.authorizationStatus}');
+    unawaited(
+      AppDiagnosticLogger.log(
+        event: 'NOTIFICATION_PERMISSION',
+        data: {
+          'Authorization Status': settings.authorizationStatus.name,
+          'Platform': Platform.operatingSystem,
+        },
+      ),
+    );
 
     if (Platform.isAndroid) {
       final androidPlugin = _localNotifications
@@ -363,6 +388,15 @@ class NotificationHandler {
       final enabledAfter =
           await androidPlugin.areNotificationsEnabled() ?? false;
       debugPrint('Notifications enabled after request: $enabledAfter');
+      unawaited(
+        AppDiagnosticLogger.log(
+          event: 'NOTIFICATION_PERMISSION',
+          data: {
+            'Platform': Platform.operatingSystem,
+            'Notifications Enabled': enabledAfter ? 'ENABLED' : 'DISABLED',
+          },
+        ),
+      );
     }
   }
 

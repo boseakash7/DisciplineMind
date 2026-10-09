@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'app_diagnostic_logger.dart';
 
 /// Native app blocking - no package dependency.
 /// Uses platform channels to communicate with Kotlin code in the app.
@@ -95,18 +97,43 @@ class NativeAppBlockService {
   /// Check overlay and usage stats permissions.
   Future<Map<String, bool>> checkPermissions() async {
     if (!Platform.isAndroid) {
+      unawaited(
+        AppDiagnosticLogger.logPermissions(
+          source: 'native permission check',
+          platform: Platform.operatingSystem,
+          overlay: false,
+          usageStats: false,
+        ),
+      );
       return {'hasOverlayPermission': false, 'hasUsageStatsPermission': false};
     }
     try {
       final result = await _channel.invokeMethod<Map<Object?, Object?>>(
         'checkPermissions',
       );
-      return {
+      final permissions = {
         'hasOverlayPermission': result?['hasOverlayPermission'] == true,
         'hasUsageStatsPermission': result?['hasUsageStatsPermission'] == true,
       };
+      unawaited(
+        AppDiagnosticLogger.logPermissions(
+          source: 'native permission check',
+          platform: Platform.operatingSystem,
+          overlay: permissions['hasOverlayPermission'] ?? false,
+          usageStats: permissions['hasUsageStatsPermission'] ?? false,
+        ),
+      );
+      return permissions;
     } catch (e) {
       print('[NativeAppBlock] checkPermissions failed: $e');
+      unawaited(
+        AppDiagnosticLogger.logPermissions(
+          source: 'native permission check failed',
+          platform: Platform.operatingSystem,
+          overlay: false,
+          usageStats: false,
+        ),
+      );
       return {'hasOverlayPermission': false, 'hasUsageStatsPermission': false};
     }
   }

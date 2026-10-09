@@ -73,6 +73,10 @@ class ApiUrl {
   /// Activate Mind Control (POST form: user_id, is_mind_controll_active).
   static const String mindControlActive = "user/mind-control-active";
 
+  /// Upload the local diagnostic log file (multipart field: log_file).
+  static const String diagnosticUploadLog =
+      'https://api.disciplinedminds.in/api/diagnostic/upload-log';
+
   /// Fetches today's optional MCT plan (POST form: user_id).
   static const String notificationToday =
       'https://api.disciplinedminds.in/api/notification/today';

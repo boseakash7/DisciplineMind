@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -7,14 +8,38 @@ import 'package:http/http.dart' as http;
 
 import 'api_config.dart';
 import 'api_reponse.dart';
+import '../app_diagnostic_logger.dart';
 
 /// Stored from Set-Cookie on auth responses; sent on later form posts.
 const String _kSessionCookieStorageKey = 'dm_session_cookie';
 
-
 class ApiService extends GetxService {
+  void _logRequest({
+    required String method,
+    required String endpoint,
+    Map<String, dynamic> data = const {},
+    String? fileField,
+    String? fileName,
+  }) {
+    unawaited(
+      AppDiagnosticLogger.logApiRequest(
+        method: method,
+        endpoint: endpoint,
+        data: data,
+        fileField: fileField,
+        fileName: fileName,
+      ),
+    );
+  }
+
   String _friendlyError(dynamic e, String endpoint) {
     debugPrint('[ApiService Error] $endpoint -> $e');
+    unawaited(
+      AppDiagnosticLogger.log(
+        event: 'API_ERROR',
+        data: {'Endpoint': endpoint, 'Error': e.toString()},
+      ),
+    );
     final s = e.toString().toLowerCase();
     if (s.contains('socket') ||
         s.contains('network') ||
@@ -40,12 +65,17 @@ class ApiService extends GetxService {
             ? endpoint
             : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
       ).replace(queryParameters: queryParameters);
+      _logRequest(
+        method: 'GET',
+        endpoint: endpoint,
+        data: queryParameters ?? const {},
+      );
 
       final response = await http
           .get(uri, headers: {...ApiConfig.defaultHeaders, ...?headers})
           .timeout(const Duration(seconds: 10));
 
-      return _processResponse(response);
+      return _processResponse(response, endpoint: endpoint);
     } catch (e) {
       return ApiResponse.error(_friendlyError(e, endpoint));
     }
@@ -63,6 +93,7 @@ class ApiService extends GetxService {
             ? endpoint
             : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
       );
+      _logRequest(method: 'POST', endpoint: endpoint, data: body);
       final response = await http.post(
         uri,
         headers: {
@@ -72,7 +103,7 @@ class ApiService extends GetxService {
         },
         body: jsonEncode(body),
       );
-      return _processResponse(response);
+      return _processResponse(response, endpoint: endpoint);
     } catch (e) {
       return ApiResponse.error(_friendlyError(e, endpoint));
     }
@@ -91,6 +122,11 @@ class ApiService extends GetxService {
             ? endpoint
             : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
       );
+      _logRequest(
+        method: 'POST',
+        endpoint: endpoint,
+        data: Map<String, dynamic>.from(fields),
+      );
       final request = http.MultipartRequest('POST', uri);
       if (headers != null) request.headers.addAll(headers);
       final merged = {
@@ -108,7 +144,7 @@ class ApiService extends GetxService {
         const Duration(seconds: 15),
       );
       final response = await http.Response.fromStream(streamedResponse);
-      return _processResponse(response);
+      return _processResponse(response, endpoint: endpoint);
     } catch (e) {
       return ApiResponse.error(_friendlyError(e, endpoint));
     }
@@ -127,6 +163,11 @@ class ApiService extends GetxService {
         endpoint.startsWith('http')
             ? endpoint
             : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
+      );
+      _logRequest(
+        method: 'POST',
+        endpoint: endpoint,
+        data: Map<String, dynamic>.from(fields),
       );
       final request = http.MultipartRequest('POST', uri);
       if (headers != null) request.headers.addAll(headers);
@@ -147,7 +188,7 @@ class ApiService extends GetxService {
       final response = await http.Response.fromStream(streamedResponse);
       persistSessionFromResponse(response);
       debugPrint("API Response: ${response.body}");
-      return _processResponse(response);
+      return _processResponse(response, endpoint: endpoint);
     } catch (e) {
       return ApiResponse.error(_friendlyError(e, endpoint));
     }
@@ -177,6 +218,13 @@ class ApiService extends GetxService {
             ? endpoint
             : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
       );
+      _logRequest(
+        method: 'POST',
+        endpoint: endpoint,
+        data: Map<String, dynamic>.from(fields),
+        fileField: fileField,
+        fileName: File(filePath).uri.pathSegments.last,
+      );
       final request = http.MultipartRequest('POST', uri);
       if (headers != null) request.headers.addAll(headers);
 
@@ -197,7 +245,7 @@ class ApiService extends GetxService {
       );
       final response = await http.Response.fromStream(streamedResponse);
       persistSessionFromResponse(response);
-      return _processResponse(response);
+      return _processResponse(response, endpoint: endpoint);
     } catch (e) {
       return ApiResponse.error(_friendlyError(e, endpoint));
     }
@@ -251,6 +299,11 @@ class ApiService extends GetxService {
             ? endpoint
             : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
       );
+      _logRequest(
+        method: 'POST',
+        endpoint: endpoint,
+        data: Map<String, dynamic>.from(fields),
+      );
       final response = await http
           .post(
             uri,
@@ -262,7 +315,7 @@ class ApiService extends GetxService {
       persistSessionFromResponse(response);
       debugPrint("API Response: ${response.body}");
 
-      return _processResponse(response);
+      return _processResponse(response, endpoint: endpoint);
     } catch (e) {
       return ApiResponse.error(_friendlyError(e, endpoint));
     }
@@ -280,13 +333,14 @@ class ApiService extends GetxService {
             ? endpoint
             : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
       );
+      _logRequest(method: 'PATCH', endpoint: endpoint, data: body);
       final response = await http.patch(
         uri,
         headers: {...ApiConfig.defaultHeaders, ...?headers},
         body: jsonEncode(body),
       );
 
-      return _processResponse(response);
+      return _processResponse(response, endpoint: endpoint);
     } catch (e) {
       return ApiResponse.error(_friendlyError(e, endpoint));
     }
@@ -294,10 +348,16 @@ class ApiService extends GetxService {
 
   /// Process API response (success & error)
   /// Strips leading HTML (e.g. <br /> from PHP) before parsing JSON.
-  ApiResponse<dynamic> _processResponse(http.Response response) {
+  ApiResponse<dynamic> _processResponse(
+    http.Response response, {
+    required String endpoint,
+  }) {
+    ApiResponse<dynamic> result;
+    Map<String, dynamic>? parsedResponse;
+
     try {
       String body = response.body.trim();
-      // Strip leading HTML/whitespace that breaks jsonDecode
+      // Strip leading HTML/whitespace that breaks jsonDecode.
       if (!body.startsWith('{') && !body.startsWith('[')) {
         final jsonStart = body.indexOf('{');
         if (jsonStart >= 0) {
@@ -306,36 +366,53 @@ class ApiService extends GetxService {
           throw const FormatException('Response is not JSON');
         }
       }
-      final jsonResponse = jsonDecode(body);
 
-      if (jsonResponse is Map && jsonResponse['status'] == 'ok') {
-        return ApiResponse.success(jsonResponse);
-      } else if (jsonResponse is Map && jsonResponse.containsKey('payload')) {
-        final payload = jsonResponse['payload'];
+      final decoded = jsonDecode(body);
+      if (decoded is Map) {
+        parsedResponse = Map<String, dynamic>.from(decoded);
+      }
+
+      if (parsedResponse != null && parsedResponse['status'] == 'ok') {
+        result = ApiResponse.success(parsedResponse);
+      } else if (parsedResponse != null &&
+          parsedResponse.containsKey('payload')) {
+        final payload = parsedResponse['payload'];
         final msg = payload?.toString().trim() ?? '';
-        // If payload is clean string without html tags or stack traces, show it
         if (msg.isNotEmpty &&
             !msg.startsWith('<') &&
             !msg.contains('Exception:')) {
-          return ApiResponse.error(msg);
+          result = ApiResponse.error(msg);
+        } else {
+          result = ApiResponse.error('Something went wrong. Please try again.');
         }
-        return ApiResponse.error('Something went wrong. Please try again.');
       } else {
-        return ApiResponse.error('Something went wrong. Please try again.');
+        result = ApiResponse.error('Something went wrong. Please try again.');
       }
     } catch (e, stack) {
       debugPrint(
         '[ApiService] Response parse error: $e\nStatus: ${response.statusCode}\nBody: ${response.body}\n$stack',
       );
       if (response.statusCode >= 500) {
-        return ApiResponse.error('Server error. Please try again later.');
-      }
-      if (response.statusCode == 404) {
-        return ApiResponse.error(
+        result = ApiResponse.error('Server error. Please try again later.');
+      } else if (response.statusCode == 404) {
+        result = ApiResponse.error(
           'Service unavailable. Please try again later.',
         );
+      } else {
+        result = ApiResponse.error('Something went wrong. Please try again.');
       }
-      return ApiResponse.error('Something went wrong. Please try again.');
     }
+
+    unawaited(
+      AppDiagnosticLogger.logApiResponse(
+        endpoint: endpoint,
+        httpStatus: response.statusCode,
+        isSuccess: result.isSuccess,
+        apiStatus: parsedResponse?['status']?.toString(),
+        message: parsedResponse?['message']?.toString() ?? result.errorMessage,
+        responseBody: parsedResponse ?? response.body,
+      ),
+    );
+    return result;
   }
 }

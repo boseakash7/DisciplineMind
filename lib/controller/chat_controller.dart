@@ -1,14 +1,17 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:app_limiter/app_limiter.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/constants/blocked_apps.dart';
 import 'package:discipline_mind/controller/alert_controller.dart';
+import 'package:discipline_mind/controller/trading_process_controller.dart';
 import 'package:discipline_mind/model/chat_message_model.dart';
 import 'package:discipline_mind/services/api/api_config.dart';
 import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
+import 'package:discipline_mind/services/app_diagnostic_logger.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_apps_service.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
@@ -90,6 +93,58 @@ class ChatController extends GetxController {
     final fromStorage = GetStorage().read('user_id')?.toString();
     if (fromStorage != null && fromStorage.isNotEmpty) return fromStorage;
     return null;
+  }
+
+  String _processStateForLog() {
+    if (!Get.isRegistered<TradingProcessController>()) {
+      return 'UNKNOWN (process controller not loaded)';
+    }
+
+    final controller = Get.find<TradingProcessController>();
+    if (controller.isLoading.value) return 'CHECKING';
+    final process = controller.currentProcess.value;
+    if (process == null) {
+      final error = controller.errorMessage.value.toLowerCase();
+      if (error.contains('no active process')) return 'NOT_CREATED';
+      return error.isEmpty ? 'UNKNOWN (not checked)' : 'UNKNOWN (fetch failed)';
+    }
+    return 'CREATED (ID: ${process.id})';
+  }
+
+  Map<String, dynamic> _messageSummaryForLog(ChatMessage message) {
+    String content = '';
+    if (message is SimpleTextMessage) {
+      content = message.text;
+    } else if (message is VoiceMessage) {
+      content = message.text;
+    } else if (message is AiWaitingMessage) {
+      content = message.text;
+    } else if (message is AgentWithButtonMessage) {
+      content = message.text;
+    } else if (message is TradeExecutedMessage) {
+      content = message.text;
+    } else if (message is TradeExecutionPromptMessage) {
+      content = message.text;
+    } else if (message is AlertHitWithButtonMessage) {
+      content = message.text;
+    } else if (message is MctPlanMessage) {
+      content = message.message.isNotEmpty ? message.message : message.body;
+    } else if (message is DmtScoreMessage) {
+      content = message.headline;
+    } else if (message is TradeSignalMessage) {
+      content = message.headline;
+    } else if (message is NewTradeOpportunityMessage) {
+      content = message.apiMessage.isNotEmpty
+          ? message.apiMessage
+          : '${message.instrument} ${message.contract}'.trim();
+    }
+
+    return {
+      'Message ID': message.messageId,
+      'Type': message.type.name,
+      if (message.timestamp.isNotEmpty) 'Timestamp': message.timestamp,
+      if (content.isNotEmpty) 'Content': content,
+    };
   }
 
   void reset() {
@@ -923,6 +978,13 @@ class ChatController extends GetxController {
         );
         final incoming = parsed.messages;
         if (incoming.isNotEmpty) {
+          unawaited(
+            AppDiagnosticLogger.logNewMessages(
+              userId: userId,
+              messages: incoming.map(_messageSummaryForLog).toList(),
+              processState: _processStateForLog(),
+            ),
+          );
           final base = messages.toList();
           final hasDeleteRequest = _incomingHasDeleteTradeRequest(incoming);
           final merged = _mergeUniqueMessages(

@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
+import 'package:discipline_mind/services/app_diagnostic_logger.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:discipline_mind/services/app_url_launcher.dart';
@@ -2964,12 +2966,39 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         fields,
       );
 
+      final responseData = response.data;
+      final responsePayload = responseData is Map
+          ? responseData['payload']
+          : null;
+      final createdProcessId = responsePayload is Map
+          ? responsePayload['id']?.toString()
+          : null;
+      unawaited(
+        AppDiagnosticLogger.logProcessStatus(
+          source: 'process/setup',
+          userId: widget.userId,
+          processCreated: response.isSuccess,
+          processId: createdProcessId,
+          processOverlaySetting: fields['permission_overlay_enabled'],
+          processUsageStatsSetting: fields['permission_usage_stats_enabled'],
+        ),
+      );
+
       if (response.isSuccess) {
         AppToast.showToast('Process setup completed successfully!');
       } else {
         AppToast.showToast(response.errorMessage ?? 'Process saved');
       }
     } catch (e) {
+      unawaited(
+        AppDiagnosticLogger.logProcessStatus(
+          source: 'process/setup',
+          userId: widget.userId,
+          processCreated: false,
+          processOverlaySetting: fields['permission_overlay_enabled'],
+          processUsageStatsSetting: fields['permission_usage_stats_enabled'],
+        ),
+      );
       AppToast.showToast('Process setup saved');
     } finally {
       if (mounted) {

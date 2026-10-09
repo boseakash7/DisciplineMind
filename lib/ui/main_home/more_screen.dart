@@ -1,16 +1,38 @@
+import 'dart:io';
+
 import 'package:discipline_mind/common/ThemeService.dart';
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/ui/main_home/alert_main.dart';
 import 'package:discipline_mind/ui/main_home/process_detail_screen.dart';
+import 'package:discipline_mind/services/app_diagnostic_logger.dart';
 import 'package:discipline_mind/services/app_url_launcher.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:discipline_mind/ui/widgets/app_toast.dart';
+import 'package:share_plus/share_plus.dart';
 
 import 'mct_lessons_screen.dart';
 
 class MoreScreen extends StatelessWidget {
   const MoreScreen({super.key});
+
+  Future<void> _shareDiagnosticLog(BuildContext context) async {
+    try {
+      final path = await AppDiagnosticLogger.getLogFilePath();
+      if (path == null || !await File(path).exists()) {
+        AppToast.showToast('Diagnostic log file is not available.');
+        return;
+      }
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(path)],
+        ),
+      );
+    } catch (_) {
+      AppToast.showToast('Unable to share diagnostic log.');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -53,7 +75,8 @@ class MoreScreen extends StatelessWidget {
                 _buildTile(
                   icon: Icons.alt_route_rounded,
                   title: 'Trading Process',
-                  subtitle: 'View and update your active trading rules & limits',
+                  subtitle:
+                      'View and update your active trading rules & limits',
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -68,9 +91,7 @@ class MoreScreen extends StatelessWidget {
                   subtitle: '5 Non-Negotiable Rules for discipline',
                   onTap: () => Navigator.push(
                     context,
-                    MaterialPageRoute(
-                      builder: (_) => const MctLessonsScreen(),
-                    ),
+                    MaterialPageRoute(builder: (_) => const MctLessonsScreen()),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -104,6 +125,13 @@ class MoreScreen extends StatelessWidget {
                 // Theme Switcher — hidden while the app is light-theme only.
                 // _themeTile(isDark: isDark) kept below (unused) so the
                 // switcher can be re-enabled later without rebuilding it.
+                _buildTile(
+                  icon: Icons.share_outlined,
+                  title: 'Share Diagnostic Log',
+                  subtitle: 'Send recent app logs via WhatsApp, email, etc.',
+                  onTap: () => _shareDiagnosticLog(context),
+                ),
+                const SizedBox(height: 12),
 
                 _buildTile(
                   icon: Icons.logout,
@@ -123,8 +151,6 @@ class MoreScreen extends StatelessWidget {
   static Future<void> _launchUrlString(String urlStr) async {
     await AppUrlLauncher.openInAppWebView(urlStr);
   }
-
-
 
   // Regular menu tile
   Widget _buildTile({
@@ -295,4 +321,3 @@ class MoreScreen extends StatelessWidget {
     );
   }
 }
-

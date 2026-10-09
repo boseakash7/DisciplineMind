@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/model/trading_process_model.dart';
 import 'package:discipline_mind/services/api/api_config.dart';
 import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
+import 'package:discipline_mind/services/app_diagnostic_logger.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
@@ -26,7 +29,8 @@ class TradingProcessController extends GetxController {
 
   /// Fetch user process details
   Future<TradingProcessData?> fetchProcess({String? userId}) async {
-    final effectiveUserId = userId ?? Common.userData.value?.payload?.id?.toString();
+    final effectiveUserId =
+        userId ?? Common.userData.value?.payload?.id?.toString();
     if (effectiveUserId == null || effectiveUserId.isEmpty) {
       errorMessage.value = 'User not logged in';
       return null;
@@ -36,10 +40,9 @@ class TradingProcessController extends GetxController {
       isLoading.value = true;
       errorMessage.value = '';
 
-      final response = await _apiService.postFormData(
-        ApiUrl.processFetch,
-        {'user_id': effectiveUserId},
-      );
+      final response = await _apiService.postFormData(ApiUrl.processFetch, {
+        'user_id': effectiveUserId,
+      });
 
       if (response.isSuccess && response.data != null) {
         final dynamic raw = response.data;
@@ -48,16 +51,59 @@ class TradingProcessController extends GetxController {
           if (res.status == 'ok' && res.payload != null) {
             currentProcess.value = res.payload;
             ApiConfig.activeSetupType = res.payload!.tradingSetupType;
+            unawaited(
+              AppDiagnosticLogger.logProcessStatus(
+                source: 'process/fetch',
+                userId: effectiveUserId,
+                processCreated: true,
+                processId: res.payload!.id,
+                processStatus: res.payload!.status,
+                mindControlActive: res.payload!.isMindControllActive,
+                processOverlaySetting: res.payload!.permissionOverlayEnabled,
+                processUsageStatsSetting:
+                    res.payload!.permissionUsageStatsEnabled,
+              ),
+            );
             return res.payload;
           } else {
+            unawaited(
+              AppDiagnosticLogger.logProcessStatus(
+                source: 'process/fetch',
+                userId: effectiveUserId,
+                processCreated: false,
+              ),
+            );
             errorMessage.value = res.message ?? 'No active process found';
           }
+        } else {
+          unawaited(
+            AppDiagnosticLogger.logProcessStatus(
+              source: 'process/fetch',
+              userId: effectiveUserId,
+              processCreated: null,
+            ),
+          );
+          errorMessage.value = 'Invalid process response';
         }
       } else {
+        unawaited(
+          AppDiagnosticLogger.logProcessStatus(
+            source: 'process/fetch',
+            userId: effectiveUserId,
+            processCreated: null,
+          ),
+        );
         errorMessage.value = response.errorMessage ?? 'Failed to fetch process';
       }
     } catch (e) {
       debugPrint('[TradingProcessController] fetchProcess error: $e');
+      unawaited(
+        AppDiagnosticLogger.logProcessStatus(
+          source: 'process/fetch',
+          userId: effectiveUserId,
+          processCreated: null,
+        ),
+      );
       errorMessage.value = 'Error fetching process details';
     } finally {
       isLoading.value = false;
@@ -81,7 +127,8 @@ class TradingProcessController extends GetxController {
     String termsAccepted = '1',
     String? userId,
   }) async {
-    final effectiveUserId = userId ?? Common.userData.value?.payload?.id?.toString();
+    final effectiveUserId =
+        userId ?? Common.userData.value?.payload?.id?.toString();
     if (effectiveUserId == null || effectiveUserId.isEmpty) {
       AppToast.showToast('User not authenticated');
       return false;
@@ -150,21 +197,22 @@ class TradingProcessController extends GetxController {
       isUpdating.value = true;
       final response = await _apiService.postFormData(
         ApiUrl.mindControlActive,
-        {
-          'user_id': effectiveUserId,
-          'is_mind_controll_active': 'true',
-        },
+        {'user_id': effectiveUserId, 'is_mind_controll_active': 'true'},
       );
 
       if (response.isSuccess) {
         if (currentProcess.value != null) {
-          currentProcess.value = currentProcess.value!.copyWith(isMindControllActive: 1);
+          currentProcess.value = currentProcess.value!.copyWith(
+            isMindControllActive: 1,
+          );
         }
         AppToast.showToast('Mind Control activated successfully!');
         return true;
       }
 
-      AppToast.showToast(response.errorMessage ?? 'Failed to activate mind control');
+      AppToast.showToast(
+        response.errorMessage ?? 'Failed to activate mind control',
+      );
       return false;
     } catch (e) {
       debugPrint('[TradingProcessController] activateMindControl error: $e');
