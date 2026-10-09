@@ -296,47 +296,21 @@ class AppBlockingService : Service() {
                         clearTemporaryAllowance(lastAllowedApp)
                     }
                 }
-                // Force Unblock / session allow — only when API has not confirmed BLOCKED.
-                foregroundApp in forceUnblockedByUser -> {
-                    temporaryUnblocked.add(foregroundApp)
+                // Force Unblock / session allow (user tapped Skip / Force Unblock)
+                foregroundApp in forceUnblockedByUser || foregroundApp in temporaryUnblocked -> {
                     lastAllowedApp = foregroundApp
                     if (overlayShowing) {
                         currentForegroundApp = ""
                         mainHandler.post { hideOverlay() }
                     }
                 }
-                // Confirmed BLOCKED takes priority over a previous temporary allow.
-                foregroundApp == stateDecisionApp && stateDecisionUnlocked == false -> {
-                    temporaryUnblocked.remove(foregroundApp)
-                    if (lastAllowedApp == foregroundApp) lastAllowedApp = ""
+                // App is in blockedApps and NOT unblocked -> SHOW OVERLAY!
+                AppManager.blockedApps.contains(foregroundApp) -> {
                     if (foregroundApp != currentForegroundApp || !overlayShowing) {
                         currentForegroundApp = foregroundApp
                         mainHandler.post { showOverlay(foregroundApp) }
                     }
                 }
-                foregroundApp == stateDecisionApp && stateDecisionUnlocked == true -> {
-                    temporaryUnblocked.add(foregroundApp)
-                    lastAllowedApp = foregroundApp
-                    if (overlayShowing) {
-                        currentForegroundApp = ""
-                        mainHandler.post { hideOverlay() }
-                    }
-                }
-                foregroundApp in temporaryUnblocked -> {
-                    lastAllowedApp = foregroundApp
-                    if (overlayShowing) {
-                        currentForegroundApp = ""
-                        mainHandler.post { hideOverlay() }
-                    }
-                }
-                // Stuck UNKNOWN while app still open → re-fetch so locked responses are not lost.
-                stateDecisionUnlocked == null && !stateDecisionInFlight -> {
-                    val now = System.currentTimeMillis()
-                    if (now - lastStateFetchAttemptMs >= stateRefetchCooldownMs) {
-                        onMonitoredAppOpened(foregroundApp)
-                    }
-                }
-                // UNKNOWN / in-flight: no popup.
                 else -> Unit
             }
         }, 0, CHECK_INTERVAL_MS, TimeUnit.MILLISECONDS)
@@ -357,14 +331,8 @@ class AppBlockingService : Service() {
     /** Called each time a monitored trading app comes to foreground. */
     private fun onMonitoredAppOpened(packageName: String) {
         if (packageName in forceUnblockedByUser) return
-        if (stateDecisionInFlight && stateDecisionApp == packageName) return
-        stateDecisionApp = packageName
-        stateDecisionUnlocked = null // UNKNOWN until API confirms
-        stateDecisionInFlight = true
-        lastStateFetchAttemptMs = System.currentTimeMillis()
         executor.execute {
             val userId = AppManager.loadUserIdForOverlay(applicationContext)
-            // Missing userId → UNKNOWN (no popup), not blocked.
             val state = if (userId != null) {
                 fetchAppState(userId)
             } else {
@@ -378,54 +346,13 @@ class AppBlockingService : Service() {
                 reportLockedAppOpen(userId, state.tradeId, packageName)
             }
             mainHandler.post {
-                // Always store the API decision for this package, even if UsageStats
-                // briefly flickered away — otherwise locked is lost and never re-applied.
-                if (stateDecisionApp != packageName) {
-                    stateDecisionInFlight = false
-                    return@post
-                }
-                stateDecisionUnlocked = when {
-                    packageName in forceUnblockedByUser -> true
-                    state.state == AppLockState.UNBLOCKED -> true
-                    state.state == AppLockState.BLOCKED -> false
-                    // If network failed/timed out, but app is in blockedApps, default to BLOCKED
-                    AppManager.blockedApps.contains(packageName) -> false
-                    else -> null // UNKNOWN — do not show overlay
-                }
-                stateDecisionInFlight = false
-
                 val stillForeground = lastObservedForegroundApp == packageName || getForegroundApp() == packageName
-                when (stateDecisionUnlocked) {
-                    true -> {
-                        temporaryUnblocked.add(packageName)
-                        lastAllowedApp = packageName
-                        if (overlayShowing) {
-                            currentForegroundApp = ""
-                            hideOverlay()
-                        }
-                    }
-                    false -> {
-                        if (packageName !in forceUnblockedByUser) {
-                            temporaryUnblocked.remove(packageName)
-                            if (lastAllowedApp == packageName) lastAllowedApp = ""
-                            // Show only after confirmed BLOCKED, and only if still on screen.
-                            if (stillForeground) {
-                                if (overlayShowing && currentForegroundApp == packageName) {
-                                    overlayView?.let {
-                                        MindControlGuardOverlay.bindStatus(
-                                            it,
-                                            !lastTradeId.isNullOrBlank(),
-                                        )
-                                    }
-                                } else if (!overlayShowing || currentForegroundApp != packageName) {
-                                    currentForegroundApp = packageName
-                                    showOverlay(packageName)
-                                }
-                            }
-                        }
-                    }
-                    null -> {
-                        // UNKNOWN: leave allowance unchanged; never show overlay.
+                if (stillForeground && overlayShowing && currentForegroundApp == packageName) {
+                    overlayView?.let {
+                        MindControlGuardOverlay.bindStatus(
+                            it,
+                            !lastTradeId.isNullOrBlank(),
+                        )
                     }
                 }
             }

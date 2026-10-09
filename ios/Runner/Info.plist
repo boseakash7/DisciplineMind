@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Discipline Mind</string>
+	<string>Zeno AI</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -51,5 +51,64 @@
 	<true/>
 	<key>com.apple.developer.family-controls</key>
 	<true/>
+
+	<!-- Microphone Permission -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This app requires microphone access to record audio.</string>
+
+	<!-- Photo Library Permission -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>This app requires access to your photo library.</string>
+
+	<!-- Camera Permission -->
+	<key>NSCameraUsageDescription</key>
+	<string>This app requires camera access to take photos.</string>
+
+	<!-- Remote Notifications & Background Modes -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>remote-notification</string>
+	</array>
+
+	<!-- URL Launcher Schemes -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>https</string>
+		<string>http</string>
+		<string>tel</string>
+		<string>mailto</string>
+		<string>kite</string>
+		<string>zerodhakite</string>
+		<string>kite3</string>
+		<string>upstox</string>
+		<string>rksv</string>
+		<string>groww</string>
+		<string>angelone</string>
+		<string>angelspark</string>
+		<string>spark</string>
+		<string>dhan</string>
+		<string>dhanapp</string>
+		<string>kotakneo</string>
+		<string>kotakstocktrader</string>
+		<string>paytmmoney</string>
+		<string>indmoney</string>
+		<string>icicidirect</string>
+		<string>hdfcsec</string>
+		<string>hdfcsky</string>
+		<string>motilaloswal</string>
+		<string>moinvestor</string>
+		<string>sbismart</string>
+		<string>sharekhan</string>
+		<string>axisdirect</string>
+		<string>iiflmarkets</string>
+	</array>
+
+	<!-- App Transport Security -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

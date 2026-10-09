@@ -4,6 +4,13 @@ import 'dart:io';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:get_storage/get_storage.dart';
+import 'package:permission_handler/permission_handler.dart';
+
+import '../../common/common.dart';
+import '../../common/device_utils.dart';
+import '../api/api_services.dart';
+import '../api/api_url.dart';
 
 /// Handles FCM and local notifications: shows notification when app is open (foreground)
 /// and triggers callback to refresh data (e.g. user alerts).
@@ -18,25 +25,43 @@ class NotificationHandler {
   bool _localInited = false;
   bool _firebaseInited = false;
 
-  static const AndroidNotificationChannel _defaultChannel = AndroidNotificationChannel(
-    'zeno_ai_alerts',
-    'Price Alerts',
-    description: 'Notifications for price alerts',
-    importance: Importance.high,
-    playSound: true,
-  );
+  static const AndroidNotificationChannel _defaultChannel =
+      AndroidNotificationChannel(
+        'zeno_ai_alerts',
+        'Price Alerts',
+        description: 'Notifications for price alerts',
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
+      );
   static const AndroidNotificationChannel _tradeOpportunityChannel =
       AndroidNotificationChannel(
         'zeno_ai_trade_opportunities',
         'Trade Opportunities',
         description: 'Notifications for new trade opportunities',
-        importance: Importance.high,
+        importance: Importance.max,
         playSound: true,
+        enableVibration: true,
+        sound: RawResourceAndroidNotificationSound('trade_opportunity'),
+      );
+  // Backend still sends the Phase 4 channel id on some notification paths.
+  // Keep this channel so Android does not fall back to the default channel.
+  static const AndroidNotificationChannel _legacyTradeOpportunityChannel =
+      AndroidNotificationChannel(
+        'discipline_mind_trade_opportunities',
+        'Trade Opportunities',
+        description: 'Notifications for new trade opportunities',
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
         sound: RawResourceAndroidNotificationSound('trade_opportunity'),
       );
 
   /// Called when a notification is received (foreground, background tap, or opened from terminated).
   static void Function()? onNotificationReceived;
+
+  /// Called with notification data before the legacy refresh callback.
+  static void Function(Map<String, dynamic> data)? onNotificationDataReceived;
 
   // Set when user taps a DMT score notification (or opens it from terminated state).
   // ChatScreen reads this flag to auto-open the DMT score popup.
@@ -53,12 +78,10 @@ class NotificationHandler {
   }
 
   static void _maybeMarkDmtScoreAutoOpen(Map<String, dynamic> data) {
-    final type = (data['type'] ??
-            data['notification_type'] ??
-            data['category'] ??
-            '')
-        .toString()
-        .toLowerCase();
+    final type =
+        (data['type'] ?? data['notification_type'] ?? data['category'] ?? '')
+            .toString()
+            .toLowerCase();
     if (type != 'dmt_score') return;
     _dmtScoreAutoOpenPending = true;
     _dmtScoreAutoOpenScoreDate =
@@ -72,6 +95,7 @@ class NotificationHandler {
     await handler._initLocalNotifications();
     await handler._initFirebaseMessaging();
     await handler._requestPermissions();
+    await Common.getFcmToken();
   }
 
   /// Call after first frame when Get/context is ready (e.g. for getInitialMessage).
@@ -115,6 +139,19 @@ class NotificationHandler {
             AndroidFlutterLocalNotificationsPlugin
           >()
           ?.createNotificationChannel(_tradeOpportunityChannel);
+      await _localNotifications
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >()
+          ?.createNotificationChannel(_legacyTradeOpportunityChannel);
+      if (kDebugMode) {
+        debugPrint(
+          '[NotificationSound] channels created: '
+          '${_defaultChannel.id}, ${_tradeOpportunityChannel.id}, '
+          '${_legacyTradeOpportunityChannel.id}; '
+          'customSound=trade_opportunity',
+        );
+      }
     }
     _localInited = true;
   }
@@ -126,7 +163,7 @@ class NotificationHandler {
       if (payload != null && payload.isNotEmpty) {
         final decoded = jsonDecode(payload);
         if (decoded is Map) {
-          _maybeMarkDmtScoreAutoOpen(
+          instance._notifyNotificationReceived(
             decoded.map((k, v) => MapEntry(k.toString(), v)),
           );
         }
@@ -149,57 +186,133 @@ class NotificationHandler {
           );
     }
 
+    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
+      if (kDebugMode) debugPrint('[FCM] Token refreshed: $newToken');
+      Common.fcmToken = newToken;
+      final userId = Common.userData.value?.payload?.id?.toString() ??
+          GetStorage().read('user_id')?.toString();
+      if (userId != null && userId.isNotEmpty) {
+        final deviceId = DeviceUtils.getDeviceId();
+        ApiService().postMultipartForm(ApiUrl.fcmSync, {
+          "user_id": userId,
+          "device_id": deviceId,
+          "token": newToken,
+        });
+      }
+      subscribeToTradeAlerts();
+    });
+
     FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       _logNotificationData(source: 'onMessageOpenedApp', message: message);
-      _maybeMarkDmtScoreAutoOpen(message.data);
-      onNotificationReceived?.call();
+      _notifyNotificationReceived(
+        message.data,
+        notificationKey: message.messageId ?? message.hashCode.toString(),
+      );
     });
     _firebaseInited = true;
   }
 
   /// When app is in foreground, FCM does not show system notification on Android — show local instead.
+  /// On iOS, if message is data-only (no notification block), show local notification as well.
   Future<void> _handleForegroundMessage(RemoteMessage message) async {
     _logNotificationData(source: 'onMessage', message: message);
-    onNotificationReceived?.call();
+    _notifyNotificationReceived(
+      message.data,
+      notificationKey: message.messageId ?? message.hashCode.toString(),
+    );
 
-    if (Platform.isAndroid) {
+    final hasNotificationPayload = message.notification != null;
+    const shouldShowLocalNotification = true;
+
+    if (shouldShowLocalNotification) {
       final notification = message.notification;
-      final title = notification?.title ?? 'Zeno AI';
-      final body = notification?.body ?? 'You have a new alert update';
+      final title = notification?.title ??
+          message.data['title']?.toString() ??
+          'Zeno AI';
+      final body = notification?.body ??
+          message.data['body']?.toString() ??
+          message.data['message']?.toString() ??
+          'You have a new alert update';
+      final requestedChannelId = _requestedAndroidChannelId(message);
       final isTradeOpportunity = _isNewTradeOpportunity(message);
-      final channel = isTradeOpportunity
-          ? _tradeOpportunityChannel
-          : _defaultChannel;
+      final channel = requestedChannelId == _legacyTradeOpportunityChannel.id
+          ? _legacyTradeOpportunityChannel
+          : (isTradeOpportunity ? _tradeOpportunityChannel : _defaultChannel);
+      final hasCustomSound =
+          channel.id == _tradeOpportunityChannel.id ||
+          channel.id == _legacyTradeOpportunityChannel.id;
 
-      await _localNotifications.show(
-        message.hashCode,
-        title,
-        body,
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            channel.id,
-            channel.name,
-            channelDescription: channel.description,
-            importance: Importance.high,
-            priority: Priority.high,
-            icon: '@mipmap/ic_launcher',
-            playSound: true,
-            sound: isTradeOpportunity
-                ? const RawResourceAndroidNotificationSound(
-                    'trade_opportunity',
-                  )
-                : null,
+      if (kDebugMode) {
+        debugPrint(
+          '[NotificationSound] foreground receive: '
+          'messageId=${message.messageId} '
+          'requestedChannel=${requestedChannelId ?? '<none>'} '
+          'selectedChannel=${channel.id} '
+          'isTradeOpportunity=$isTradeOpportunity '
+          'customSound=$hasCustomSound '
+          'data=${message.data}',
+        );
+      }
+
+      try {
+        await _localNotifications.show(
+          message.hashCode,
+          title,
+          body,
+          NotificationDetails(
+            android: AndroidNotificationDetails(
+              channel.id,
+              channel.name,
+              channelDescription: channel.description,
+              importance: Importance.max,
+              priority: Priority.max,
+              icon: '@mipmap/ic_launcher',
+              playSound: true,
+              sound: hasCustomSound
+                  ? const RawResourceAndroidNotificationSound(
+                      'trade_opportunity',
+                    )
+                  : null,
+            ),
+            iOS: DarwinNotificationDetails(
+              presentAlert: true,
+              presentBadge: true,
+              presentSound: true,
+              sound: hasCustomSound ? 'trade_opportunity.wav' : null,
+            ),
           ),
-          iOS: const DarwinNotificationDetails(
-            presentAlert: true,
-            presentBadge: true,
-            presentSound: true,
-          ),
-        ),
-        payload: jsonEncode(message.data),
-      );
+          payload: jsonEncode({
+            ...message.data,
+            '_notification_key':
+                message.messageId ?? message.hashCode.toString(),
+          }),
+        );
+        if (kDebugMode) {
+          debugPrint(
+            '[NotificationSound] foreground notification shown successfully '
+            'on channel=${channel.id}',
+          );
+        }
+      } catch (e, stack) {
+        if (kDebugMode) {
+          debugPrint('[NotificationSound] show failed: $e\n$stack');
+        }
+      }
     }
+  }
+
+  void _notifyNotificationReceived(
+    Map<String, dynamic> data, {
+    String? notificationKey,
+  }) {
+    final normalized = Map<String, dynamic>.from(data);
+    if (notificationKey != null && notificationKey.isNotEmpty) {
+      normalized['_notification_key'] = notificationKey;
+    }
+    _maybeMarkDmtScoreAutoOpen(normalized);
+    onNotificationDataReceived?.call(normalized);
+    onNotificationReceived?.call();
   }
 
   bool _isNewTradeOpportunity(RemoteMessage message) {
@@ -212,10 +325,28 @@ class NotificationHandler {
                 '')
             .toString()
             .toLowerCase();
-    final isTradeFlag =
-        data['is_new_trade_opportunity']?.toString().toLowerCase();
+    final isTradeFlag = data['is_new_trade_opportunity']
+        ?.toString()
+        .toLowerCase();
 
     return type == 'new_trade_opportunity' || isTradeFlag == 'true';
+  }
+
+  String? _requestedAndroidChannelId(RemoteMessage message) {
+    final notificationChannelId = message.notification?.android?.channelId
+        ?.trim();
+    if (notificationChannelId != null && notificationChannelId.isNotEmpty) {
+      return notificationChannelId;
+    }
+
+    final dataChannelId =
+        (message.data['channel_id'] ??
+                message.data['channelId'] ??
+                message.data['android_channel_id'] ??
+                '')
+            .toString()
+            .trim();
+    return dataChannelId.isEmpty ? null : dataChannelId;
   }
 
   void _logNotificationData({
@@ -228,6 +359,7 @@ class NotificationHandler {
       'FCM[$source] messageId=${message.messageId} '
       'title=${message.notification?.title} '
       'body=${message.notification?.body} '
+      'androidChannel=${_requestedAndroidChannelId(message)} '
       'isTradeOpportunity=$isTrade '
       'data=${message.data}',
     );
@@ -241,6 +373,16 @@ class NotificationHandler {
     );
 
     debugPrint('FCM permission status: ${settings.authorizationStatus}');
+
+    try {
+      final status = await Permission.notification.status;
+      if (!status.isGranted) {
+        final reqResult = await Permission.notification.request();
+        debugPrint('Permission.notification request result: $reqResult');
+      }
+    } catch (e) {
+      debugPrint('Permission.notification request error: $e');
+    }
 
     if (Platform.isAndroid) {
       final androidPlugin = _localNotifications
@@ -264,6 +406,20 @@ class NotificationHandler {
       final enabledAfter =
           await androidPlugin.areNotificationsEnabled() ?? false;
       debugPrint('Notifications enabled after request: $enabledAfter');
+    } else if (Platform.isIOS) {
+      try {
+        final darwinPlugin = _localNotifications
+            .resolvePlatformSpecificImplementation<
+              IOSFlutterLocalNotificationsPlugin
+            >();
+        await darwinPlugin?.requestPermissions(
+          alert: true,
+          badge: true,
+          sound: true,
+        );
+      } catch (e) {
+        debugPrint('iOS local notifications requestPermissions error: $e');
+      }
     }
   }
 
@@ -273,8 +429,10 @@ class NotificationHandler {
     ) {
       if (message != null) {
         _logNotificationData(source: 'getInitialMessage', message: message);
-        _maybeMarkDmtScoreAutoOpen(message.data);
-        onNotificationReceived?.call();
+        _notifyNotificationReceived(
+          message.data,
+          notificationKey: message.messageId ?? message.hashCode.toString(),
+        );
       }
     });
   }
@@ -285,10 +443,23 @@ class NotificationHandler {
   /// Subscribe to FCM topics. Call on login.
   static Future<void> subscribeToTradeAlerts() async {
     try {
+      if (Platform.isIOS) {
+        final apnsToken = await FirebaseMessaging.instance.getAPNSToken();
+        if (apnsToken == null) {
+          if (kDebugMode) {
+            debugPrint(
+              '[FCM] APNS token not available yet; topic subscription deferred to onTokenRefresh',
+            );
+          }
+          return;
+        }
+      }
       await FirebaseMessaging.instance.subscribeToTopic(tradeAlertsTopic);
       await FirebaseMessaging.instance.subscribeToTopic(dmtScoreTopic);
       if (kDebugMode) {
-        debugPrint('Subscribed to FCM topics: $tradeAlertsTopic, $dmtScoreTopic');
+        debugPrint(
+          'Subscribed to FCM topics: $tradeAlertsTopic, $dmtScoreTopic',
+        );
       }
     } catch (e) {
       if (kDebugMode) debugPrint('Subscribe to FCM topics failed: $e');
@@ -307,6 +478,83 @@ class NotificationHandler {
       }
     } catch (e) {
       if (kDebugMode) debugPrint('Unsubscribe from FCM topics failed: $e');
+    }
+  }
+
+  /// Displays a notification banner when MCT / Mind Control Guard is activated.
+  static Future<void> showMctActivationNotification({
+    String title = 'Zeno AI Active',
+    String body = 'Mind Control Guard is now active and protecting your trades.',
+  }) async {
+    try {
+      if (!instance._localInited) {
+        await instance._initLocalNotifications();
+      }
+      await instance._localNotifications.show(
+        8888,
+        title,
+        body,
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'zeno_ai_alerts',
+            'Price Alerts',
+            channelDescription: 'Notifications for Mind Control Guard',
+            importance: Importance.max,
+            priority: Priority.max,
+            icon: '@mipmap/ic_launcher',
+            playSound: true,
+          ),
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
+          ),
+        ),
+      );
+      if (kDebugMode) {
+        debugPrint(
+          '[NotificationHandler] MCT Activation notification shown successfully',
+        );
+      }
+    } catch (e) {
+      debugPrint('[NotificationHandler] showMctActivationNotification failed: $e');
+    }
+  }
+
+  /// Displays a notification banner when MCT / Mind Control Guard is deactivated.
+  static Future<void> showMctDeactivationNotification({
+    String title = 'Zeno AI',
+    String body = 'Mind Control Guard is Deactivated.',
+  }) async {
+    try {
+      if (!instance._localInited) {
+        await instance._initLocalNotifications();
+      }
+      await instance._localNotifications.show(
+        8889,
+        title,
+        body,
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'zeno_ai_alerts',
+            'Price Alerts',
+            channelDescription: 'Notifications for Mind Control Guard',
+            importance: Importance.max,
+            priority: Priority.max,
+            icon: '@mipmap/ic_launcher',
+            playSound: true,
+          ),
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint(
+        '[NotificationHandler] showMctDeactivationNotification failed: $e',
+      );
     }
   }
 }

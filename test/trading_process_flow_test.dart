@@ -23,8 +23,7 @@ void main() {
 
     await tester.tap(find.text('Options'));
     await next();
-    await tester.tap(find.text('Nifty 50'));
-    await next();
+    // Step 2 (Select Instrument) removed/commented out
     expect(find.text('Step 3 of 7'), findsOneWidget);
     expect(find.textContaining('Coming Soon'), findsNothing);
     await next();

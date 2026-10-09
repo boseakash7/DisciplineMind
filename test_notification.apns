@@ -1,0 +1,12 @@
+{
+  "Simulator Target Bundle": "com.discipline.mind",
+  "aps": {
+    "alert": {
+      "title": "Zeno AI Alert 🚀",
+      "body": "Push notification is working on iOS!"
+    },
+    "badge": 1,
+    "sound": "default"
+  },
+  "type": "new_trade_opportunity"
+}

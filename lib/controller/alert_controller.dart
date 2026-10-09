@@ -9,6 +9,7 @@ import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
 
 import '../common/device_utils.dart';
 import '../controller/chat_controller.dart';
@@ -74,23 +75,19 @@ class AlertController extends GetxController {
   Future<void> syncFcmToken() async {
     try {
       await Common.getFcmToken();
-      final userId = Common.userData.value?.payload?.id?.toString();
+      final userId = Common.userData.value?.payload?.id?.toString() ??
+          GetStorage().read('user_id')?.toString();
       final token = Common.fcmToken;
       if (userId == null || userId.isEmpty || token.isEmpty) {
+        debugPrint('[AlertController] syncFcmToken skipped: userId=$userId, tokenEmpty=${token.isEmpty}');
         return;
       }
       final deviceId = DeviceUtils.getDeviceId();
-      // Use multipart/form-data to match Postman --form so backend saves FCM in DB
       ApiResponse response = await apiService.postMultipartForm(
         ApiUrl.fcmSync,
         {"user_id": userId, "device_id": deviceId, "token": token},
       );
-
-      if (response.isSuccess) {
-        // AppToast.showToast("FCM Token Synced Successfully ✅");
-      } else {
-        // AppToast.showToast(response.errorMessage ?? "Sync Failed ❌");
-      }
+      debugPrint('[AlertController] syncFcmToken response isSuccess=${response.isSuccess}, data=${response.data}, error=${response.errorMessage}');
     } catch (e, stack) {
       debugPrint('[AlertController] syncFcmToken error: $e\n$stack');
     }
@@ -443,9 +440,8 @@ class AlertController extends GetxController {
             await _blockService.unblockApp(package);
           }
           AppToast.showToast("Mind Control Guard is Deactivated");
-        } else {
-          final AppLimiter limiter = AppLimiter();
-          await limiter.blockAndUnblockIOSApp();
+        } else if (Platform.isIOS) {
+          AppToast.showToast("Mind Control Guard is Deactivated");
         }
         final uid = Common.userData.value?.payload?.id;
         if (uid != null && uid.isNotEmpty) {

@@ -311,7 +311,8 @@ class _chat_screencopyState extends State<chat_screencopy> {
     return GetBuilder<ChatController>(
       init: Get.put(ChatController(), permanent: true),
       builder: (controller) {
-        final activeUserId = Common.userData.value?.payload?.id?.toString() ??
+        final activeUserId =
+            Common.userData.value?.payload?.id?.toString() ??
             GetStorage().read<String>('user_id');
         if (controller.currentUserId != null &&
             activeUserId != null &&
@@ -322,165 +323,169 @@ class _chat_screencopyState extends State<chat_screencopy> {
           });
         }
         return Scaffold(
-        backgroundColor: _screenBg(isDark),
-        body: SafeArea(
-          child: Column(
-            children: [
-              // _buildHeader(context, controller),
-              Expanded(
-                child: Obx(() {
-                  if (controller.isLoading.value) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  final currentFirstId = _firstMessageId(controller.messages);
-                  final currentLastId = _lastMessageId(controller.messages);
-                  final wasNearBottom = _isNearBottom();
-                  if (_lastMessageCount != controller.messages.length) {
-                    _lastMessageCount = controller.messages.length;
-                    if (!_didInitialBottomSnap &&
-                        controller.messages.isNotEmpty) {
-                      _didInitialBottomSnap = true;
-                      _scheduleScrollToBottom();
-                    } else if (_skipNextAutoBottomScroll) {
-                      _skipNextAutoBottomScroll = false;
-                    } else if (_previousFirstMessageId.isNotEmpty &&
-                        currentFirstId.isNotEmpty &&
-                        _previousFirstMessageId != currentFirstId &&
-                        _previousLastMessageId == currentLastId) {
-                      // Older history prepended at top -> keep user's viewport.
-                    } else if (!_suppressAutoBottomScroll &&
-                        _previousLastMessageId.isNotEmpty &&
-                        currentLastId.isNotEmpty &&
-                        _previousLastMessageId != currentLastId) {
-                      // New messages appended at bottom -> always take user to latest.
-                      _scheduleScrollToBottom();
-                    } else if (!_suppressAutoBottomScroll &&
-                        wasNearBottom &&
-                        _previousLastMessageId.isEmpty &&
-                        currentLastId.isNotEmpty) {
-                      // Fallback: if IDs were absent previously but user was already at end.
-                      _scheduleScrollToBottom();
+          backgroundColor: _screenBg(isDark),
+          body: SafeArea(
+            child: Column(
+              children: [
+                // _buildHeader(context, controller),
+                Expanded(
+                  child: Obx(() {
+                    if (controller.isLoading.value) {
+                      return const Center(child: CircularProgressIndicator());
                     }
-                  }
-                  _previousFirstMessageId = currentFirstId;
-                  _previousLastMessageId = currentLastId;
-
-                  // If user tapped a "DMT score" notification, auto-open the
-                  // unread DMT score popup for the matching (or latest) message.
-                  if (NotificationHandler.dmtScoreAutoOpenPending) {
-                    final pendingDate =
-                        NotificationHandler.dmtScoreAutoOpenScoreDate;
-                    DmtScoreMessage? target;
-                    for (var i = controller.messages.length - 1; i >= 0; i--) {
-                      final msg = controller.messages[i];
-                      if (msg is! DmtScoreMessage) continue;
-                      final id = msg.messageId.trim();
-                      if (id.isEmpty) continue;
-                      if (!msg.isUnread) continue;
-                      if (_dmtScorePopupAnimatedIds.contains(id)) continue;
-                      if (pendingDate != null && pendingDate.isNotEmpty) {
-                        if (msg.scoreDate.trim() != pendingDate.trim())
-                          continue;
+                    final currentFirstId = _firstMessageId(controller.messages);
+                    final currentLastId = _lastMessageId(controller.messages);
+                    final wasNearBottom = _isNearBottom();
+                    if (_lastMessageCount != controller.messages.length) {
+                      _lastMessageCount = controller.messages.length;
+                      if (!_didInitialBottomSnap &&
+                          controller.messages.isNotEmpty) {
+                        _didInitialBottomSnap = true;
+                        _scheduleScrollToBottom();
+                      } else if (_skipNextAutoBottomScroll) {
+                        _skipNextAutoBottomScroll = false;
+                      } else if (_previousFirstMessageId.isNotEmpty &&
+                          currentFirstId.isNotEmpty &&
+                          _previousFirstMessageId != currentFirstId &&
+                          _previousLastMessageId == currentLastId) {
+                        // Older history prepended at top -> keep user's viewport.
+                      } else if (!_suppressAutoBottomScroll &&
+                          _previousLastMessageId.isNotEmpty &&
+                          currentLastId.isNotEmpty &&
+                          _previousLastMessageId != currentLastId) {
+                        // New messages appended at bottom -> always take user to latest.
+                        _scheduleScrollToBottom();
+                      } else if (!_suppressAutoBottomScroll &&
+                          wasNearBottom &&
+                          _previousLastMessageId.isEmpty &&
+                          currentLastId.isNotEmpty) {
+                        // Fallback: if IDs were absent previously but user was already at end.
+                        _scheduleScrollToBottom();
                       }
-                      target = msg;
-                      break;
                     }
+                    _previousFirstMessageId = currentFirstId;
+                    _previousLastMessageId = currentLastId;
 
-                    if (target != null) {
-                      final t = target;
-                      NotificationHandler.clearDmtScoreAutoOpen();
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (!mounted) return;
-                        final id = t.messageId.trim();
-                        setState(() => _dmtScorePopupAnimatedIds.add(id));
-                        showDmtScorePopup(
-                          context,
-                          scoreDate: t.scoreDate,
-                          instructionsScore: t.instructionsScore,
-                          commitmentScore: t.commitmentScore,
-                          patienceScore: t.patienceScore,
-                          consistencyScore: t.consistencyScore,
-                          dmtTotalScore: t.dmtTotalScore,
-                          dmtMaxScore: t.dmtMaxScore,
-                          animateReveal: true,
-                        );
-                      });
+                    // If user tapped a "DMT score" notification, auto-open the
+                    // unread DMT score popup for the matching (or latest) message.
+                    if (NotificationHandler.dmtScoreAutoOpenPending) {
+                      final pendingDate =
+                          NotificationHandler.dmtScoreAutoOpenScoreDate;
+                      DmtScoreMessage? target;
+                      for (
+                        var i = controller.messages.length - 1;
+                        i >= 0;
+                        i--
+                      ) {
+                        final msg = controller.messages[i];
+                        if (msg is! DmtScoreMessage) continue;
+                        final id = msg.messageId.trim();
+                        if (id.isEmpty) continue;
+                        if (!msg.isUnread) continue;
+                        if (_dmtScorePopupAnimatedIds.contains(id)) continue;
+                        if (pendingDate != null && pendingDate.isNotEmpty) {
+                          if (msg.scoreDate.trim() != pendingDate.trim())
+                            continue;
+                        }
+                        target = msg;
+                        break;
+                      }
+
+                      if (target != null) {
+                        final t = target;
+                        NotificationHandler.clearDmtScoreAutoOpen();
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (!mounted) return;
+                          final id = t.messageId.trim();
+                          setState(() => _dmtScorePopupAnimatedIds.add(id));
+                          showDmtScorePopup(
+                            context,
+                            scoreDate: t.scoreDate,
+                            instructionsScore: t.instructionsScore,
+                            commitmentScore: t.commitmentScore,
+                            patienceScore: t.patienceScore,
+                            consistencyScore: t.consistencyScore,
+                            dmtTotalScore: t.dmtTotalScore,
+                            dmtMaxScore: t.dmtMaxScore,
+                            animateReveal: true,
+                          );
+                        });
+                      }
                     }
-                  }
-                  return controller.messages.isEmpty
-                      ? ListView(
-                          controller: _scrollController,
-                          children: [
-                            SizedBox(
-                              height: 420,
-                              child: Center(
-                                child: Text(
-                                  'No messages yet.',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: _secondaryText(isDark),
+                    return controller.messages.isEmpty
+                        ? ListView(
+                            controller: _scrollController,
+                            children: [
+                              SizedBox(
+                                height: 420,
+                                child: Center(
+                                  child: Text(
+                                    'No messages yet.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: _secondaryText(isDark),
+                                    ),
                                   ),
                                 ),
                               ),
+                            ],
+                          )
+                        : ListView.builder(
+                            controller: _scrollController,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
                             ),
-                          ],
-                        )
-                      : ListView.builder(
-                          controller: _scrollController,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          itemCount: controller.messages.length,
-                          itemBuilder: (_, i) {
-                            final msg = controller.messages[i];
-                            final bubble = _buildMessage(
-                              context,
-                              msg,
-                              controller,
-                            );
-                            final rowKey = msg.messageId.trim().isNotEmpty
-                                ? ValueKey(
-                                    'chat_row_${msg.messageId}_${msg.type.name}',
-                                  )
-                                : ValueKey(
-                                    'chat_row_fallback_${msg.type.name}_$i',
-                                  );
-                            final id = msg.messageId.trim();
-                            if (!msg.isUnread || id.isEmpty) {
-                              return KeyedSubtree(key: rowKey, child: bubble);
-                            }
-                            if (_revealedUnreadMessageIds.contains(id)) {
-                              return KeyedSubtree(key: rowKey, child: bubble);
-                            }
-                            return KeyedSubtree(
-                              key: rowKey,
-                              child: _UnreadRevealGate(
-                                messageId: id,
-                                onRevealed: (messageId) {
-                                  if (!mounted) return;
-                                  setState(() {
-                                    _revealedUnreadMessageIds.add(messageId);
-                                  });
-                                  _scheduleScrollAfterUnreadReveal(
-                                    messageId,
-                                    controller,
-                                  );
-                                },
-                              ),
-                            );
-                          },
-                        );
-                }),
-              ),
-              _buildInput(context, controller, _textController),
-            ],
+                            itemCount: controller.messages.length,
+                            itemBuilder: (_, i) {
+                              final msg = controller.messages[i];
+                              final bubble = _buildMessage(
+                                context,
+                                msg,
+                                controller,
+                              );
+                              final rowKey = msg.messageId.trim().isNotEmpty
+                                  ? ValueKey(
+                                      'chat_row_${msg.messageId}_${msg.type.name}',
+                                    )
+                                  : ValueKey(
+                                      'chat_row_fallback_${msg.type.name}_$i',
+                                    );
+                              final id = msg.messageId.trim();
+                              if (!msg.isUnread || id.isEmpty) {
+                                return KeyedSubtree(key: rowKey, child: bubble);
+                              }
+                              if (_revealedUnreadMessageIds.contains(id)) {
+                                return KeyedSubtree(key: rowKey, child: bubble);
+                              }
+                              return KeyedSubtree(
+                                key: rowKey,
+                                child: _UnreadRevealGate(
+                                  messageId: id,
+                                  onRevealed: (messageId) {
+                                    if (!mounted) return;
+                                    setState(() {
+                                      _revealedUnreadMessageIds.add(messageId);
+                                    });
+                                    _scheduleScrollAfterUnreadReveal(
+                                      messageId,
+                                      controller,
+                                    );
+                                  },
+                                ),
+                              );
+                            },
+                          );
+                  }),
+                ),
+                _buildInput(context, controller, _textController),
+              ],
+            ),
           ),
-        ),
-      );
-    },
-  );
-}
+        );
+      },
+    );
+  }
 
   Widget _buildHeader(BuildContext context, ChatController controller) {
     return Padding(
@@ -522,6 +527,8 @@ class _chat_screencopyState extends State<chat_screencopy> {
     switch (msg.type) {
       case ChatMessageType.simpleText:
         return _buildSimpleText(context, msg as SimpleTextMessage);
+      case ChatMessageType.voiceMessage:
+        return const SizedBox.shrink();
       case ChatMessageType.agentWithButton:
         return _buildAgentWithButton(context, msg as AgentWithButtonMessage);
       case ChatMessageType.newTradeOpportunity:
@@ -1036,8 +1043,8 @@ class _chat_screencopyState extends State<chat_screencopy> {
 
   /// Trade card now follows the theme: white surface in light mode, dark
   /// surface in dark mode — including text, divider, and timeline colors.
-    /// Trade card now matches the design in the reference image.
-    /// Trade card - Fully theme aware and rebuilds correctly on theme change
+  /// Trade card now matches the design in the reference image.
+  /// Trade card - Fully theme aware and rebuilds correctly on theme change
   Widget _buildTradeOpportunityCard(
     BuildContext context,
     NewTradeOpportunityMessage msg, {
@@ -1047,9 +1054,11 @@ class _chat_screencopyState extends State<chat_screencopy> {
     final isDark = _isDark(context);
 
     final cardBg = isDark ? const Color(0xFF1B1F27) : Colors.white;
-    final cardBorder = isDark ? AppColors.primary.withOpacity(.4) : Colors.grey.shade300;
-    final shadowColor = isDark 
-        ? Colors.black.withOpacity(0.35) 
+    final cardBorder = isDark
+        ? AppColors.primary.withOpacity(.4)
+        : Colors.grey.shade300;
+    final shadowColor = isDark
+        ? Colors.black.withOpacity(0.35)
         : Colors.black.withOpacity(0.08);
 
     final tradeName = msg.tradeName.trim().isNotEmpty
@@ -1063,12 +1072,11 @@ class _chat_screencopyState extends State<chat_screencopy> {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         // color: cardBg,
-        gradient: LinearGradient(colors: isDark?[
-          Colors.black,Colors.white.withOpacity(.002)
-        ]:[
-          Colors.white,
-          Colors.white,
-        ]),
+        gradient: LinearGradient(
+          colors: isDark
+              ? [Colors.black, Colors.white.withOpacity(.002)]
+              : [Colors.white, Colors.white],
+        ),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: cardBorder),
         boxShadow: [
@@ -1127,12 +1135,17 @@ class _chat_screencopyState extends State<chat_screencopy> {
             const Spacer(),
             if (msg.rtt.trim().isNotEmpty)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
-                  color: !isDark ? const Color(0xFF2A2F3A) : Colors.grey.shade100,
+                  color: !isDark
+                      ? const Color(0xFF2A2F3A)
+                      : Colors.grey.shade100,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                    color:!isDark ? Colors.white24 : Colors.grey.shade300,
+                    color: !isDark ? Colors.white24 : Colors.grey.shade300,
                   ),
                 ),
                 child: Text(
@@ -1222,7 +1235,9 @@ class _chat_screencopyState extends State<chat_screencopy> {
     final sl = _formatTradeCardPrice(msg.stopLoss);
     final entry = _formatTradeCardPrice(msg.entryRange);
     final target = _formatTradeCardPrice(msg.frr);
-    final current = msg.rtt.trim().isNotEmpty ? _formatTradeCardPrice(msg.rtt) : null;
+    final current = msg.rtt.trim().isNotEmpty
+        ? _formatTradeCardPrice(msg.rtt)
+        : null;
 
     double parseNum(String raw) {
       final matches = RegExp(r'[\d.]+').allMatches(raw);
@@ -1257,8 +1272,14 @@ class _chat_screencopyState extends State<chat_screencopy> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text('SL', style: TextStyle(color: labelColor, fontSize: 12)),
-                Text('ENTRY', style: TextStyle(color: labelColor, fontSize: 12)),
-                Text('TARGET', style: TextStyle(color: labelColor, fontSize: 12)),
+                Text(
+                  'ENTRY',
+                  style: TextStyle(color: labelColor, fontSize: 12),
+                ),
+                Text(
+                  'TARGET',
+                  style: TextStyle(color: labelColor, fontSize: 12),
+                ),
               ],
             ),
             const SizedBox(height: 8),
@@ -1313,9 +1334,30 @@ class _chat_screencopyState extends State<chat_screencopy> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(sl, style: TextStyle(color: valueColor, fontSize: 13, fontWeight: FontWeight.w600)),
-                Text(entry, style: TextStyle(color: valueColor, fontSize: 13, fontWeight: FontWeight.w600)),
-                Text(target, style: TextStyle(color: valueColor, fontSize: 13, fontWeight: FontWeight.w600)),
+                Text(
+                  sl,
+                  style: TextStyle(
+                    color: valueColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  entry,
+                  style: TextStyle(
+                    color: valueColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  target,
+                  style: TextStyle(
+                    color: valueColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ],
             ),
           ],
@@ -1424,8 +1466,8 @@ class _chat_screencopyState extends State<chat_screencopy> {
       child: Text(
         label,
         textAlign: TextAlign.center,
-        style:  TextStyle(
-          color:_isDark(context)?Colors.black: Colors.white,
+        style: TextStyle(
+          color: _isDark(context) ? Colors.black : Colors.white,
           fontWeight: FontWeight.w600,
           fontSize: 15,
         ),
@@ -1435,7 +1477,9 @@ class _chat_screencopyState extends State<chat_screencopy> {
     return SizedBox(
       width: double.infinity,
       child: Material(
-        color: enabled ? AppColors.primary : (_isDark(context)?Colors.white: Colors.grey.shade400),
+        color: enabled
+            ? AppColors.primary
+            : (_isDark(context) ? Colors.white : Colors.grey.shade400),
         borderRadius: BorderRadius.circular(8),
         child: canTap
             ? InkWell(
@@ -1578,11 +1622,26 @@ class _chat_screencopyState extends State<chat_screencopy> {
                     else
                       Column(
                         children: [
-                          _popupField('GTT is set at', gttPriceController, '', isDark),
+                          _popupField(
+                            'GTT is set at',
+                            gttPriceController,
+                            '',
+                            isDark,
+                          ),
                           const SizedBox(height: 12),
-                          _popupField('Stop Loss', stopLossController, '', isDark),
+                          _popupField(
+                            'Stop Loss',
+                            stopLossController,
+                            '',
+                            isDark,
+                          ),
                           const SizedBox(height: 12),
-                          _popupField('Target', takeProfitController, '', isDark),
+                          _popupField(
+                            'Target',
+                            takeProfitController,
+                            '',
+                            isDark,
+                          ),
                         ],
                       ),
                   ],
@@ -1662,7 +1721,7 @@ class _chat_screencopyState extends State<chat_screencopy> {
                 alignment: Alignment.centerLeft,
                 child: Row(
                   children: [
-                    Icon(Icons.close,color: Colors.white,),
+                    Icon(Icons.close, color: Colors.white),
                     const Text(
                       'Trail Stop Loss',
                       style: TextStyle(
@@ -1768,7 +1827,10 @@ class _chat_screencopyState extends State<chat_screencopy> {
     );
   }
 
-  Widget _buildTradeTimeline(BuildContext context, NewTradeOpportunityMessage msg) {
+  Widget _buildTradeTimeline(
+    BuildContext context,
+    NewTradeOpportunityMessage msg,
+  ) {
     final isDark = _isDark(context);
     final labelColor = isDark ? Colors.white60 : Colors.grey.shade700;
     final valueColor = isDark ? Colors.white : const Color(0xFF424242);
@@ -1999,7 +2061,10 @@ class _chat_screencopyState extends State<chat_screencopy> {
     );
   }
 
-  Widget _buildTradeTimelineForEdit(BuildContext context, NewTradeOpportunityMessage msg) {
+  Widget _buildTradeTimelineForEdit(
+    BuildContext context,
+    NewTradeOpportunityMessage msg,
+  ) {
     final isDark = _isDark(context);
     final dimLabelColor = isDark ? Colors.white38 : Colors.grey.shade500;
     final labelColor = isDark ? Colors.white60 : Colors.grey.shade700;
@@ -2596,19 +2661,14 @@ class _chat_screencopyState extends State<chat_screencopy> {
                 ),
               ),
               onSubmitted: (text) {
-                controller.sendTextMessage(text);
-                textController.clear();
-                _scheduleScrollToBottom();
+                _sendTextMessage(controller, textController, text);
               },
             ),
           ),
           const SizedBox(width: 8),
           GestureDetector(
             onTap: () {
-              final text = textController.text;
-              controller.sendTextMessage(text);
-              textController.clear();
-              _scheduleScrollToBottom();
+              _sendTextMessage(controller, textController, textController.text);
             },
             child: Container(
               padding: const EdgeInsets.all(12),
@@ -2622,6 +2682,23 @@ class _chat_screencopyState extends State<chat_screencopy> {
         ],
       ),
     );
+  }
+
+  void _sendTextMessage(
+    ChatController controller,
+    TextEditingController textController,
+    String text,
+  ) {
+    final query = text.trim();
+    if (query.isEmpty) return;
+    textController.value = const TextEditingValue();
+    textController.clearComposing();
+    controller.sendTextMessage(query).then<void>((sent) {
+      if (sent) return;
+      textController.value = const TextEditingValue();
+      textController.clearComposing();
+    });
+    _scheduleScrollToBottom();
   }
 }
 
@@ -2670,7 +2747,9 @@ class _TargetHitConfirmDialogState extends State<_TargetHitConfirmDialog> {
     final dialogBg = isDark ? const Color(0xFF1B1F27) : Colors.white;
     final titleColor = isDark ? Colors.white : Colors.black87;
     final bodyColor = isDark ? Colors.white70 : Colors.grey.shade700;
-    final fieldFill = isDark ? const Color(0xFF22262F) : AppColors.backgroundGray;
+    final fieldFill = isDark
+        ? const Color(0xFF22262F)
+        : AppColors.backgroundGray;
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -2862,10 +2941,7 @@ class _TypingDotsState extends State<_TypingDots>
           child: Container(
             width: 6,
             height: 6,
-            decoration: BoxDecoration(
-              color: dotColor,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
           ),
         );
 

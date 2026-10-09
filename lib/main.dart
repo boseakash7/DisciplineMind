@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
@@ -16,15 +17,73 @@ import 'package:discipline_mind/ui/android_app_block/blocked_app_overlay_page.da
 import 'package:discipline_mind/ui/main_home/main_home.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'ui/splash_screen.dart';
+
+/// Top-level background message handler for FCM
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  try {
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp();
+    }
+  } catch (_) {}
+  if (kDebugMode) {
+    debugPrint('FCM background message received: ${message.messageId}, data: ${message.data}');
+  }
+
+  // If message has no notification payload (e.g. data-only FCM payload sent by backend),
+  // Android system will not show it automatically. We must display it via FlutterLocalNotificationsPlugin.
+  if (message.notification == null && message.data.isNotEmpty) {
+    try {
+      final localNotifications = FlutterLocalNotificationsPlugin();
+      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const initSettings = InitializationSettings(android: androidSettings);
+      await localNotifications.initialize(initSettings);
+
+      final data = message.data;
+      final title = data['title']?.toString() ?? 'Zeno AI';
+      final body = data['body']?.toString() ??
+          data['message']?.toString() ??
+          'You have a new alert update';
+
+      final type = (data['type'] ?? data['notification_type'] ?? data['event'] ?? '').toString().toLowerCase();
+      final isTradeOpportunity = type == 'new_trade_opportunity' || data['is_new_trade_opportunity']?.toString().toLowerCase() == 'true';
+      final channelId = isTradeOpportunity ? 'zeno_ai_trade_opportunities' : 'zeno_ai_alerts';
+      final channelName = isTradeOpportunity ? 'Trade Opportunities' : 'Price Alerts';
+
+      await localNotifications.show(
+        message.hashCode,
+        title,
+        body,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            channelId,
+            channelName,
+            channelDescription: 'Notifications for alerts and opportunities',
+            importance: Importance.max,
+            priority: Priority.max,
+            icon: '@mipmap/ic_launcher',
+            playSound: true,
+            sound: isTradeOpportunity ? const RawResourceAndroidNotificationSound('trade_opportunity') : null,
+          ),
+        ),
+        payload: jsonEncode(data),
+      );
+    } catch (e) {
+      debugPrint('[FCM Background] Failed to show local notification: $e');
+    }
+  }
+}
 
 /// Top-level entrypoint for native overlay FlutterEngine
 @pragma('vm:entry-point')
@@ -56,8 +115,9 @@ class OverlayApp extends StatelessWidget {
 void _onAppResumed() {
   if (!Platform.isAndroid) return;
   try {
-    const MethodChannel('com.discipline_mind/app_lifecycle')
-        .invokeMethod<void>('hideBlockOverlay');
+    const MethodChannel(
+      'com.discipline_mind/app_lifecycle',
+    ).invokeMethod<void>('hideBlockOverlay');
   } catch (_) {}
   unawaited(checkAndStartTradingBlockIfPermitted());
 }
@@ -93,6 +153,51 @@ void _refreshUserAlertsOnNotification({int attempt = 0}) {
   chatController.loadNewMessages(silent: true);
 }
 
+void _showImmediateNotificationMessage(Map<String, dynamic> data) {
+  _showImmediateNotificationMessageWithRetry(data);
+}
+
+void _showImmediateNotificationMessageWithRetry(
+  Map<String, dynamic> data, {
+  int attempt = 0,
+}) {
+  final type =
+      (data['type'] ??
+              data['notification_type'] ??
+              data['event'] ??
+              data['category'] ??
+              '')
+          .toString()
+          .trim()
+          .toLowerCase();
+  if (type != 'mind_control_guard_deactivated') return;
+
+  final userId = Common.userData.value?.payload?.id?.toString();
+  if (userId == null || userId.isEmpty) {
+    if (attempt < 6) {
+      Future.delayed(Duration(milliseconds: 350 + attempt * 250), () {
+        _showImmediateNotificationMessageWithRetry(data, attempt: attempt + 1);
+      });
+    }
+    return;
+  }
+
+  final chatController = Get.isRegistered<ChatController>()
+      ? Get.find<ChatController>()
+      : Get.put(ChatController(), permanent: true);
+  chatController.addMindControlGuardDeactivatedMessage(
+    notificationKey: data['_notification_key']?.toString() ?? '',
+    messageId:
+        (data['message_id'] ??
+                data['messageId'] ??
+                data['id'] ??
+                data['notification_id'] ??
+                '')
+            .toString(),
+    timestamp: (data['timestamp'] ?? data['created_at'] ?? '').toString(),
+  );
+}
+
 void _refreshChatOnAppResumed() {
   final userId = Common.userData.value?.payload?.id?.toString();
   if (userId == null || userId.isEmpty) return;
@@ -112,7 +217,7 @@ Future<void> main() async {
       debugPrint('FlutterError: ${details.exception} ${details.stack}');
     }
   };
-  
+
   PlatformDispatcher.instance.onError = (error, stack) {
     FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
     return true;
@@ -149,9 +254,24 @@ Future<void> main() async {
     ),
   );
 
-  // if (Firebase.apps.isEmpty) {
-    await Firebase.initializeApp();
-  
+  try {
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp();
+    }
+  } catch (e) {
+    if (kDebugMode) {
+      debugPrint('Firebase.initializeApp warning/error: $e');
+    }
+  }
+
+  try {
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  } catch (e) {
+    if (kDebugMode) {
+      debugPrint('FirebaseMessaging.onBackgroundMessage error: $e');
+    }
+  }
+
   await GetStorage.init();
 
   if (Platform.isAndroid) {
@@ -164,6 +284,8 @@ Future<void> main() async {
   }
 
   NotificationHandler.onNotificationReceived = _refreshUserAlertsOnNotification;
+  NotificationHandler.onNotificationDataReceived =
+      _showImmediateNotificationMessage;
 
   runApp(const MyApp());
 
@@ -219,7 +341,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       title: 'Zeno AI',
       theme: _lightTheme(textTheme),
       darkTheme: _darkTheme(textTheme),
-      themeMode: ThemeService().themeMode,   // ← This enables theme switching
+      themeMode: ThemeService().themeMode, // ← This enables theme switching
       builder: (context, child) {
         final fToast = FToast();
         fToast.init(context);

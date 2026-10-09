@@ -764,7 +764,9 @@ class _EditProcessModalState extends State<_EditProcessModal> {
           top: 20,
           left: 20,
           right: 20,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+          bottom: MediaQuery.of(context).viewInsets.bottom +
+              MediaQuery.of(context).padding.bottom +
+              20,
         ),
         child: SingleChildScrollView(
           child: Column(

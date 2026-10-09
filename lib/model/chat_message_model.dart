@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 /// Chat message types
 enum ChatMessageType {
   simpleText,
+  voiceMessage,
   aiWaiting, // Backend AI status bubble (`message_type: ai_msgs`)
   newTradeOpportunity,
   tradeExecutionPrompt,
@@ -17,8 +20,11 @@ abstract class ChatMessage {
   final bool isFromUser;
   final String messageId;
   final bool isUnread;
+  final bool sendFailed;
+
   /// Backend control key: show action buttons only when this is null.
   final dynamic actionTaken;
+
   /// Server timestamp (ISO-8601). Used for date separators and feed sorting.
   final String timestamp;
 
@@ -27,6 +33,7 @@ abstract class ChatMessage {
     this.isFromUser = false,
     this.messageId = '',
     this.isUnread = false,
+    this.sendFailed = false,
     this.actionTaken,
     this.timestamp = '',
   });
@@ -36,25 +43,49 @@ abstract class ChatMessage {
 class SimpleTextMessage extends ChatMessage {
   final String text;
   final String tradeId;
+  final bool animateResponse;
+  final bool isGuardDeactivated;
 
   const SimpleTextMessage({
     required this.text,
     this.tradeId = '',
+    this.animateResponse = false,
+    this.isGuardDeactivated = false,
     super.isFromUser = false,
     super.messageId,
     super.isUnread,
+    super.sendFailed,
     super.actionTaken,
     super.timestamp,
   }) : super(type: ChatMessageType.simpleText);
 }
 
+/// A locally-created outgoing voice note with local delivery state.
+class VoiceMessage extends ChatMessage {
+  final int durationSeconds;
+  final String text;
+
+  const VoiceMessage({
+    required this.durationSeconds,
+    this.text = 'Voice message',
+    super.isFromUser = true,
+    super.messageId,
+    super.isUnread,
+    super.sendFailed,
+    super.actionTaken,
+    super.timestamp,
+  }) : super(type: ChatMessageType.voiceMessage);
+}
+
 /// Backend AI waiting / status bubble (`message_type: ai_msgs`).
 class AiWaitingMessage extends ChatMessage {
   final String text;
+  final String heading;
   final String tradeId;
 
   const AiWaitingMessage({
     required this.text,
+    this.heading = '',
     this.tradeId = '',
     super.messageId,
     super.isUnread,
@@ -64,7 +95,7 @@ class AiWaitingMessage extends ChatMessage {
 
   /// Presentation-only subtitle for the waiting bubble UI.
   String get subtitle {
-    return text;
+    return heading;
   }
 }
 
@@ -101,19 +132,25 @@ class NewTradeOpportunityMessage extends ChatMessage {
   final String tradeId; // ID of the trade
   /// Previous SL value from payload key `old_stop_loss_history` (edit flow).
   final String oldStopLoss;
+
   /// Previous Target value from payload key `old_take_profit_history` (edit flow).
   final String oldTakeProfit;
+
   /// Whether the SL was edited (extracted from outer json)
   final bool slChanged;
+
   /// Whether the Target was edited (extracted from outer json)
   final bool tpChanged;
+
   /// Outer API `message` when [entity_type] is trade (e.g. instructions).
   final String apiMessage;
 
   /// Outer API `button_type` when [message_type] is button (e.g. open_app_button).
   final String buttonType;
+
   /// Preferred trade card title from payload `name`.
   final String tradeName;
+
   /// Preferred trade card subtitle from payload `symbol`.
   final String tradeSymbol;
 
@@ -297,9 +334,14 @@ class AlertHitWithButtonMessage extends ChatMessage {
   }) : super(type: ChatMessageType.alertHitWithButton);
 }
 
-String _targetHitPriceFromPayload(Map<String, dynamic> p, {bool isSlHit = false}) {
+String _targetHitPriceFromPayload(
+  Map<String, dynamic> p, {
+  bool isSlHit = false,
+}) {
   final hitPrice = p['hit_price'] ?? p['user_hit_price'];
-  if (hitPrice != null && hitPrice.toString().trim().isNotEmpty && hitPrice.toString().trim() != 'null') {
+  if (hitPrice != null &&
+      hitPrice.toString().trim().isNotEmpty &&
+      hitPrice.toString().trim() != 'null') {
     return hitPrice.toString().trim();
   }
 
@@ -308,7 +350,9 @@ String _targetHitPriceFromPayload(Map<String, dynamic> p, {bool isSlHit = false}
       : ['upper_price', 'gtt_price', 'take_profit', 'price'];
   for (final key in keys) {
     final v = p[key];
-    if (v != null && v.toString().trim().isNotEmpty && v.toString().trim() != 'null') {
+    if (v != null &&
+        v.toString().trim().isNotEmpty &&
+        v.toString().trim() != 'null') {
       return v.toString().trim();
     }
   }
@@ -320,7 +364,9 @@ String _targetHitPriceFromPayload(Map<String, dynamic> p, {bool isSlHit = false}
         : ['take_profit', 'current_price', 'entry_price'];
     for (final key in tradeKeys) {
       final v = tp[key];
-      if (v != null && v.toString().trim().isNotEmpty && v.toString().trim() != 'null') {
+      if (v != null &&
+          v.toString().trim().isNotEmpty &&
+          v.toString().trim() != 'null') {
         return v.toString().trim();
       }
     }
@@ -332,6 +378,7 @@ String _targetHitPriceFromPayload(Map<String, dynamic> p, {bool isSlHit = false}
 /// Trade payloads can include both normal text + trade card, so we return a list.
 List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
   final messageType = (json['message_type'] ?? json['type'] ?? '').toString();
+  final normalizedMessageType = messageType.trim().toLowerCase();
   final entityType = (json['entity_type'] ?? '').toString();
   final message = (json['message'] ?? '').toString();
   final messageId = (json['message_id'] ?? '').toString();
@@ -349,13 +396,14 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
   final payloadTradeMap = payloadMap?['trade'] is Map
       ? Map<String, dynamic>.from(payloadMap!['trade'] as Map)
       : null;
-  final relatedTradeId = (payloadMap?['trade_id'] ??
-          payloadMap?['id'] ??
-          payloadTradeMap?['trade_id'] ??
-          payloadTradeMap?['id'] ??
-          payloadTradeMap?['trade_uid'] ??
-          '')
-      .toString();
+  final relatedTradeId =
+      (payloadMap?['trade_id'] ??
+              payloadMap?['id'] ??
+              payloadTradeMap?['trade_id'] ??
+              payloadTradeMap?['id'] ??
+              payloadTradeMap?['trade_uid'] ??
+              '')
+          .toString();
 
   /// Trade map: [entity_type] is trade, or legacy [message_type] == trade.
   /// Button rows with [entity_type] trade (e.g. open_app_button) map here, not alert UI.
@@ -366,8 +414,62 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
 
   final isAlertButton = messageType == 'button' && entityType == 'alert';
 
+  /// Persisted LLM text messages have explicit direction types. Parse the
+  /// incoming response envelope so the chat never displays raw JSON.
+  if (normalizedMessageType == 'outgoing_llm_text_msgs' ||
+      normalizedMessageType == 'incoming_llm_text_msgs') {
+    final isFromUser = normalizedMessageType == 'outgoing_llm_text_msgs';
+    return [
+      SimpleTextMessage(
+        text: isFromUser ? message : _llmResponseText(message),
+        isFromUser: isFromUser,
+        tradeId: relatedTradeId,
+        messageId: messageId,
+        // The backend can return `unread` for the complete conversation
+        // burst. Outgoing records must never trigger an unread UI state.
+        isUnread: isFromUser ? false : isUnread,
+        actionTaken: actionTaken,
+        timestamp: outerTimestamp,
+      ),
+    ];
+  }
+
+  /// Persisted voice messages do not contain an audio file for playback in
+  /// the chat history, but they should still use the voice-note bubble.
+  if (normalizedMessageType == 'outgoing_llm_voice_msgs' ||
+      normalizedMessageType == 'incoming_llm_voice_msgs') {
+    return [
+      VoiceMessage(
+        durationSeconds: 0,
+        text: _voiceMessageLabel(message),
+        isFromUser: normalizedMessageType == 'outgoing_llm_voice_msgs',
+        messageId: messageId,
+        isUnread: normalizedMessageType == 'outgoing_llm_voice_msgs'
+            ? false
+            : isUnread,
+        actionTaken: actionTaken,
+        timestamp: outerTimestamp,
+      ),
+    ];
+  }
+
   /// For `message_type: text`, always show plain text only.
   if (messageType.toLowerCase() == 'text') {
+    return [
+      SimpleTextMessage(
+        text: message,
+        tradeId: relatedTradeId,
+        messageId: messageId,
+        isUnread: isUnread,
+        actionTaken: actionTaken,
+        timestamp: outerTimestamp,
+      ),
+    ];
+  }
+
+  /// `fomo_delete` is a backend control row. It tells the client that the
+  /// previously published trade represented by this row should disappear.
+  if (normalizedMessageType == 'fomo_delete') {
     return [
       SimpleTextMessage(
         text: message,
@@ -387,6 +489,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
     return [
       AiWaitingMessage(
         text: message,
+        heading: (json['heading'] ?? '').toString().trim(),
         tradeId: relatedTradeId,
         messageId: messageId,
         isUnread: isUnread,
@@ -421,10 +524,8 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       DmtScoreMessage(
         headline: message.isNotEmpty ? message : 'DMT Score',
         scoreDate: (p['score_date'] ?? '').toString(),
-        instructionsScore: (p['instructions_score'] ??
-                p['process_score'] ??
-                '0')
-            .toString(),
+        instructionsScore:
+            (p['instructions_score'] ?? p['process_score'] ?? '0').toString(),
         commitmentScore: (p['commitment_score'] ?? '0').toString(),
         acceptanceScore: (p['acceptance_score'] ?? '0').toString(),
         patienceScore: (p['patience_score'] ?? '0').toString(),
@@ -453,8 +554,8 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         processId: (p['v2test_trading_process_id'] ?? '').toString(),
         instrument: (p['instrument'] ?? 'Nifty 50').toString(),
         exchange: (p['exchange'] ?? 'NSE').toString(),
-        tradingsymbol:
-            (p['tradingsymbol'] ?? p['instrument'] ?? 'NIFTY 50').toString(),
+        tradingsymbol: (p['tradingsymbol'] ?? p['instrument'] ?? 'NIFTY 50')
+            .toString(),
         openPrice: (p['open_price'] ?? '').toString(),
         currentPrice: (p['current_price'] ?? '').toString(),
         dayLow: (p['day_low'] ?? '').toString(),
@@ -480,47 +581,55 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
     final buttonType = (json['button_type'] ?? '').toString();
     final hitType = (p['hit_type'] ?? '').toString().toLowerCase().trim();
     final pStatus = (p['status'] ?? '').toString().toLowerCase().trim();
-    final tradeMap = p['trade'] is Map ? Map<String, dynamic>.from(p['trade'] as Map) : null;
-    final tradeStatus = (tradeMap?['status'] ?? '').toString().toLowerCase().trim();
+    final tradeMap = p['trade'] is Map
+        ? Map<String, dynamic>.from(p['trade'] as Map)
+        : null;
+    final tradeStatus = (tradeMap?['status'] ?? '')
+        .toString()
+        .toLowerCase()
+        .trim();
     final jsonStatus = (json['status'] ?? '').toString().toLowerCase().trim();
     final lowerMessage = message.toLowerCase();
 
-    final isGttHit = p['gtt_price'] != null ||
+    final isGttHit =
+        p['gtt_price'] != null ||
         hitType == 'gtt' ||
         tradeStatus.contains('gtt') ||
         pStatus.contains('gtt') ||
         lowerMessage.contains('gtt hit') ||
         lowerMessage.contains('gtt is hit');
 
-    final isSlHit = !isGttHit && (
-        hitType == 'lower' ||
-        hitType.contains('sl') ||
-        tradeStatus == 'hit_lower' ||
-        tradeStatus.contains('lower') ||
-        tradeStatus.contains('sl') ||
-        pStatus == 'hit_lower' ||
-        jsonStatus == 'hit_lower' ||
-        lowerMessage.contains('sl is hit') ||
-        lowerMessage.contains('sl hit') ||
-        lowerMessage.contains('stop loss')
-    );
+    final isSlHit =
+        !isGttHit &&
+        (hitType == 'lower' ||
+            hitType.contains('sl') ||
+            tradeStatus == 'hit_lower' ||
+            tradeStatus.contains('lower') ||
+            tradeStatus.contains('sl') ||
+            pStatus == 'hit_lower' ||
+            jsonStatus == 'hit_lower' ||
+            lowerMessage.contains('sl is hit') ||
+            lowerMessage.contains('sl hit') ||
+            lowerMessage.contains('stop loss'));
 
-    final isTargetHit = !isGttHit && !isSlHit && (
-        hitType == 'upper' ||
-        hitType.contains('target') ||
-        tradeStatus == 'hit_upper' ||
-        tradeStatus.contains('upper') ||
-        tradeStatus.contains('target') ||
-        pStatus == 'hit_upper' ||
-        jsonStatus == 'hit_upper' ||
-        lowerMessage.contains('target order') ||
-        lowerMessage.contains('target hit') ||
-        lowerMessage.contains('target is hit') ||
-        buttonType == 'trade_executed'
-    );
+    final isTargetHit =
+        !isGttHit &&
+        !isSlHit &&
+        (hitType == 'upper' ||
+            hitType.contains('target') ||
+            tradeStatus == 'hit_upper' ||
+            tradeStatus.contains('upper') ||
+            tradeStatus.contains('target') ||
+            pStatus == 'hit_upper' ||
+            jsonStatus == 'hit_upper' ||
+            lowerMessage.contains('target order') ||
+            lowerMessage.contains('target hit') ||
+            lowerMessage.contains('target is hit') ||
+            buttonType == 'trade_executed');
 
     String buttonLabel;
-    if (p['button_label'] != null && p['button_label'].toString().trim().isNotEmpty) {
+    if (p['button_label'] != null &&
+        p['button_label'].toString().trim().isNotEmpty) {
       buttonLabel = p['button_label'].toString().trim();
     } else if (isSlHit) {
       buttonLabel = 'Yes! SL is hit';
@@ -692,6 +801,50 @@ bool _parseBoolFlag(dynamic value) {
   if (value is num) return value != 0;
   final s = value?.toString().toLowerCase().trim() ?? '';
   return s == 'true' || s == '1' || s == 'yes';
+}
+
+String _llmResponseText(String raw) {
+  final value = raw.trim();
+  if (value.isEmpty) return '';
+
+  final candidates = <String>[
+    value,
+    // Some legacy responses contain markdown escapes such as \\* inside a
+    // JSON string. They are not valid JSON escapes, so normalize them before
+    // the fallback decode.
+    value.replaceAll(r'\*', '*'),
+  ];
+
+  for (final candidate in candidates) {
+    try {
+      final decoded = jsonDecode(candidate);
+      if (decoded is Map) {
+        for (final key in const [
+          'response_markdown',
+          'response',
+          'message',
+          'text',
+        ]) {
+          final result = decoded[key];
+          if (result != null && result.toString().trim().isNotEmpty) {
+            return result.toString().trim();
+          }
+        }
+      }
+    } catch (_) {
+      // Keep the original message when the backend sends plain text or
+      // legacy JSON that cannot be decoded.
+    }
+  }
+  return value;
+}
+
+String _voiceMessageLabel(String raw) {
+  final value = raw.trim();
+  if (value.isEmpty || value.toLowerCase().contains('voice message')) {
+    return 'Voice message';
+  }
+  return value;
 }
 
 /// Backward-compatible helper when callers expect a single message.

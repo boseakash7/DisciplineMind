@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/model/dmt_level_model.dart';
 import 'package:discipline_mind/model/dmt_user_hit_trades_model.dart';
@@ -16,7 +17,7 @@ class DmtLevelsService extends GetxService {
   final RxnString levelsError = RxnString();
   final RxnString tradesError = RxnString();
 
-  bool _levelsRefreshInFlight = false;
+  Future<bool>? _levelsRefresh;
 
   /// Overview stats — API values with 0/empty fallbacks when response not loaded.
   int get displayTotalTrades {
@@ -120,15 +121,18 @@ class DmtLevelsService extends GetxService {
     selectedLevel.value = level;
   }
 
-  Future<bool> refreshLevels() async {
-    if (_levelsRefreshInFlight) return levels.isNotEmpty;
-    _levelsRefreshInFlight = true;
-    isLoadingLevels.value = true;
-    levelsError.value = null;
+  Future<bool> refreshLevels() {
+    return _levelsRefresh ??= Future<bool>.microtask(_loadLevels)
+        .whenComplete(() => _levelsRefresh = null);
+  }
 
+  Future<bool> _loadLevels() async {
     try {
+      isLoadingLevels.value = true;
+      levelsError.value = null;
       final api = _api();
-      final response = await api.get(ApiUrl.dmtLevels);
+      final response = await api.get(ApiUrl.dmtLevels)
+          .timeout(const Duration(seconds: 12));
 
       if (!response.isSuccess || response.data is! Map) {
         levelsError.value =
@@ -149,12 +153,14 @@ class DmtLevelsService extends GetxService {
       levels.assignAll(valid);
       _ensureLevelSelection();
       return levels.isNotEmpty;
+    } on TimeoutException {
+      levelsError.value = 'Request timed out. Please try again.';
+      return false;
     } catch (e) {
       levelsError.value = e.toString();
       return false;
     } finally {
       isLoadingLevels.value = false;
-      _levelsRefreshInFlight = false;
     }
   }
 
@@ -170,10 +176,28 @@ class DmtLevelsService extends GetxService {
     tradesError.value = null;
 
     try {
-      final response = await _api().postFormData(ApiUrl.dmtLevelUserHitTrades, {
+      var response = await _api().postFormData(ApiUrl.dmtLevelUserHitTrades, {
         'user_id': userId,
         'level_id': levelId.toString(),
       });
+      if (!response.isSuccess) {
+        response = await _api().postFormData(
+          'https://api.disciplinedminds.in/api/v2test/dmt-level/user-hit-trades',
+          {
+            'user_id': userId,
+            'level_id': levelId.toString(),
+          },
+        );
+      }
+      if (!response.isSuccess) {
+        response = await _api().postFormData(
+          'https://api.disciplinedminds.in/api/dmt-level/user-hit-trades',
+          {
+            'user_id': userId,
+            'level_id': levelId.toString(),
+          },
+        );
+      }
 
       // If a newer request was dispatched while this was in-flight, discard this result.
       if (currentToken != _fetchSequence || selectedLevel.value?.id != levelId) {
