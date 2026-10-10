@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get_storage/get_storage.dart';
@@ -43,16 +45,8 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
 
   Future<void> _initConsentCheck() async {
     try {
-      final nativeConsent = await _blockService.hasConsentAccepted();
-      if (nativeConsent) {
-        if (mounted && !_hasConsent) {
-          _safeSetState(() => _hasConsent = true);
-        }
-        return;
-      }
       final prefs = await SharedPreferences.getInstance();
-      final consent =
-          prefs.getBool('mct_guard_consent_accepted') ??
+      final consent = prefs.getBool('mct_guard_consent_accepted') ??
           (_storage.read<bool>('mct_guard_consent_accepted') ?? false);
       if (mounted && _hasConsent != consent) {
         _safeSetState(() => _hasConsent = consent);
@@ -61,7 +55,6 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
   }
 
   Future<void> _onConsentAgreed() async {
-    await _blockService.saveConsentAccepted();
     try {
       await _storage.write('mct_guard_consent_accepted', true);
       final prefs = await SharedPreferences.getInstance();
@@ -98,7 +91,9 @@ class _BlockedAppOverlayPageState extends State<BlockedAppOverlayPage> {
     try {
       print('[BlockedAppOverlay] Force unblock (temporary)...');
       final package = _blockedPackageName;
-      if (package != null && package.isNotEmpty && package != 'blocked_app') {
+      if (package != null &&
+          package.isNotEmpty &&
+          package != 'blocked_app') {
         await _blockService.forceUnblockTemporary(packageName: package);
       } else {
         await _blockService.forceUnblockTemporary();

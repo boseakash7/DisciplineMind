@@ -63,12 +63,6 @@ class DmtScoreHistoryService extends GetxService {
       );
       if (!response.isSuccess) {
         response = await _api().postFormData(
-          'https://api.disciplinedminds.in/api/v2test/dmt-score/history',
-          fields,
-        );
-      }
-      if (!response.isSuccess) {
-        response = await _api().postFormData(
           'https://api.disciplinedminds.in/api/dmt-score/history',
           fields,
         );
@@ -148,15 +142,6 @@ class DmtScoreHistoryService extends GetxService {
           'level_id': levelId.toString(),
         },
       );
-      if (!response.isSuccess) {
-        response = await _api().postFormData(
-          'https://api.disciplinedminds.in/api/v2test/dmt-level/user-return-percentages',
-          {
-            'user_id': userId,
-            'level_id': levelId.toString(),
-          },
-        );
-      }
       if (!response.isSuccess) {
         response = await _api().postFormData(
           'https://api.disciplinedminds.in/api/dmt-level/user-return-percentages',

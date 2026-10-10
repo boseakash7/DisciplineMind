@@ -8,7 +8,6 @@ class TradingApp {
     required this.isStoploss,
     required this.isGtt,
     this.createdAt,
-    this.logoUrl,
   });
 
   final String id;
@@ -18,7 +17,6 @@ class TradingApp {
   final bool isStoploss;
   final bool isGtt;
   final String? createdAt;
-  final String? logoUrl;
 
   factory TradingApp.fromJson(Map<String, dynamic> json) {
     return TradingApp(
@@ -29,9 +27,6 @@ class TradingApp {
       isStoploss: _parseFlag(json['is_stoploss']),
       isGtt: _parseFlag(json['is_gtt']),
       createdAt: json['created_at']?.toString(),
-      logoUrl: json['logo']?.toString() ??
-          json['icon']?.toString() ??
-          json['logo_url']?.toString(),
     );
   }
 

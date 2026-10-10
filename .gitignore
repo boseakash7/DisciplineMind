@@ -46,6 +46,3 @@ app.*.map.json
 
 # FVM Version Cache
 .fvm/
-ios/build/
-bm_screen_diff.txt
-bm_screen_phase5.dart

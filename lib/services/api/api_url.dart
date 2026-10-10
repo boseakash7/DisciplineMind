@@ -43,10 +43,9 @@ class ApiUrl {
 
   /// Confirms user trailed the SL in the broker app (form: trade_id, user_id).
   static const String editTrade = "edit/trade";
-  static const String editGtt = "edit/gtt";
 
   /// Confirms user updated the GTT in the broker app (form: trade_id, user_id, new_entry).
-  // static const String editGtt = "edit/gtt";
+  static const String editGtt = "edit/gtt";
 
   /// Confirms target hit (form: trade_id, user_id, hit_price).
   static const String tradeExecuted = "trade/executed";
@@ -63,12 +62,11 @@ class ApiUrl {
   /// Edit/update existing process (form: user_id, process_id, trading_segment, instrument, trading_capital, trades_per_day, max_risk_percent, market_entry_time, broking_app, permission_overlay_enabled, permission_usage_stats_enabled, terms_accepted).
   static const String processEdit = "process/edit";
 
+  /// Endpoint to fetch dynamic app config keys (GET, JSON).
+  static const String configKeys = "config/keys";
+
   /// Endpoint to send user query to LLM AI (POST JSON: user_id, user_query).
   static const String llmAsk = "llm/ask";
-
-  /// Endpoint to send a recorded voice note directly to the voice-chat API.
-  static const String voiceChatAsk =
-      'https://api.disciplinedminds.in/api/voice-chat/ask';
 
   /// Activate Mind Control (POST form: user_id, is_mind_controll_active).
   static const String mindControlActive = "user/mind-control-active";

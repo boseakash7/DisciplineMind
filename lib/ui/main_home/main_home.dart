@@ -1,21 +1,16 @@
-import 'dart:io';
-
-import 'package:app_limiter/app_limiter.dart';
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/controller/trading_process_controller.dart';
-import 'package:discipline_mind/services/native_app_block_service.dart';
-import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:discipline_mind/ui/main_home/analysis_screen.dart';
 import 'package:discipline_mind/ui/main_home/bm_screen.dart';
 import 'package:discipline_mind/ui/main_home/chat_screen.dart';
+import 'package:discipline_mind/ui/main_home/chat_screencopy.dart';
 import 'package:discipline_mind/ui/credits/widgets/credits_header_avatar.dart';
 import 'package:discipline_mind/ui/main_home/more_screen.dart';
 import 'package:discipline_mind/ui/main_home/trade_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class MainHomeScreen extends StatefulWidget {
   final int initialIndex;
@@ -26,63 +21,13 @@ class MainHomeScreen extends StatefulWidget {
   State<MainHomeScreen> createState() => _MainHomeScreenState();
 }
 
-class _MainHomeScreenState extends State<MainHomeScreen>
-    with WidgetsBindingObserver {
+class _MainHomeScreenState extends State<MainHomeScreen> {
   late int currentIndex;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     currentIndex = widget.initialIndex;
-    _checkAndPromptPermissions();
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _checkAndPromptPermissions();
-    }
-  }
-
-  Future<void> _checkAndPromptPermissions() async {
-    Common.getFcmToken();
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) return;
-      if (Platform.isIOS) {
-        final prefs = await SharedPreferences.getInstance();
-        final isGranted = prefs.getBool('ios_screen_time_granted') ?? false;
-        if (!isGranted) {
-          try {
-            final limiter = AppLimiter();
-            final granted = await limiter.requestIosPermission();
-            if (granted) {
-              await prefs.setBool('ios_screen_time_granted', true);
-            }
-          } catch (e) {
-            debugPrint('[MainHomeScreen] iOS Screen Time request failed: $e');
-          }
-        }
-      } else if (Platform.isAndroid) {
-        try {
-          final blockService = NativeAppBlockService();
-          final perms = await blockService.checkPermissions();
-          final hasOverlay = perms['hasOverlayPermission'] == true;
-          final hasUsage = perms['hasUsageStatsPermission'] == true;
-          if (hasOverlay && hasUsage) {
-            await checkAndStartTradingBlockIfPermitted();
-          }
-        } catch (e) {
-          debugPrint('[MainHomeScreen] Android check failed: $e');
-        }
-      }
-    });
   }
 
   void _openMoreTab() {

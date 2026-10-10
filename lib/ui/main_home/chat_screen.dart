@@ -8,6 +8,7 @@ import 'package:discipline_mind/controller/chat_controller.dart';
 import 'package:discipline_mind/controller/trading_process_controller.dart';
 import 'package:discipline_mind/model/chat_message_model.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
+import 'package:discipline_mind/services/openai_stt_service.dart';
 import 'package:discipline_mind/ui/main_home/trade_process.dart';
 import 'package:discipline_mind/ui/main_home/dmt_score_screen.dart';
 import 'package:discipline_mind/ui/widgets/ai_waiting_status_bubble.dart';
@@ -15,12 +16,9 @@ import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:discipline_mind/ui/widgets/audio_wave_visualizer.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:get_storage/get_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
-import 'package:app_limiter/app_limiter.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 
@@ -37,51 +35,37 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
-  static const int _maxVoiceRecordingSeconds = 20;
-
   late final ChatController _chatController;
   final NativeAppBlockService _blockService = NativeAppBlockService();
   bool _overlayGranted = false;
   bool _usageGranted = false;
-  bool _iosScreenTimeGranted = false;
   bool _isCheckingPermissions = true;
   bool _hideMindControlGateTemporary = false;
-  bool _mindControlPromptDeclined = false;
-
-  static const String _mindControlPromptDeclinedKey =
-      'mind_control_prompt_declined_';
+  bool _skippedMindControl = false;
 
   final _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  final GlobalKey _firstNewMessageKey = GlobalKey();
   int _lastMessageCount = 0;
   final Set<String> _revealedUnreadMessageIds = <String>{};
   bool _isLoadingOlder = false;
   bool _suppressAutoBottomScroll = false;
   bool _skipNextAutoBottomScroll = false;
   bool _didInitialBottomSnap = false;
-  bool _typingScrollPending = false;
-  DateTime? _lastTypingScrollAt;
   String _previousFirstMessageId = '';
   String _previousLastMessageId = '';
   final Set<String> _openedTradingAppMessageIds = <String>{};
   final Set<String> _actionTakenMessageIds = <String>{};
   final Set<String> _actionTakenTradeIds = <String>{};
-  final Set<String> _animatedResponseKeys = <String>{};
-  final Set<String> _completedResponseKeys = <String>{};
 
-  /// Voice recording states.
+  /// Voice recording & STT states
   AudioRecorder? _audioRecorder;
   StreamSubscription<Amplitude>? _amplitudeSubscription;
   bool _isRecording = false;
-  bool _hasVoiceRecording = false;
-  bool _isSendingVoice = false;
-  bool _isStoppingRecording = false;
+  bool _isTranscribing = false;
   double _currentAmplitude = 0.0;
   int _recordingSeconds = 0;
   Timer? _recordingTimer;
   String? _currentRecordingPath;
-  int _textSendAttempt = 0;
 
   /// DMT score popup staged animation shown once per message (while unread).
   final Set<String> _dmtScorePopupAnimatedIds = <String>{};
@@ -109,7 +93,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _startRecording() async {
-    if (_isRecording || _hasVoiceRecording || _isSendingVoice) return;
+    if (_isRecording || _isTranscribing) return;
     try {
       await _disposeRecorder();
       _audioRecorder = AudioRecorder();
@@ -129,18 +113,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
       final tempDir = await getTemporaryDirectory();
       final path =
-          '${tempDir.path}/chat_voice_${DateTime.now().millisecondsSinceEpoch}.wav';
+          '${tempDir.path}/chat_voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
 
       await _audioRecorder!.start(
-        const RecordConfig(encoder: AudioEncoder.wav),
+        const RecordConfig(encoder: AudioEncoder.aacLc),
         path: path,
       );
 
       setState(() {
         _isRecording = true;
-        _hasVoiceRecording = false;
-        _isSendingVoice = false;
-        _isStoppingRecording = false;
+        _isTranscribing = false;
         _currentAmplitude = 0.0;
         _recordingSeconds = 0;
         _currentRecordingPath = path;
@@ -148,11 +130,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
       _recordingTimer?.cancel();
       _recordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (!mounted || !_isRecording || _isStoppingRecording) return;
-        final nextSeconds = _recordingSeconds + 1;
-        setState(() => _recordingSeconds = nextSeconds);
-        if (nextSeconds >= _maxVoiceRecordingSeconds) {
-          _stopRecording();
+        if (mounted && _isRecording) {
+          setState(() => _recordingSeconds++);
         }
       });
 
@@ -182,9 +161,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _stopRecording() async {
-    if (!_isRecording || _isStoppingRecording) return;
-    _isStoppingRecording = true;
+  Future<void> _stopRecordingAndTranscribe() async {
+    if (!_isRecording) return;
     try {
       _recordingTimer?.cancel();
       await _amplitudeSubscription?.cancel();
@@ -203,222 +181,51 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _audioRecorder = null;
       }
 
-      final targetPath = path ?? _currentRecordingPath;
-      if (!mounted) return;
       setState(() {
         _isRecording = false;
-        _hasVoiceRecording = targetPath != null && targetPath.isNotEmpty;
-        _isStoppingRecording = false;
-        _currentRecordingPath = targetPath;
+        _isTranscribing = true;
       });
-      if (!_hasVoiceRecording) AppToast.showToast('No audio recorded');
+
+      final targetPath = path ?? _currentRecordingPath;
+      if (targetPath == null || targetPath.isEmpty) {
+        AppToast.showToast('No audio recorded');
+        setState(() => _isTranscribing = false);
+        return;
+      }
+
+      final text = await OpenAiSttService.transcribeAudio(targetPath);
+
+      if (!mounted) return;
+      setState(() {
+        _isTranscribing = false;
+      });
+
+      if (text != null && text.isNotEmpty) {
+        final currentText = _textController.text;
+        if (currentText.trim().isEmpty) {
+          _textController.text = text;
+        } else {
+          _textController.text = '$currentText $text';
+        }
+        _textController.selection = TextSelection.fromPosition(
+          TextPosition(offset: _textController.text.length),
+        );
+      } else {
+        AppToast.showToast('Could not convert voice to text');
+      }
+
+      try {
+        final f = File(targetPath);
+        if (await f.exists()) await f.delete();
+      } catch (_) {}
     } catch (e) {
-      debugPrint('Error stopping audio recording: $e');
+      debugPrint('Error stopping/transcribing audio: $e');
       await _disposeRecorder();
       if (mounted) {
-        setState(() {
-          _isRecording = false;
-          _hasVoiceRecording = false;
-          _isStoppingRecording = false;
-        });
-        AppToast.showToast('Failed to stop recording');
+        setState(() => _isTranscribing = false);
+        AppToast.showToast('Failed to process voice recording');
       }
     }
-  }
-
-  Future<void> _deleteVoiceRecording() async {
-    if ((!_hasVoiceRecording && !_isRecording) || _isStoppingRecording) return;
-    final isDark = _isDark(context);
-    final shouldDelete = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => Dialog(
-        backgroundColor: _dialogBg(isDark),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: Colors.redAccent.withOpacity(0.12),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.delete_outline_rounded,
-                  color: Colors.redAccent,
-                  size: 30,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Are you sure you wish to delete this recording?',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: _headlineText(isDark),
-                  fontSize: 16,
-                  height: 1.3,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 22),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(dialogContext, false),
-                      child: const Text('No'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.redAccent,
-                      ),
-                      onPressed: () => Navigator.pop(dialogContext, true),
-                      child: const Text('Yes'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (shouldDelete != true) return;
-    if (_isRecording) {
-      await _cancelRecording();
-      return;
-    }
-    final targetPath = _currentRecordingPath;
-    if (targetPath != null && targetPath.isNotEmpty) {
-      try {
-        final file = File(targetPath);
-        if (await file.exists()) await file.delete();
-      } catch (e) {
-        debugPrint('Error deleting voice recording: $e');
-      }
-    }
-    if (!mounted) return;
-    setState(() {
-      _hasVoiceRecording = false;
-      _currentRecordingPath = null;
-      _recordingSeconds = 0;
-      _currentAmplitude = 0;
-    });
-  }
-
-  Future<void> _sendVoiceRecording(ChatController controller) async {
-    if (_isSendingVoice || !_hasVoiceRecording) return;
-    final targetPath = _currentRecordingPath;
-    if (targetPath == null || targetPath.isEmpty) {
-      AppToast.showToast('No audio recorded');
-      return;
-    }
-
-    setState(() => _isSendingVoice = true);
-    final sendFuture = controller.sendVoiceMessage(
-      targetPath,
-      durationSeconds: _recordingSeconds,
-    );
-    _scheduleScrollToLatestAfterOutgoingMessage();
-    final sent = await sendFuture;
-    if (!sent) {
-      try {
-        final file = File(targetPath);
-        if (await file.exists()) await file.delete();
-      } catch (e) {
-        debugPrint('Error deleting failed voice recording: $e');
-      }
-      if (mounted) {
-        _textController.value = const TextEditingValue();
-        _textController.clearComposing();
-        setState(() {
-          _isSendingVoice = false;
-          _hasVoiceRecording = false;
-          _currentRecordingPath = null;
-          _recordingSeconds = 0;
-          _currentAmplitude = 0;
-        });
-      }
-      return;
-    }
-    try {
-      final file = File(targetPath);
-      if (await file.exists()) await file.delete();
-    } catch (e) {
-      debugPrint('Error deleting sent voice recording: $e');
-    }
-    if (!mounted) return;
-    setState(() {
-      _isSendingVoice = false;
-      _hasVoiceRecording = false;
-      _currentRecordingPath = null;
-      _recordingSeconds = 0;
-      _currentAmplitude = 0;
-    });
-    _scheduleScrollToBottom();
-  }
-
-  void _scheduleScrollToLatestAfterOutgoingMessage() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _scheduleScrollToBottom();
-    });
-  }
-
-  void _sendTextMessage(ChatController controller, String text) {
-    final query = text.trim();
-    if (query.isEmpty) return;
-    final attempt = ++_textSendAttempt;
-    _clearTextComposerIfUnchanged(query, attempt);
-    controller
-        .sendTextMessage(query)
-        .then<void>(
-          (sent) => _clearTextComposerAfterResult(query, attempt, sent),
-          onError: (_, __) =>
-              _clearTextComposerAfterResult(query, attempt, false),
-        );
-    _scheduleScrollToLatestAfterOutgoingMessage();
-    _scheduleScrollToBottom();
-  }
-
-  void _clearTextComposerAfterResult(String sentText, int attempt, bool sent) {
-    if (!sent) {
-      _forceClearTextComposer(attempt);
-      return;
-    }
-    _clearTextComposerIfUnchanged(sentText, attempt);
-  }
-
-  void _forceClearTextComposer(int attempt) {
-    if (!mounted || attempt != _textSendAttempt) return;
-    _textController.value = const TextEditingValue();
-    _textController.clearComposing();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || attempt != _textSendAttempt) return;
-      _textController.value = const TextEditingValue();
-      _textController.clearComposing();
-    });
-  }
-
-  void _clearTextComposerIfUnchanged(String sentText, int attempt) {
-    if (!mounted || attempt != _textSendAttempt) return;
-    if (_textController.text.trim() != sentText.trim()) return;
-
-    void clear() {
-      if (!mounted || attempt != _textSendAttempt) return;
-      if (_textController.text.trim() != sentText.trim()) return;
-      _textController.value = const TextEditingValue();
-      _textController.clearComposing();
-    }
-
-    clear();
-    WidgetsBinding.instance.addPostFrameCallback((_) => clear());
   }
 
   Future<void> _cancelRecording() async {
@@ -441,12 +248,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
       setState(() {
         _isRecording = false;
-        _hasVoiceRecording = false;
-        _isSendingVoice = false;
-        _isStoppingRecording = false;
+        _isTranscribing = false;
         _currentAmplitude = 0.0;
-        _recordingSeconds = 0;
-        _currentRecordingPath = null;
       });
 
       final targetPath = path ?? _currentRecordingPath;
@@ -485,39 +288,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final process = processController.currentProcess.value;
     if (process != null && process.isMindControllActive == 0 && _isMarketOpen) {
       AppToast.showToast('Activate Mind Control Guard');
+      setState(() {
+        _skippedMindControl = false;
+      });
       return true;
     }
     return false;
-  }
-
-  String? _mindControlPromptStorageKey() {
-    final userId =
-        Common.userData.value?.payload?.id?.toString() ??
-        GetStorage().read('user_id')?.toString();
-    if (userId == null || userId.isEmpty) return null;
-    return '$_mindControlPromptDeclinedKey$userId';
-  }
-
-  void _loadMindControlPromptState() {
-    final key = _mindControlPromptStorageKey();
-    if (key == null) return;
-
-    final declined = GetStorage().read<bool>(key) ?? false;
-    if (mounted && declined != _mindControlPromptDeclined) {
-      setState(() => _mindControlPromptDeclined = declined);
-    }
-  }
-
-  Future<void> _declineMindControlPrompt() async {
-    if (mounted) {
-      setState(() => _mindControlPromptDeclined = true);
-    }
-
-    final key = _mindControlPromptStorageKey();
-    if (key != null) {
-      await GetStorage().write(key, true);
-    }
-    _scheduleScrollToBottom();
   }
 
   bool _isDark(BuildContext context) =>
@@ -562,35 +338,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Color _fieldBorder(bool isDark) =>
       isDark ? Colors.white12 : const Color(0xFFE2E0E9);
 
-  String _formatVoiceTime(int seconds) {
-    final safeSeconds = seconds.clamp(0, 99).toString().padLeft(2, '0');
-    return '00:$safeSeconds';
-  }
-
-  Widget _voiceCircleButton({
-    required Widget child,
-    required VoidCallback onTap,
-    required Color backgroundColor,
-    Color? borderColor,
-    double size = 34,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          color: backgroundColor,
-          shape: BoxShape.circle,
-          border: borderColor == null
-              ? null
-              : Border.all(color: borderColor, width: 1.5),
-        ),
-        child: Center(child: child),
-      ),
-    );
-  }
-
   /// Divider color used inside the (always-white) trade card stays the same
   /// in both themes since the card itself stays white per design.
 
@@ -607,22 +354,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     });
     WidgetsBinding.instance.addObserver(this);
     _checkPermissions();
-    _loadMindControlPromptState();
     _scrollController.addListener(_onChatScroll);
   }
 
   Future<void> _checkPermissions() async {
-    if (Platform.isIOS) {
-      final prefs = await SharedPreferences.getInstance();
-      final isGranted = prefs.getBool('ios_screen_time_granted') ?? false;
-      if (!mounted) return;
-      setState(() {
-        _iosScreenTimeGranted = isGranted;
-        _isCheckingPermissions = false;
-      });
-      return;
-    }
-
     final permissions = await _blockService.checkPermissions();
     if (!mounted) return;
     final overlay = permissions['hasOverlayPermission'] ?? false;
@@ -637,133 +372,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _requestIosScreenTime() async {
-    try {
-      final limiter = AppLimiter();
-      final granted = await limiter.requestIosPermission();
-      if (granted) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('ios_screen_time_granted', true);
-        if (mounted) {
-          setState(() {
-            _iosScreenTimeGranted = true;
-          });
-          AppToast.showToast('Screen Time permission granted');
-        }
-        final processController = Get.isRegistered<TradingProcessController>()
-            ? Get.find<TradingProcessController>()
-            : Get.put(TradingProcessController());
-        if (processController.currentProcess.value?.isMindControllActive == 1) {
-          try {
-            await limiter.blockAndUnblockIOSApp();
-          } catch (e) {
-            debugPrint('[iOS Block] Error: $e');
-          }
-        }
-      } else {
-        AppToast.showToast('Screen Time permission is required to block apps');
-      }
-    } catch (e) {
-      debugPrint('[iOS Permission] Error: $e');
-      AppToast.showToast('Failed to request Screen Time permission');
-    }
-  }
-
   Future<void> _requestOverlay() async {
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Icon(Icons.layers_outlined, color: AppColors.primary),
-            const SizedBox(width: 10),
-            const Expanded(
-              child: Text(
-                'Display Over Apps',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-        ),
-        content: const Text(
-          'To protect your trading discipline, Zeno AI needs permission to display alerts over other apps.\n\nTap "Open Settings", find "Zeno AI", and turn on "Allow display over other apps".',
-          style: TextStyle(fontSize: 14, height: 1.4),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            onPressed: () async {
-              Navigator.pop(ctx);
-              await _blockService.requestOverlayPermission();
-            },
-            child: const Text('Open Settings'),
-          ),
-        ],
-      ),
-    );
+    await _blockService.requestOverlayPermission();
+    _checkPermissions();
   }
 
   Future<void> _requestUsage() async {
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Icon(Icons.analytics_outlined, color: AppColors.primary),
-            const SizedBox(width: 10),
-            const Expanded(
-              child: Text(
-                'Usage Access',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-        ),
-        content: const Text(
-          'Zeno AI needs Usage Access to monitor and protect against impulsive trading.\n\nTap "Open Settings", select "Zeno AI", and turn on "Permit usage access".',
-          style: TextStyle(fontSize: 14, height: 1.4),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            onPressed: () async {
-              Navigator.pop(ctx);
-              await _blockService.requestUsageStatsPermission();
-            },
-            child: const Text('Open Settings'),
-          ),
-        ],
-      ),
-    );
+    await _blockService.requestUsageStatsPermission();
+    _checkPermissions();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _checkPermissions();
-      Future.delayed(const Duration(milliseconds: 600), () {
-        if (mounted) _checkPermissions();
-      });
       if (widget.isActive) _syncOnTabFocus();
     }
   }
@@ -772,9 +394,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void didUpdateWidget(ChatScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
-      if (_hideMindControlGateTemporary) {
+      if (_hideMindControlGateTemporary || _skippedMindControl) {
         setState(() {
           _hideMindControlGateTemporary = false;
+          _skippedMindControl = false;
         });
       }
       _syncOnTabFocus();
@@ -840,18 +463,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   String _lastMessageId(List<ChatMessage> list) {
-    if (list.isEmpty) return '';
-
-    // Local AI replies can exist before the server assigns a message id.
-    // Keep a session-stable fallback so replacing the waiting row with that
-    // reply still triggers the new-message anchor immediately.
-    final last = list.last;
-    final id = last.messageId.trim();
-    if (id.isNotEmpty) return id;
-    final content = last is SimpleTextMessage
-        ? last.text
-        : (last is AiWaitingMessage ? '${last.heading}|${last.text}' : '');
-    return 'local:${last.type.name}:${last.timestamp}:${content.hashCode}';
+    for (var i = list.length - 1; i >= 0; i--) {
+      final id = list[i].messageId.trim();
+      if (id.isNotEmpty) return id;
+    }
+    return '';
   }
 
   Future<void> _handleScrollForOlderMessages() async {
@@ -920,24 +536,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _scheduleScrollDuringTyping() {
-    if (!mounted || _typingScrollPending) return;
-
-    final now = DateTime.now();
-    final elapsed = _lastTypingScrollAt == null
-        ? const Duration(milliseconds: 100)
-        : now.difference(_lastTypingScrollAt!);
-    if (elapsed < const Duration(milliseconds: 100)) return;
-
-    _typingScrollPending = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _typingScrollPending = false;
-      if (!mounted || !_scrollController.hasClients) return;
-      _lastTypingScrollAt = DateTime.now();
-      _scrollToBottom();
-    });
-  }
-
   /// Scroll until [maxScrollExtent] stabilizes so tall messages are fully visible.
   void _scheduleScrollToBottom({int attempt = 0}) {
     const maxAttempts = 18;
@@ -971,40 +569,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     });
   }
 
-  /// Bring the first newly received message to the top of the viewport.
-  /// The latest-message arrow still uses [_scheduleScrollToBottom].
-  void _scheduleScrollToFirstNewMessage({int attempt = 0}) {
-    const maxAttempts = 18;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients) return;
-
-      final targetContext = _firstNewMessageKey.currentContext;
-      if (targetContext != null) {
-        Scrollable.ensureVisible(
-          targetContext,
-          alignment: 0.0,
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOut,
-        );
-        return;
-      }
-
-      if (attempt >= maxAttempts) return;
-      Future.delayed(Duration(milliseconds: 40 + attempt * 25), () {
-        if (mounted) {
-          _scheduleScrollToFirstNewMessage(attempt: attempt + 1);
-        }
-      });
-    });
-  }
-
   void _scheduleScrollAfterUnreadReveal(
     String messageId,
     ChatController controller,
   ) {
     final isLast = messageId == _lastMessageId(controller.messages);
     if (isLast || _isNearBottom()) {
-      _scheduleScrollToFirstNewMessage();
+      _scheduleScrollToBottom();
     }
   }
 
@@ -1133,9 +704,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       Text('Market is Open 🔔', style: titleStyle),
                       const SizedBox(height: 8),
                       Text(
-                        _mindControlPromptDeclined
-                            ? 'It is advised to Active MCT to stay Disciplined with your Process as this is from app side'
-                            : "It's time to activate your\nMind Control.",
+                        "It's time to activate your\nMind Control.",
                         style: textStyle,
                       ),
                       const SizedBox(height: 12),
@@ -1196,62 +765,38 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 Row(
                   children: [
                     Expanded(
-                      child: Obx(() {
-                        final pCtrl =
-                            Get.isRegistered<TradingProcessController>()
-                            ? Get.find<TradingProcessController>()
-                            : Get.put(TradingProcessController());
-                        if (pCtrl.isUpdating.value) {
-                          return Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF5A4FCF),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            alignment: Alignment.center,
-                            child: const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Colors.white,
-                                ),
-                              ),
-                            ),
-                          );
-                        }
-
-                        return GestureDetector(
-                          onTap: () async {
-                            final success = await pCtrl.activateMindControl();
-                            if (success && Get.isRegistered<ChatController>()) {
-                              Get.find<ChatController>().loadMessages();
-                            }
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF5A4FCF),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            alignment: Alignment.center,
-                            child: const Text(
-                              'Yes',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
+                      child: GestureDetector(
+                        onTap: () => _showActivateMindControlBottomSheet(
+                          context,
+                          isDark,
+                        ),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF5A4FCF),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          alignment: Alignment.center,
+                          child: const Text(
+                            'Yes',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
-                        );
-                      }),
+                        ),
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: GestureDetector(
-                        onTap: _declineMindControlPrompt,
+                        onTap: () {
+                          setState(() {
+                            _skippedMindControl = true;
+                          });
+                          _scheduleScrollToBottom();
+                        },
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           decoration: BoxDecoration(
@@ -1281,6 +826,153 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ),
         ),
       ],
+    );
+  }
+
+  void _showActivateMindControlBottomSheet(BuildContext context, bool isDark) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          decoration: BoxDecoration(
+            color: _dialogBg(isDark),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.only(
+            top: 12,
+            left: 24,
+            right: 24,
+            bottom: 32,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isDark
+                      ? AppColors.primary.withOpacity(0.2)
+                      : const Color(0xFFEDE9FE),
+                  border: Border.all(color: AppColors.primary, width: 1.5),
+                ),
+                alignment: Alignment.center,
+                child: const Text(
+                  '?',
+                  style: TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Do you wish to activate\nMind Control Guard?',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: _headlineText(isDark),
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 32),
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => Navigator.pop(ctx),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        decoration: BoxDecoration(
+                          color: Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _fieldBorder(isDark),
+                            width: 1,
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          'No',
+                          style: TextStyle(
+                            color: _headlineText(isDark),
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Obx(() {
+                      final pCtrl = Get.find<TradingProcessController>();
+                      if (pCtrl.isUpdating.value) {
+                        return Container(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          alignment: Alignment.center,
+                          child: const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+
+                      return GestureDetector(
+                        onTap: () async {
+                          final success = await pCtrl.activateMindControl();
+                          if (success && mounted) {
+                            Navigator.pop(ctx);
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          alignment: Alignment.center,
+                          child: const Text(
+                            'Yes',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -1330,303 +1022,56 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return '${day.day} $month ${day.year}';
   }
 
-  String _relativeMessageTime(String timestamp) {
-    final sentAt = ChatController.parseMessageTime(timestamp);
-    if (sentAt == null) return '';
-
-    final local = sentAt.toLocal();
-    final hour = local.hour == 0
-        ? 12
-        : (local.hour > 12 ? local.hour - 12 : local.hour);
-    final period = local.hour >= 12 ? 'PM' : 'AM';
-    if (local.minute == 0) return '$hour $period';
-
-    final minute = local.minute.toString().padLeft(2, '0');
-    return '$hour:$minute $period';
-  }
-
-  String _responseAnimationKey(SimpleTextMessage msg) {
-    final id = msg.messageId.trim();
-    if (id.isNotEmpty) return 'id:$id';
-    final timestamp = msg.timestamp.trim();
-    if (timestamp.isNotEmpty) return 'time:$timestamp';
-    return 'text:${msg.text.hashCode}';
-  }
-
-  bool _isResponseAnimationComplete(SimpleTextMessage msg) {
-    return !msg.animateResponse ||
-        _completedResponseKeys.contains(_responseAnimationKey(msg));
-  }
-
-  Widget _buildMessageWithTimestamp(
-    BuildContext context,
-    ChatMessage msg,
-    Widget message,
-  ) {
-    // The thinking indicator is temporary UI, not a sent chat message.
-    if (msg.type == ChatMessageType.aiWaiting) return message;
-    // An expired trade prompt intentionally renders no content. Do not leave
-    // its shared timestamp behind as a duplicate under the trade card.
-    if (msg is TradeExecutionPromptMessage &&
-        _chatController.isTradeExpired(msg.tradeData)) {
-      return const SizedBox.shrink();
-    }
-
-    final isOutgoing = msg.isFromUser;
-    final label = _relativeMessageTime(msg.timestamp);
-    if (label.isEmpty) return message;
-    if (msg.isFromUser) return message;
-    if (msg is SimpleTextMessage &&
-        msg.animateResponse &&
-        !_isResponseAnimationComplete(msg)) {
-      return message;
-    }
-
-    final isDark = _isDark(context);
-    if (isOutgoing) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            message,
-            Transform.translate(
-              offset: const Offset(0, -8),
-              child: Padding(
-                padding: const EdgeInsets.only(right: 6),
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    color: isDark ? Colors.white38 : const Color(0xFF8A8F98),
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: 0.1,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final isTradeCardMessage =
-        msg is AgentWithButtonMessage ||
-        msg is NewTradeOpportunityMessage ||
-        msg is TradeExecutionPromptMessage ||
-        msg is TradeExecutedMessage ||
-        msg is AlertHitWithButtonMessage ||
-        msg is DmtScoreMessage ||
-        msg is TradeSignalMessage;
-    if (isTradeCardMessage) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            message,
-            Align(
-              alignment: Alignment.centerRight,
-              child: Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    color: isDark ? Colors.white38 : const Color(0xFF8A8F98),
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: 0.1,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Expanded(child: message),
-          Padding(
-            padding: const EdgeInsets.only(left: 6, bottom: 2),
-            child: Text(
-              label,
-              style: TextStyle(
-                color: isDark ? Colors.white38 : const Color(0xFF8A8F98),
-                fontSize: 10.5,
-                fontWeight: FontWeight.w500,
-                letterSpacing: 0.1,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   static const _unreadBurstWindow = Duration(seconds: 1);
 
   int _latestUnreadBurstStartIndex(List<ChatMessage> messages) {
     var end = -1;
     for (var i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].isUnread && !messages[i].isFromUser) {
+      if (messages[i].isUnread) {
         end = i;
         break;
       }
     }
     if (end < 0) return -1;
 
-    var burstStart = end;
-    while (burstStart > 0) {
-      final prev = messages[burstStart - 1];
+    var start = end;
+    while (start > 0) {
+      final prev = messages[start - 1];
       if (!prev.isUnread) break;
-      final tCurr = ChatController.parseMessageTime(
-        messages[burstStart].timestamp,
-      );
+      final tCurr = ChatController.parseMessageTime(messages[start].timestamp);
       final tPrev = ChatController.parseMessageTime(prev.timestamp);
       if (tCurr == null || tPrev == null) break;
       if (tCurr.difference(tPrev).abs() > _unreadBurstWindow) break;
-      burstStart--;
+      start--;
     }
-
-    // Keep the separator above an incoming/server message, never above an
-    // outgoing user message even when both records share one unread burst.
-    for (var i = burstStart; i <= end; i++) {
-      if (!messages[i].isFromUser && messages[i].isUnread) return i;
-    }
-    return -1;
-  }
-
-  bool _isCreateProcessButtonMessage(ChatMessage msg) {
-    if (msg is AgentWithButtonMessage) {
-      final label = msg.buttonLabel.trim().toUpperCase();
-      final text = msg.text.trim().toUpperCase();
-      if (label.isEmpty ||
-          label.contains('PROCESS') ||
-          label.contains('CREATE') ||
-          text.contains('PROCESS') ||
-          text.contains('CREATE')) {
-        return true;
-      }
-    }
-    if (msg is AlertHitWithButtonMessage) {
-      final label = msg.buttonLabel.trim().toUpperCase();
-      final text = msg.text.trim().toUpperCase();
-      if (label.contains('PROCESS') ||
-          label.contains('CREATE') ||
-          text.contains('PROCESS') ||
-          text.contains('CREATE')) {
-        return true;
-      }
-    }
-    if (msg is TradeExecutedMessage) {
-      final label = msg.buttonLabel.trim().toUpperCase();
-      if (label.contains('PROCESS') || label.contains('CREATE')) {
-        return true;
-      }
-    }
-    if (msg.type == ChatMessageType.agentWithButton) {
-      return true;
-    }
-    return false;
-  }
-
-  bool _isCreateProcessMessage(ChatMessage msg) {
-    if (_isCreateProcessButtonMessage(msg)) return true;
-    if (msg is SimpleTextMessage) {
-      final text = msg.text.trim().toUpperCase();
-      if (text.contains('CREATE A PROCESS') ||
-          (text.contains('CREATE') && text.contains('PROCESS'))) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  int _findCreateProcessIndex(List<ChatMessage> messages) {
-    for (var i = 0; i < messages.length; i++) {
-      if (_isCreateProcessButtonMessage(messages[i])) {
-        return i;
-      }
-    }
-    for (var i = 0; i < messages.length; i++) {
-      if (_isCreateProcessMessage(messages[i])) {
-        return i;
-      }
-    }
-    return -1;
+    return start;
   }
 
   List<_ChatFeedItem> _buildChatFeedItems(List<ChatMessage> messages) {
     final items = <_ChatFeedItem>[];
     DateTime? lastDay;
     final newMessagesAt = _latestUnreadBurstStartIndex(messages);
-    final btnIdx = _findCreateProcessIndex(messages);
-    bool newMessagesShown = false;
-    bool firstMessageRendered = false;
-    String? deferredDateLabel;
-    DateTime? deferredDay;
+    final lastAiIndex = messages.lastIndexWhere(
+      (m) => m.type == ChatMessageType.aiWaiting,
+    );
 
     for (var i = 0; i < messages.length; i++) {
       final msg = messages[i];
+      if (msg.type == ChatMessageType.aiWaiting && i != lastAiIndex) {
+        continue; // Only show the latest/last AI message
+      }
       final day = _messageDay(msg);
 
-      if (btnIdx >= 0 && i <= btnIdx) {
-        // Collect or defer date header so it does NOT show above the Create a Process button
-        if (day != null && (lastDay == null || day != lastDay)) {
-          deferredDateLabel = _chatDateLabel(day);
-          deferredDay = day;
-        }
-
-        // Add the message itself (which may be the button or a message preceding it)
-        items.add(_ChatFeedMessage(index: i, message: msg));
-
-        // When we just added the Create a Process button, show "New Messages" and "Today" right AFTER it
-        if (i == btnIdx) {
-          if (newMessagesAt >= 0 &&
-              newMessagesAt <= btnIdx + 1 &&
-              !newMessagesShown) {
-            items.add(const _ChatFeedNewMessages());
-            newMessagesShown = true;
-          }
-
-          final labelToShow =
-              deferredDateLabel ??
-              (lastDay == null ? _chatDateLabel(DateTime.now()) : null);
-          if (labelToShow != null) {
-            items.add(_ChatFeedDateHeader(label: labelToShow));
-            lastDay = deferredDay ?? DateTime.now();
-            deferredDateLabel = null;
-            deferredDay = null;
-          }
-        }
-      } else {
-        // When create a process button is gone (deleted by backend), show Today tag at the start of the first message
-        if (btnIdx == -1 && !firstMessageRendered) {
-          final firstDay = day ?? DateTime.now();
-          items.add(_ChatFeedDateHeader(label: _chatDateLabel(firstDay)));
-          lastDay = firstDay;
-          firstMessageRendered = true;
-        }
-
-        // Normal processing for messages after the Create a Process button (or when no button exists)
-        if (i == newMessagesAt && !newMessagesShown) {
-          items.add(const _ChatFeedNewMessages());
-          newMessagesShown = true;
-        }
-
-        if (day != null && (lastDay == null || day != lastDay)) {
-          items.add(_ChatFeedDateHeader(label: _chatDateLabel(day)));
-          lastDay = day;
-        }
-
-        items.add(_ChatFeedMessage(index: i, message: msg));
-        firstMessageRendered = true;
+      if (i == newMessagesAt) {
+        items.add(const _ChatFeedNewMessages());
       }
+
+      if (day != null && (lastDay == null || day != lastDay)) {
+        items.add(_ChatFeedDateHeader(label: _chatDateLabel(day)));
+        lastDay = day;
+      }
+
+      items.add(_ChatFeedMessage(index: i, message: msg));
     }
     return items;
   }
@@ -1671,8 +1116,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildNewMessagesSeparator(BuildContext context) {
-    final isDark = _isDark(context);
+  Widget _buildNewMessagesSeparator() {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 14),
       child: Row(
@@ -1682,9 +1126,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               height: 1,
               child: CustomPaint(
                 painter: _DottedLinePainter(
-                  color: isDark
-                      ? const Color(0xFF8F7BDD)
-                      : const Color(0xFFB9A5FF),
+                  color: AppColors.primary,
                   strokeWidth: 1.5,
                   dashWidth: 5,
                   gap: 4,
@@ -1696,15 +1138,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             margin: const EdgeInsets.symmetric(horizontal: 10),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
             decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF2B2440) : const Color(0xFFE7DEFF),
+              color: AppColors.primary,
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Text(
+            child: const Text(
               'New Messages',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
-                color: isDark ? Colors.white : AppColors.primary,
+                color: Colors.white,
               ),
             ),
           ),
@@ -1713,9 +1155,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               height: 1,
               child: CustomPaint(
                 painter: _DottedLinePainter(
-                  color: isDark
-                      ? const Color(0xFF8F7BDD)
-                      : const Color(0xFFB9A5FF),
+                  color: AppColors.primary,
                   strokeWidth: 1.5,
                   dashWidth: 5,
                   gap: 4,
@@ -1731,9 +1171,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final isDark = _isDark(context);
-    final allGranted = Platform.isIOS
-        ? _iosScreenTimeGranted
-        : (_overlayGranted && _usageGranted);
+    final allGranted = _overlayGranted && _usageGranted;
 
     return GetBuilder<ChatController>(
       init: _chatController,
@@ -1745,7 +1183,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           final process = processController.currentProcess.value;
           final isProcessLoading = processController.isLoading.value;
 
-          // 1. Mandatory check: permissions must be checked and granted first!
+          if (isProcessLoading && process == null) {
+            return Scaffold(
+              backgroundColor: _screenBg(isDark),
+              body: const Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          // If no process exists, bypass gates and show chat (which contains the "create process" flow)
+          if (process == null) {
+            return _buildMainChat(context, isDark, controller);
+          }
+
+          // If process exists, enforce permissions
           if (_isCheckingPermissions) {
             return Scaffold(
               backgroundColor: _screenBg(isDark),
@@ -1757,15 +1207,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             return _buildPermissionGateUI(isDark);
           }
 
-          // 2. Only after permissions are granted, show process loading if in progress
-          if (isProcessLoading && process == null) {
-            return Scaffold(
-              backgroundColor: _screenBg(isDark),
-              body: const Center(child: CircularProgressIndicator()),
-            );
-          }
-
-          // 3. Permissions granted: show chat
+          // Everything is active or market is closed, show the chat
           return _buildMainChat(context, isDark, controller);
         });
       },
@@ -1793,7 +1235,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 final process = processController.currentProcess.value;
                 if (process != null &&
                     process.isMindControllActive == 0 &&
-                    _isMarketOpen) {
+                    _isMarketOpen &&
+                    !_skippedMindControl) {
                   return ListView(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
@@ -1805,19 +1248,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   );
                 }
 
-                final displayMessages = controller.displayMessages;
-                final currentFirstId = _firstMessageId(displayMessages);
-                final currentLastId = _lastMessageId(displayMessages);
+                final currentFirstId = _firstMessageId(controller.messages);
+                final currentLastId = _lastMessageId(controller.messages);
                 final wasNearBottom = _isNearBottom();
-                final messageCountChanged =
-                    _lastMessageCount != displayMessages.length;
-                final lastMessageChanged =
-                    _previousLastMessageId.isNotEmpty &&
-                    currentLastId.isNotEmpty &&
-                    _previousLastMessageId != currentLastId;
-                if (messageCountChanged || lastMessageChanged) {
-                  _lastMessageCount = displayMessages.length;
-                  if (!_didInitialBottomSnap && displayMessages.isNotEmpty) {
+                if (_lastMessageCount != controller.messages.length) {
+                  _lastMessageCount = controller.messages.length;
+                  if (!_didInitialBottomSnap &&
+                      controller.messages.isNotEmpty) {
                     _didInitialBottomSnap = true;
                     _scheduleScrollToBottom();
                   } else if (_skipNextAutoBottomScroll) {
@@ -1831,15 +1268,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       _previousLastMessageId.isNotEmpty &&
                       currentLastId.isNotEmpty &&
                       _previousLastMessageId != currentLastId) {
-                    // New messages appended at bottom -> show the start of the
-                    // new-message block, leaving the latest-message arrow intact.
-                    _scheduleScrollToFirstNewMessage();
+                    // New messages appended at bottom -> always take user to latest.
+                    _scheduleScrollToBottom();
                   } else if (!_suppressAutoBottomScroll &&
                       wasNearBottom &&
                       _previousLastMessageId.isEmpty &&
                       currentLastId.isNotEmpty) {
                     // Fallback: if IDs were absent previously but user was already at end.
-                    _scheduleScrollToFirstNewMessage();
+                    _scheduleScrollToBottom();
                   }
                 }
                 _previousFirstMessageId = currentFirstId;
@@ -1890,13 +1326,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     });
                   }
                 }
-                final feedItems = _buildChatFeedItems(displayMessages);
-                final firstNewMessageIndex = _latestUnreadBurstStartIndex(
-                  displayMessages,
-                );
+                final feedItems = _buildChatFeedItems(controller.messages);
                 return Stack(
                   children: [
-                    displayMessages.isEmpty
+                    controller.messages.isEmpty
                         ? ListView(
                             controller: _scrollController,
                             children: [
@@ -1930,7 +1363,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                             itemBuilder: (_, i) {
                               final item = feedItems[i];
                               Widget childWidget;
-                              var isFirstNewMessage = false;
                               if (item is _ChatFeedDateHeader) {
                                 childWidget = KeyedSubtree(
                                   key: ValueKey('chat_date_${item.label}'),
@@ -1942,24 +1374,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                               } else if (item is _ChatFeedNewMessages) {
                                 childWidget = KeyedSubtree(
                                   key: const ValueKey('chat_new_messages'),
-                                  child: _buildNewMessagesSeparator(context),
+                                  child: _buildNewMessagesSeparator(),
                                 );
                               } else {
                                 final msgItem = item as _ChatFeedMessage;
-                                isFirstNewMessage =
-                                    msgItem.index == firstNewMessageIndex;
                                 final msg = msgItem.message;
                                 final bubble = _buildMessage(
                                   context,
                                   msg,
                                   controller,
                                 );
-                                final bubbleWithTimestamp =
-                                    _buildMessageWithTimestamp(
-                                      context,
-                                      msg,
-                                      bubble,
-                                    );
                                 final rowKey = msg.messageId.trim().isNotEmpty
                                     ? ValueKey(
                                         'chat_row_${msg.messageId}_${msg.type.name}',
@@ -1968,19 +1392,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                                         'chat_row_fallback_${msg.type.name}_${msgItem.index}',
                                       );
                                 final id = msg.messageId.trim();
-                                if (!msg.isUnread ||
-                                    msg.isFromUser ||
-                                    id.isEmpty) {
+                                if (!msg.isUnread || id.isEmpty) {
                                   childWidget = KeyedSubtree(
                                     key: rowKey,
-                                    child: bubbleWithTimestamp,
+                                    child: bubble,
                                   );
                                 } else if (_revealedUnreadMessageIds.contains(
                                   id,
                                 )) {
                                   childWidget = KeyedSubtree(
                                     key: rowKey,
-                                    child: bubbleWithTimestamp,
+                                    child: bubble,
                                   );
                                 } else {
                                   childWidget = KeyedSubtree(
@@ -2002,12 +1424,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                                     ),
                                   );
                                 }
-                              }
-                              if (isFirstNewMessage) {
-                                childWidget = KeyedSubtree(
-                                  key: _firstNewMessageKey,
-                                  child: childWidget,
-                                );
                               }
                               return RepaintBoundary(child: childWidget);
                             },
@@ -2052,7 +1468,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               final isPromptShowing =
                   process != null &&
                   process.isMindControllActive == 0 &&
-                  _isMarketOpen;
+                  _isMarketOpen &&
+                  !_skippedMindControl;
               if (isPromptShowing) return const SizedBox.shrink();
               return _buildInput(context, controller, _textController);
             }),
@@ -2206,18 +1623,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         : () async {
                             final success = await processController
                                 .activateMindControl();
-                            if (success) {
-                              if (Platform.isIOS) {
-                                try {
-                                  final limiter = AppLimiter();
-                                  await limiter.blockAndUnblockIOSApp();
-                                } catch (e) {
-                                  debugPrint('[iOS Block] Error: $e');
-                                }
-                              }
-                              if (Get.isRegistered<ChatController>()) {
-                                Get.find<ChatController>().loadMessages();
-                              }
+                            if (success && Get.isRegistered<ChatController>()) {
+                              Get.find<ChatController>().loadMessages();
                             }
                           },
                     style: ElevatedButton.styleFrom(
@@ -2303,79 +1710,24 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 40),
-              if (Platform.isIOS) ...[
-                _buildPermissionCard(
-                  title: 'Screen Time Access',
-                  description:
-                      'Required by Apple to enable app blocking services.',
-                  icon: Icons.hourglass_bottom_rounded,
-                  isGranted: _iosScreenTimeGranted,
-                  onTap: _requestIosScreenTime,
-                  isDark: isDark,
-                ),
-              ] else ...[
-                _buildPermissionCard(
-                  title: 'Display Over Apps',
-                  description: 'Required to show overlay alerts.',
-                  icon: Icons.layers_outlined,
-                  isGranted: _overlayGranted,
-                  onTap: _requestOverlay,
-                  isDark: isDark,
-                ),
-                const SizedBox(height: 16),
-                _buildPermissionCard(
-                  title: 'Usage Access',
-                  description: 'Required for app blocking services.',
-                  icon: Icons.analytics_outlined,
-                  isGranted: _usageGranted,
-                  onTap: _requestUsage,
-                  isDark: isDark,
-                ),
-              ],
-              const Spacer(),
-              Builder(
-                builder: (context) {
-                  final allGranted = Platform.isIOS
-                      ? _iosScreenTimeGranted
-                      : (_overlayGranted && _usageGranted);
-                  return SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        await _checkPermissions();
-                        final granted = Platform.isIOS
-                            ? _iosScreenTimeGranted
-                            : (_overlayGranted && _usageGranted);
-                        if (!granted) {
-                          AppToast.showToast(
-                            Platform.isIOS
-                                ? 'Please allow Screen Time access to continue'
-                                : 'Please allow both permissions to continue',
-                          );
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor:
-                            allGranted ? Colors.green : AppColors.primary,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        elevation: 2,
-                      ),
-                      child: Text(
-                        allGranted ? 'Continue to Chat' : 'Check & Continue',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  );
-                },
+              _buildPermissionCard(
+                title: 'Display Over Apps',
+                description: 'Required to show overlay alerts.',
+                icon: Icons.layers_outlined,
+                isGranted: _overlayGranted,
+                onTap: _requestOverlay,
+                isDark: isDark,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
+              _buildPermissionCard(
+                title: 'Usage Access',
+                description: 'Required for app blocking services.',
+                icon: Icons.analytics_outlined,
+                isGranted: _usageGranted,
+                onTap: _requestUsage,
+                isDark: isDark,
+              ),
+              const Spacer(),
             ],
           ),
         ),
@@ -2441,32 +1793,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ),
         ),
         trailing: isGranted
-            ? Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.green.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.green.withOpacity(0.3)),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.check, size: 16, color: Colors.green),
-                    SizedBox(width: 4),
-                    Text(
-                      'Granted',
-                      style: TextStyle(
-                        color: Colors.green,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
-              )
+            ? const SizedBox.shrink()
             : ElevatedButton(
                 onPressed: onTap,
                 style: ElevatedButton.styleFrom(
@@ -2534,8 +1861,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     switch (msg.type) {
       case ChatMessageType.simpleText:
         return _buildSimpleText(context, msg as SimpleTextMessage);
-      case ChatMessageType.voiceMessage:
-        return _buildVoiceMessage(context, msg as VoiceMessage);
       case ChatMessageType.aiWaiting:
         return _buildAiWaiting(context, msg as AiWaitingMessage);
       case ChatMessageType.agentWithButton:
@@ -2683,7 +2008,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final msgKey = msg.messageId.isNotEmpty
         ? msg.messageId
         : (msg.signalId.isNotEmpty ? msg.signalId : 'ts_${msg.instrument}');
-    final hasOpenedTradingApp = _hasOpenedTradingApp(msg);
     final selectedAction = _selectedSignalActions[msgKey];
     final isDropdownExpanded = _expandedSignalDropdowns.contains(msgKey);
 
@@ -3094,7 +2418,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               label: 'OPEN TRADING APP',
               enabled: true,
               onTap: () async {
-                _markTradingAppOpened(msg);
                 await controller.openTradingApp();
               },
             ),
@@ -3126,17 +2449,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 children: [
                   InkWell(
                     borderRadius: BorderRadius.circular(8),
-                    onTap: hasOpenedTradingApp
-                        ? () {
-                            setState(() {
-                              if (isDropdownExpanded) {
-                                _expandedSignalDropdowns.remove(msgKey);
-                              } else {
-                                _expandedSignalDropdowns.add(msgKey);
-                              }
-                            });
-                          }
-                        : null,
+                    onTap: () {
+                      setState(() {
+                        if (isDropdownExpanded) {
+                          _expandedSignalDropdowns.remove(msgKey);
+                        } else {
+                          _expandedSignalDropdowns.add(msgKey);
+                        }
+                      });
+                    },
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 14,
@@ -3997,232 +3318,25 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Widget _buildSimpleText(BuildContext context, SimpleTextMessage msg) {
     final isDark = _isDark(context);
     if (msg.isFromUser) {
-      final timeLabel = _relativeMessageTime(msg.timestamp);
       return Align(
         alignment: Alignment.centerRight,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.64,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppColors.primary,
+            borderRadius: BorderRadius.circular(16),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              IntrinsicWidth(
-                child: Container(
-                  constraints: const BoxConstraints(minWidth: 72),
-                  margin: const EdgeInsets.only(bottom: 2),
-                  padding: const EdgeInsets.fromLTRB(12, 8, 10, 6),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? const Color(0xFF2B2440)
-                        : const Color(0xFFF8F5FF),
-                    border: Border.all(
-                      color: isDark
-                          ? const Color(0xFF8F7BDD)
-                          : const Color(0xFFB9A5FF),
-                      width: 1.4,
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        msg.text,
-                        style: TextStyle(
-                          color: isDark
-                              ? Colors.white
-                              : const Color(0xFF252333),
-                          fontSize: 15,
-                        ),
-                      ),
-                      if (timeLabel.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: Text(
-                            timeLabel,
-                            style: TextStyle(
-                              color: isDark
-                                  ? Colors.white60
-                                  : const Color(0xFF777184),
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              if (msg.sendFailed) _buildSendFailureLabel(isDark),
-              const SizedBox(height: 10),
-            ],
+          child: Text(
+            msg.text,
+            style: const TextStyle(color: Colors.white, fontSize: 15),
           ),
         ),
       );
     }
-    final animationKey = msg.animateResponse ? _responseAnimationKey(msg) : '';
-    final shouldAnimate =
-        msg.animateResponse && _animatedResponseKeys.add(animationKey);
-    if (msg.animateResponse && !shouldAnimate) {
-      _completedResponseKeys.add(animationKey);
-    }
     return Padding(
-      padding: const EdgeInsets.only(bottom: 0),
-      child: shouldAnimate
-          ? _AnimatedChatResponse(
-              text: msg.text,
-              builder: (visibleText) =>
-                  _buildRichMessageContent(visibleText, isDark),
-              onComplete: () {
-                if (!mounted) return;
-                if (_completedResponseKeys.add(animationKey)) {
-                  setState(() {});
-                }
-                _scheduleScrollToBottom();
-              },
-              onProgress: _scheduleScrollDuringTyping,
-            )
-          : _buildRichMessageContent(msg.text, isDark),
-    );
-  }
-
-  Widget _buildVoiceMessage(BuildContext context, VoiceMessage msg) {
-    final isDark = _isDark(context);
-    final timeLabel = _relativeMessageTime(msg.timestamp);
-    final minutes = msg.durationSeconds ~/ 60;
-    final seconds = (msg.durationSeconds % 60).toString().padLeft(2, '0');
-    return Align(
-      alignment: msg.isFromUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Column(
-        crossAxisAlignment: msg.isFromUser
-            ? CrossAxisAlignment.end
-            : CrossAxisAlignment.start,
-        children: [
-          Container(
-            margin: const EdgeInsets.only(bottom: 2),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: msg.isFromUser
-                  ? (isDark ? const Color(0xFF2B2440) : const Color(0xFFF8F5FF))
-                  : (isDark
-                        ? const Color(0xFF2A2D35)
-                        : const Color(0xFFF1F2F5)),
-              border: msg.isFromUser
-                  ? Border.all(
-                      color: isDark
-                          ? const Color(0xFF8F7BDD)
-                          : const Color(0xFFB9A5FF),
-                      width: 1.4,
-                    )
-                  : Border.all(
-                      color: isDark ? Colors.white12 : const Color(0xFFE1E3E8),
-                    ),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: SizedBox(
-              width: 139,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.mic_rounded,
-                        color: msg.isFromUser
-                            ? (isDark ? Colors.white : AppColors.primary)
-                            : (isDark
-                                  ? Colors.white70
-                                  : const Color(0xFF626875)),
-                        size: 20,
-                      ),
-                      const SizedBox(width: 9),
-                      SizedBox(
-                        width: 110,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              msg.text.trim().isEmpty
-                                  ? 'Voice message'
-                                  : msg.text,
-                              style: TextStyle(
-                                color: msg.isFromUser
-                                    ? (isDark
-                                          ? Colors.white
-                                          : const Color(0xFF252333))
-                                    : (isDark
-                                          ? Colors.white
-                                          : const Color(0xFF252833)),
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            if (msg.durationSeconds > 0)
-                              Text(
-                                '$minutes:$seconds',
-                                style: TextStyle(
-                                  color: msg.isFromUser
-                                      ? (isDark
-                                            ? Colors.white60
-                                            : const Color(0xFF777184))
-                                      : (isDark
-                                            ? Colors.white60
-                                            : const Color(0xFF777D88)),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (msg.isFromUser && timeLabel.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        timeLabel,
-                        style: TextStyle(
-                          color: isDark
-                              ? Colors.white60
-                              : const Color(0xFF777184),
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          if (msg.sendFailed) _buildSendFailureLabel(isDark),
-          const SizedBox(height: 10),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSendFailureLabel(bool isDark) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 4),
-      child: Text(
-        'Sending failed',
-        style: TextStyle(
-          color: isDark ? const Color(0xFFFF8A80) : const Color(0xFFD32F2F),
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+      padding: const EdgeInsets.only(bottom: 12),
+      child: _buildRichMessageContent(msg.text, isDark),
     );
   }
 
@@ -4298,10 +3412,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   bool _isEditTrade(NewTradeOpportunityMessage msg) {
-    // Delete rows can carry old SL/target history from the backend. That
-    // history is informational and must not route the row into the
-    // SL/Target Trailed edit UI.
-    if (_isDeleteTradeAction(msg)) return false;
     if (_isEditTradeAction(msg)) return true;
     if (_isEditTradeButton(msg)) return true;
     if (msg.slChanged || msg.tpChanged) return true;
@@ -4319,51 +3429,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (mId.isNotEmpty && _actionTakenMessageIds.contains(mId)) return true;
     if (msg is NewTradeOpportunityMessage) {
       final tId = msg.tradeId.trim();
-      if (!_isEditTrade(msg) &&
-          tId.isNotEmpty &&
-          _actionTakenTradeIds.contains(tId)) {
-        return true;
-      }
+      if (tId.isNotEmpty && _actionTakenTradeIds.contains(tId)) return true;
     }
     if (msg is TradeExecutionPromptMessage) {
       final tId = msg.tradeData.tradeId.trim();
-      if (!_isEditTrade(msg.tradeData) &&
-          tId.isNotEmpty &&
-          _actionTakenTradeIds.contains(tId)) {
-        return true;
-      }
+      if (tId.isNotEmpty && _actionTakenTradeIds.contains(tId)) return true;
     }
     return false;
-  }
-
-  String _tradingAppStepKey(ChatMessage msg) {
-    final messageId = msg.messageId.trim();
-    if (messageId.isNotEmpty) return 'message:$messageId';
-    if (msg is NewTradeOpportunityMessage && msg.tradeId.trim().isNotEmpty) {
-      return 'trade:${msg.tradeId.trim()}';
-    }
-    if (msg is TradeExecutionPromptMessage &&
-        msg.tradeData.tradeId.trim().isNotEmpty) {
-      return 'trade:${msg.tradeData.tradeId.trim()}';
-    }
-    if (msg is AlertHitWithButtonMessage && msg.tradeId.trim().isNotEmpty) {
-      return 'trade:${msg.tradeId.trim()}';
-    }
-    if (msg is TradeSignalMessage && msg.signalId.trim().isNotEmpty) {
-      return 'trade:${msg.signalId.trim()}';
-    }
-    return '';
-  }
-
-  bool _hasOpenedTradingApp(ChatMessage msg) {
-    final key = _tradingAppStepKey(msg);
-    return key.isNotEmpty && _openedTradingAppMessageIds.contains(key);
-  }
-
-  void _markTradingAppOpened(ChatMessage msg) {
-    final key = _tradingAppStepKey(msg);
-    if (key.isEmpty) return;
-    setState(() => _openedTradingAppMessageIds.add(key));
   }
 
   bool _sameTradeCardPrice(String a, String b) {
@@ -4373,15 +3445,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return a.trim() == b.trim();
   }
 
-  bool _showButtons(ChatMessage msg) {
-    final trade = msg is NewTradeOpportunityMessage
-        ? msg
-        : msg is TradeExecutionPromptMessage
-        ? msg.tradeData
-        : null;
-    return !_isActionTaken(msg) &&
-        (trade == null || !_chatController.isTradeExpired(trade));
-  }
+  bool _showButtons(ChatMessage msg) => !_isActionTaken(msg);
 
   String _tradeDeleteStepLine(int n, String api, String fallback) {
     final t = api.trim();
@@ -4435,18 +3499,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       return _buildTradeDeleteCombinedMessage(context, msg, controller);
     }
 
-    final hasExecutionPrompt = controller.messages.any(
-      (message) =>
-          message is TradeExecutionPromptMessage &&
-          message.messageId == msg.messageId &&
-          message.tradeData.tradeId == msg.tradeId,
-    );
-    final showDisabledActionFallback =
-        _isActionTaken(msg) && !hasExecutionPrompt;
-
-    // App-side 120-second trade countdown is disabled. The backend controls
-    // whether a trade is still valid.
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Column(
@@ -4462,19 +3514,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           _buildTradeOpportunityCard(
             context,
             msg,
-            showInvalidOverlay: controller.isTradeExpired(msg),
+            showInvalidOverlay: false,
             hideMarketPrice:
                 _isActionTaken(msg) || !_showButtons(msg) || _isEditTrade(msg),
           ),
-          if (showDisabledActionFallback) ...[
-            const SizedBox(height: 12),
-            _tradePromptPrimaryButton(
-              label: 'GTT / Levels Applied',
-              icon: Icons.check_circle_outline_rounded,
-              isCompleted: true,
-              enabled: false,
-            ),
-          ],
         ],
       ),
     );
@@ -4525,10 +3568,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           _tradePromptPrimaryButton(
             label: 'Open Trading APP',
             enabled: _showButtons(msg),
-            onTap: () {
-              _markTradingAppOpened(msg);
-              controller.openTradingApp();
-            },
+            onTap: () => controller.openTradingApp(),
           ),
           const SizedBox(height: 14),
           Text(_deleteTradeStep2Text(msg), style: stepStyle),
@@ -4539,7 +3579,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 ? Icons.check_circle_outline_rounded
                 : null,
             isCompleted: !_showButtons(msg),
-            enabled: _showButtons(msg) && _hasOpenedTradingApp(msg),
+            enabled: _showButtons(msg),
             onTap: () {
               final mId = msg.messageId.trim();
               final tId = msg.tradeId.trim();
@@ -4617,10 +3657,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           _tradePromptPrimaryButton(
             label: 'Open Trading APP',
             enabled: _showButtons(msg),
-            onTap: () {
-              _markTradingAppOpened(msg);
-              controller.openTradingApp();
-            },
+            onTap: () => controller.openTradingApp(),
           ),
           const SizedBox(height: 14),
           Text(step2Text, style: stepStyle),
@@ -4631,7 +3668,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 ? Icons.check_circle_outline_rounded
                 : null,
             isCompleted: !_showButtons(msg),
-            enabled: _showButtons(msg) && _hasOpenedTradingApp(msg),
+            enabled: _showButtons(msg),
             onTap: () => _showTrailSlDialog(context, msg, controller),
           ),
         ],
@@ -5107,7 +4144,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ChatMessage? sourceMessage,
   }) {
     final isDark = _isDark(context);
-    if (controller.isTradeExpired(msg)) return const SizedBox.shrink();
     final actionSource = sourceMessage ?? msg;
     final bodyStyle = TextStyle(fontSize: 14, color: _headlineText(isDark));
     final stepStyle = TextStyle(
@@ -5129,7 +4165,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               label: 'Open Trading APP',
               enabled: true,
               onTap: () {
-                _markTradingAppOpened(actionSource);
+                setState(
+                  () => _openedTradingAppMessageIds.add(actionSource.messageId),
+                );
                 controller.openTradingApp();
               },
             ),
@@ -5138,7 +4176,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             const SizedBox(height: 8),
             _tradePromptPrimaryButton(
               label: 'GTT / Levels Applied',
-              enabled: _hasOpenedTradingApp(actionSource),
+              enabled: _openedTradingAppMessageIds.contains(
+                actionSource.messageId,
+              ),
               onTap: () => _showGttDialog(context, msg, controller),
             ),
           ] else ...[
@@ -5697,6 +4737,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     final vGtt = gttController.text.trim();
                     final vSl = slController.text.trim();
                     final vTp = tpController.text.trim();
+                    final mId = msg.messageId.trim();
+                    final tId = msg.tradeId.trim();
+                    if (mId.isNotEmpty)
+                      setState(() => _actionTakenMessageIds.add(mId));
+                    if (tId.isNotEmpty)
+                      setState(() => _actionTakenTradeIds.add(tId));
                     Navigator.pop(ctx);
                     if (isGttEdit) {
                       await controller.acknowledgeSlTrailed(
@@ -6077,7 +5123,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               label: 'Open Trading APP',
               enabled: _showButtons(msg),
               onTap: () {
-                _markTradingAppOpened(msg);
+                setState(() => _openedTradingAppMessageIds.add(msg.messageId));
                 controller.openTradingApp();
               },
             ),
@@ -6093,7 +5139,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             isCompleted: !_showButtons(msg),
             enabled:
                 _showButtons(msg) &&
-                (!msg.isGttHit || _hasOpenedTradingApp(msg)),
+                (!msg.isGttHit ||
+                    _openedTradingAppMessageIds.contains(msg.messageId)),
             onTap: () {
               final setupType =
                   ApiConfig.activeSetupType ??
@@ -6123,7 +5170,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             const SizedBox(height: 10),
             _tradePromptPrimaryButton(
               label: 'GTT Missed',
-              enabled: _showButtons(msg) && _hasOpenedTradingApp(msg),
+              enabled: _showButtons(msg),
               onTap: () => controller.acknowledgeGttMissed(msg),
             ),
           ],
@@ -6157,7 +5204,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               label: 'Open Trading APP',
               enabled: true,
               onTap: () {
-                _markTradingAppOpened(msg);
+                setState(() => _openedTradingAppMessageIds.add(msg.messageId));
                 controller.openTradingApp();
               },
             ),
@@ -6166,7 +5213,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             const SizedBox(height: 8),
             _tradePromptPrimaryButton(
               label: msg.buttonLabel,
-              enabled: _hasOpenedTradingApp(msg),
+              enabled: _openedTradingAppMessageIds.contains(msg.messageId),
               onTap: () {
                 controller.markActionTaken(messageId: msg.messageId);
                 AppToast.showToast('Thanks for confirming');
@@ -6193,15 +5240,46 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   ) {
     final isDark = _isDark(context);
 
+    if (_isTranscribing) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        color: _bottomBarBg(isDark),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF3F0FF),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isDark ? const Color(0xFF2C3240) : const Color(0xFFE2DCF7),
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'Converting voice to text...',
+                style: TextStyle(
+                  color: isDark ? Colors.white70 : const Color(0xFF10122D),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     if (_isRecording) {
-      return _buildListeningVoiceInput(isDark);
-    }
-
-    if (_hasVoiceRecording && !_isSendingVoice) {
-      return _buildReadyVoiceInput(isDark, controller);
-    }
-
-    if (_isRecording && !_isSendingVoice) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         color: _bottomBarBg(isDark),
@@ -6238,18 +5316,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 ),
               ),
               const SizedBox(width: 8),
-              Text(
-                _formatVoiceTime(_maxVoiceRecordingSeconds - _recordingSeconds),
-                style: TextStyle(
-                  color: isDark ? Colors.white70 : const Color(0xFF555463),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-              const SizedBox(width: 8),
               GestureDetector(
-                onTap: _stopRecording,
+                onTap: _stopRecordingAndTranscribe,
                 child: Container(
                   width: 34,
                   height: 34,
@@ -6270,74 +5338,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               ),
               const SizedBox(width: 8),
               GestureDetector(
-                onTap: _stopRecording,
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.arrow_upward_rounded,
-                    color: Colors.white,
-                    size: 18,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (_hasVoiceRecording && !_isSendingVoice) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        color: _bottomBarBg(isDark),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF3F0FF),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: isDark ? const Color(0xFF2C3240) : const Color(0xFFE2DCF7),
-            ),
-          ),
-          child: Row(
-            children: [
-              GestureDetector(
-                onTap: _deleteVoiceRecording,
-                child: Container(
-                  padding: const EdgeInsets.all(6),
-                  child: Icon(
-                    Icons.delete_outline_rounded,
-                    color: isDark ? Colors.white70 : Colors.grey.shade700,
-                    size: 22,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: AudioWaveVisualizer(
-                  amplitude: _currentAmplitude,
-                  barCount: 26,
-                  height: 32,
-                  barWidth: 3.2,
-                  activeColor: AppColors.primary,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                _formatVoiceTime(_recordingSeconds),
-                style: TextStyle(
-                  color: _secondaryText(isDark),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: () => _sendVoiceRecording(controller),
+                onTap: _stopRecordingAndTranscribe,
                 child: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
@@ -6384,7 +5385,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   fontWeight: FontWeight.w500,
                 ),
                 decoration: InputDecoration(
-                  hintText: "What's going in your mind?",
+                  hintText: 'Send a message',
                   hintStyle: TextStyle(
                     color: isDark ? Colors.white38 : const Color(0xFF70717F),
                     fontSize: 14,
@@ -6394,7 +5395,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   contentPadding: const EdgeInsets.symmetric(vertical: 6),
                 ),
                 onSubmitted: (text) {
-                  _sendTextMessage(controller, text);
+                  if (text.trim().isEmpty) return;
+                  controller.sendTextMessage(text);
+                  textController.clear();
+                  _scheduleScrollToBottom();
                 },
               ),
             ),
@@ -6418,7 +5422,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               padding: const EdgeInsets.only(bottom: 2),
               child: GestureDetector(
                 onTap: () {
-                  _sendTextMessage(controller, textController.text);
+                  final text = textController.text;
+                  if (text.trim().isEmpty) return;
+                  controller.sendTextMessage(text);
+                  textController.clear();
+                  _scheduleScrollToBottom();
                 },
                 child: Container(
                   padding: const EdgeInsets.all(7),
@@ -6437,244 +5445,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildVoiceStateShell({required bool isDark, required Widget child}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      color: _bottomBarBg(isDark),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1E222A) : const Color(0xFFF3F0FF),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: isDark ? const Color(0xFF2C3240) : const Color(0xFFE2DCF7),
-          ),
-        ),
-        child: child,
-      ),
-    );
-  }
-
-  Widget _buildListeningVoiceInput(bool isDark) {
-    final remainingSeconds = (_maxVoiceRecordingSeconds - _recordingSeconds)
-        .clamp(0, 20);
-    return _buildVoiceStateShell(
-      isDark: isDark,
-      child: Row(
-        children: [
-          Expanded(
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 58,
-                  height: 28,
-                  child: AudioWaveVisualizer(
-                    amplitude: _currentAmplitude == 0
-                        ? 0.45
-                        : _currentAmplitude,
-                    barCount: 7,
-                    height: 28,
-                    barWidth: 3.2,
-                    activeColor: AppColors.primary,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  'Listening...',
-                  style: TextStyle(
-                    color: _bubbleText(isDark),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(width: 7),
-                Text(
-                  remainingSeconds.toString(),
-                  style: const TextStyle(
-                    color: AppColors.primary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    fontFeatures: [FontFeature.tabularFigures()],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          _voiceCircleButton(
-            onTap: _deleteVoiceRecording,
-            backgroundColor: isDark
-                ? const Color(0xFF30333A)
-                : const Color(0xFFE9E9ED),
-            child: Icon(
-              Icons.delete_outline_rounded,
-              color: isDark ? Colors.white70 : const Color(0xFF66666F),
-              size: 18,
-            ),
-          ),
-          const SizedBox(width: 10),
-          _voiceCircleButton(
-            onTap: _stopRecording,
-            backgroundColor: AppColors.primary,
-            size: 38,
-            child: const Icon(
-              Icons.stop_rounded,
-              color: Colors.white,
-              size: 20,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildReadyVoiceInput(bool isDark, ChatController controller) {
-    return _buildVoiceStateShell(
-      isDark: isDark,
-      child: Row(
-        children: [
-          Expanded(
-            child: Row(
-              children: [
-                _voiceCircleButton(
-                  onTap: () {},
-                  backgroundColor: Colors.transparent,
-                  borderColor: AppColors.primary,
-                  size: 34,
-                  child: const Icon(
-                    Icons.play_arrow_rounded,
-                    color: AppColors.primary,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  'Ready to send',
-                  style: TextStyle(
-                    color: _bubbleText(isDark),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          _voiceCircleButton(
-            onTap: _deleteVoiceRecording,
-            backgroundColor: isDark
-                ? const Color(0xFF30333A)
-                : const Color(0xFFE9E9ED),
-            child: Icon(
-              Icons.delete_outline_rounded,
-              color: isDark ? Colors.white70 : const Color(0xFF66666F),
-              size: 18,
-            ),
-          ),
-          const SizedBox(width: 10),
-          _voiceCircleButton(
-            onTap: () => _sendVoiceRecording(controller),
-            backgroundColor: AppColors.primary,
-            size: 38,
-            child: const Icon(
-              Icons.arrow_upward_rounded,
-              color: Colors.white,
-              size: 19,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AnimatedChatResponse extends StatefulWidget {
-  const _AnimatedChatResponse({
-    required this.text,
-    required this.builder,
-    this.onComplete,
-    this.onProgress,
-  });
-
-  final String text;
-  final Widget Function(String visibleText) builder;
-  final VoidCallback? onComplete;
-  final VoidCallback? onProgress;
-
-  @override
-  State<_AnimatedChatResponse> createState() => _AnimatedChatResponseState();
-}
-
-class _AnimatedChatResponseState extends State<_AnimatedChatResponse>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  List<int> _wordEndOffsets = const <int>[];
-  int _lastReportedVisibleEnd = -1;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(vsync: this);
-    _controller.addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        widget.onComplete?.call();
-      }
-    });
-    _startAnimation();
-  }
-
-  @override
-  void didUpdateWidget(covariant _AnimatedChatResponse oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.text != widget.text) _startAnimation();
-  }
-
-  void _startAnimation() {
-    _lastReportedVisibleEnd = -1;
-    _wordEndOffsets = RegExp(
-      r'\S+\s*',
-    ).allMatches(widget.text).map((match) => match.end).toList(growable: false);
-    final durationMs = (_wordEndOffsets.length * 105).clamp(800, 6000).toInt();
-    _controller.duration = Duration(milliseconds: durationMs);
-    _controller.forward(from: 0);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, _) {
-        final visibleWords = (_controller.value * _wordEndOffsets.length)
-            .ceil()
-            .clamp(0, _wordEndOffsets.length);
-        final visibleEnd = visibleWords == 0
-            ? 0
-            : _wordEndOffsets[visibleWords - 1];
-
-        if (visibleEnd != _lastReportedVisibleEnd) {
-          _lastReportedVisibleEnd = visibleEnd;
-          widget.onProgress?.call();
-        }
-
-        // Use a subtle fade on one stable child. This avoids the old/new
-        // layout overlap that caused the chat to flicker during auto-scroll.
-        return TweenAnimationBuilder<double>(
-          key: ValueKey<int>(visibleEnd),
-          tween: Tween<double>(begin: 0.94, end: 1),
-          duration: const Duration(milliseconds: 140),
-          curve: Curves.easeOut,
-          child: widget.builder(widget.text.substring(0, visibleEnd)),
-          builder: (context, opacity, child) =>
-              Opacity(opacity: opacity, child: child),
-        );
-      },
     );
   }
 }

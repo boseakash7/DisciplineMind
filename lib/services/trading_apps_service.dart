@@ -31,169 +31,6 @@ class TradingAppsService extends GetxService {
     return extendedGttInputPackages.contains(packageName);
   }
 
-  static final List<TradingApp> defaultSupportedApps = [
-    TradingApp(
-      id: '1',
-      name: 'Groww',
-      packageName: 'com.nextbillion.groww',
-      isTarget: true,
-      isStoploss: true,
-      isGtt: true,
-    ),
-    TradingApp(
-      id: '2',
-      name: 'Zerodha',
-      packageName: 'com.zerodha.kite3',
-      isTarget: false,
-      isStoploss: false,
-      isGtt: true,
-    ),
-    TradingApp(
-      id: '3',
-      name: 'Angel One',
-      packageName: 'com.msf.angelmobile',
-      isTarget: false,
-      isStoploss: false,
-      isGtt: true,
-    ),
-    TradingApp(
-      id: '4',
-      name: 'ICICI Direct',
-      packageName: 'com.icicidirect.mobile',
-      isTarget: false,
-      isStoploss: false,
-      isGtt: true,
-    ),
-    TradingApp(
-      id: '5',
-      name: 'Upstox',
-      packageName: 'in.upstox.app',
-      isTarget: false,
-      isStoploss: false,
-      isGtt: true,
-    ),
-    TradingApp(
-      id: '6',
-      name: 'Kotak Neo',
-      packageName: 'com.kotak.neo',
-      isTarget: false,
-      isStoploss: false,
-      isGtt: true,
-    ),
-    TradingApp(
-      id: '7',
-      name: 'HDFC Securities',
-      packageName: 'com.hdfcsec.trade',
-      isTarget: false,
-      isStoploss: false,
-      isGtt: true,
-    ),
-    TradingApp(
-      id: '8',
-      name: 'SBI Securities',
-      packageName: 'com.sbi.smartmobile',
-      isTarget: false,
-      isStoploss: false,
-      isGtt: true,
-    ),
-    TradingApp(
-      id: '9',
-      name: 'Dhan',
-      packageName: 'co.dhan',
-      isTarget: false,
-      isStoploss: false,
-      isGtt: true,
-    ),
-    TradingApp(
-      id: '10',
-      name: 'Motilal Oswal',
-      packageName: 'com.moti.moconnect',
-      isTarget: false,
-      isStoploss: false,
-      isGtt: true,
-    ),
-    TradingApp(
-      id: '11',
-      name: 'Paytm Money',
-      packageName: 'com.paytmmoney',
-      isTarget: false,
-      isStoploss: false,
-      isGtt: true,
-    ),
-    TradingApp(
-      id: '12',
-      name: 'INDmoney',
-      packageName: 'com.indmoney',
-      isTarget: false,
-      isStoploss: false,
-      isGtt: true,
-    ),
-    TradingApp(
-      id: '13',
-      name: 'Sharekhan',
-      packageName: 'com.sharekhan.corporate',
-      isTarget: false,
-      isStoploss: false,
-      isGtt: true,
-    ),
-    TradingApp(
-      id: '14',
-      name: 'Axis Securities',
-      packageName: 'com.axis.direct',
-      isTarget: false,
-      isStoploss: false,
-      isGtt: true,
-    ),
-    TradingApp(
-      id: '15',
-      name: 'IIFL Securities',
-      packageName: 'com.iifl.touch',
-      isTarget: false,
-      isStoploss: false,
-      isGtt: true,
-    ),
-    TradingApp(
-      id: '16',
-      name: '5paisa',
-      packageName: 'com.fivepaisa.trade',
-      isTarget: false,
-      isStoploss: false,
-      isGtt: true,
-    ),
-    TradingApp(
-      id: '17',
-      name: 'Choice',
-      packageName: 'com.choiceequitybroking.finox',
-      isTarget: false,
-      isStoploss: false,
-      isGtt: true,
-    ),
-    TradingApp(
-      id: '18',
-      name: 'Geojit',
-      packageName: 'com.geojit.selfie',
-      isTarget: false,
-      isStoploss: false,
-      isGtt: true,
-    ),
-    TradingApp(
-      id: '19',
-      name: 'Mirae Asset',
-      packageName: 'mstock.miraeasset',
-      isTarget: false,
-      isStoploss: false,
-      isGtt: true,
-    ),
-    TradingApp(
-      id: '20',
-      name: 'Sahi',
-      packageName: 'com.sahi.app',
-      isTarget: false,
-      isStoploss: false,
-      isGtt: true,
-    ),
-  ];
-
   Future<bool> refresh() async {
     if (_refreshInFlight) return apps.isNotEmpty;
     _refreshInFlight = true;
@@ -224,14 +61,34 @@ class TradingAppsService extends GetxService {
         }
       }
 
-      // Merge defaults if not present in API result
-      final existingPkgs = list.map((a) => a.packageName.toLowerCase()).toSet();
-      final existingNames = list.map((a) => a.name.toLowerCase()).toSet();
-      for (final defApp in defaultSupportedApps) {
-        if (!existingPkgs.contains(defApp.packageName.toLowerCase()) &&
-            !existingNames.contains(defApp.name.toLowerCase())) {
-          list.add(defApp);
-        }
+      // If network fails or empty, populate with default supported apps
+      if (list.isEmpty) {
+        list.addAll([
+          TradingApp(
+            id: '1',
+            name: 'Zerodha Kite',
+            packageName: 'com.zerodha.kite3',
+            isTarget: false,
+            isStoploss: false,
+            isGtt: true,
+          ),
+          TradingApp(
+            id: '2',
+            name: 'Upstox',
+            packageName: 'in.upstox.app',
+            isTarget: false,
+            isStoploss: false,
+            isGtt: true,
+          ),
+          TradingApp(
+            id: '3',
+            name: 'Groww',
+            packageName: 'com.nextbillion.groww',
+            isTarget: true,
+            isStoploss: true,
+            isGtt: true,
+          ),
+        ]);
       }
 
       apps.assignAll(
@@ -244,7 +101,32 @@ class TradingAppsService extends GetxService {
     } catch (e) {
       lastError.value = e.toString();
       if (apps.isEmpty) {
-        apps.assignAll(defaultSupportedApps);
+        apps.assignAll([
+          TradingApp(
+            id: '1',
+            name: 'Zerodha Kite',
+            packageName: 'com.zerodha.kite3',
+            isTarget: false,
+            isStoploss: false,
+            isGtt: true,
+          ),
+          TradingApp(
+            id: '2',
+            name: 'Upstox',
+            packageName: 'in.upstox.app',
+            isTarget: false,
+            isStoploss: false,
+            isGtt: true,
+          ),
+          TradingApp(
+            id: '3',
+            name: 'Groww',
+            packageName: 'com.nextbillion.groww',
+            isTarget: true,
+            isStoploss: true,
+            isGtt: true,
+          ),
+        ]);
       }
       return apps.isNotEmpty;
     } finally {
