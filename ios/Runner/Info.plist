@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Discipline Mind</string>
+	<string>Zeno AI</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -51,5 +51,35 @@
 	<true/>
 	<key>com.apple.developer.family-controls</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>remote-notification</string>
+	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>groww</string>
+		<string>kite</string>
+		<string>zerodha</string>
+		<string>angelone</string>
+		<string>angelbroking</string>
+		<string>angelmobile</string>
+		<string>icicidirect</string>
+		<string>upstox</string>
+		<string>kotakneo</string>
+		<string>kotakstocktrader</string>
+		<string>hdfcsec</string>
+		<string>hdfcsky</string>
+		<string>sbismart</string>
+		<string>dhan</string>
+		<string>moinvestor</string>
+		<string>paytmmoney</string>
+		<string>indmoney</string>
+		<string>sharekhan</string>
+		<string>5paisa</string>
+		<string>iifl</string>
+		<string>axisdirect</string>
+		<string>mstock</string>
+	</array>
 </dict>
 </plist>

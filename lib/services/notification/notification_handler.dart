@@ -158,15 +158,22 @@ class NotificationHandler {
     _firebaseInited = true;
   }
 
-  /// When app is in foreground, FCM does not show system notification on Android — show local instead.
+  /// When app is in foreground, ensure notifications are displayed as banners on both iOS and Android.
   Future<void> _handleForegroundMessage(RemoteMessage message) async {
     _logNotificationData(source: 'onMessage', message: message);
     onNotificationReceived?.call();
 
-    if (Platform.isAndroid) {
-      final notification = message.notification;
-      final title = notification?.title ?? 'Zeno AI';
-      final body = notification?.body ?? 'You have a new alert update';
+    final notification = message.notification;
+    final data = message.data;
+    final title = notification?.title ?? data['title']?.toString() ?? 'Zeno AI';
+    final body = notification?.body ??
+        data['body']?.toString() ??
+        data['message']?.toString() ??
+        'You have a new alert update';
+
+    final shouldShowLocal = Platform.isAndroid || (Platform.isIOS && notification == null);
+
+    if (shouldShowLocal) {
       final isTradeOpportunity = _isNewTradeOpportunity(message);
       final channel = isTradeOpportunity
           ? _tradeOpportunityChannel
@@ -233,6 +240,36 @@ class NotificationHandler {
     );
   }
 
+  /// Request iOS notification permission and generate/fetch APNs token
+  static Future<String?> requestAndGetApnsToken() async {
+    if (!Platform.isIOS) return null;
+    try {
+      final settings = await FirebaseMessaging.instance.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      if (settings.authorizationStatus == AuthorizationStatus.authorized ||
+          settings.authorizationStatus == AuthorizationStatus.provisional) {
+        String? apnsToken;
+        for (var i = 0; i < 8; i++) {
+          apnsToken = await FirebaseMessaging.instance.getAPNSToken();
+          if (apnsToken != null && apnsToken.isNotEmpty) break;
+          await Future.delayed(const Duration(milliseconds: 600));
+        }
+        if (apnsToken != null) {
+          debugPrint('========================================');
+          debugPrint('🔥 [NotificationHandler] APNs Token: $apnsToken');
+          debugPrint('========================================');
+        }
+        return apnsToken;
+      }
+    } catch (e) {
+      debugPrint('[NotificationHandler] requestAndGetApnsToken error: $e');
+    }
+    return null;
+  }
+
   Future<void> _requestPermissions() async {
     final settings = await FirebaseMessaging.instance.requestPermission(
       alert: true,
@@ -241,6 +278,19 @@ class NotificationHandler {
     );
 
     debugPrint('FCM permission status: ${settings.authorizationStatus}');
+
+    if (Platform.isIOS) {
+      await _localNotifications
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >()
+          ?.requestPermissions(
+            alert: true,
+            badge: true,
+            sound: true,
+          );
+      await FirebaseMessaging.instance.getAPNSToken();
+    }
 
     if (Platform.isAndroid) {
       final androidPlugin = _localNotifications

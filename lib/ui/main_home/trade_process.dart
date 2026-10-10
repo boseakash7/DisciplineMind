@@ -248,7 +248,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
 
       // Only advance / warn based on whichever permission step the user
       // is actually sitting on right now.
-      if (currentPage == 6) {
+      if (currentPage == 5) {
         if (newOverlay) {
           nextPage();
         } else if (showToastIfMissing) {
@@ -256,7 +256,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
             'Please grant the "Display over other apps" permission.',
           );
         }
-      } else if (currentPage == 7) {
+      } else if (currentPage == 6) {
         if (newUsage) {
           nextPage();
         } else if (showToastIfMissing) {
@@ -292,15 +292,15 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   // ============================================================
   // NAVIGATION
   //
-  // Pages: 0 = Welcome, 1 = Segment, 2 = Instrument, 3 = Setup,
-  // 4 = Capital, 5 = Broker, 6/7 = Permissions (steps 6 and 7), 8 = Success.
+  // Pages: 0 = Welcome, 1 = Segment, (Step 2 Instrument commented out),
+  // 2 = Setup, 3 = Capital, 4 = Broker, 5/6 = Permissions, 7 = Success.
   // ============================================================
 
   void nextPage() {
     if (!mounted) return;
-    if (currentPage >= 8) return;
+    if (currentPage >= 7) return;
 
-    if (currentPage == 4 && !_capitalStepValid) {
+    if (currentPage == 3 && !_capitalStepValid) {
       setState(() {});
       return;
     }
@@ -308,11 +308,11 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     var next = currentPage + 1;
 
     if (Platform.isAndroid) {
-      if (next == 6 && _hasOverlay) next = 7;
-      if (next == 7 && _hasUsage) next = 8;
-    } else if (next == 6) {
+      if (next == 5 && _hasOverlay) next = 6;
+      if (next == 6 && _hasUsage) next = 7;
+    } else if (next == 5) {
       // No permission steps needed off Android.
-      next = 8;
+      next = 7;
     }
 
     setState(() {
@@ -335,8 +335,8 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
 
     var previous = currentPage - 1;
 
-    if (!Platform.isAndroid && (previous == 6 || previous == 7)) {
-      previous = 5;
+    if (!Platform.isAndroid && (previous == 5 || previous == 6)) {
+      previous = 4;
     }
 
     setState(() {
@@ -381,7 +381,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
             children: [
               _welcomeScreen(),
               _step1Screen(),
-              _step2Screen(),
+              // _step2Screen(), // Commented out as requested - Step 2 is removed from onboarding flow
               _setupSelectionScreen(),
               _followsZenoSignals ? _zenoCapitalScreen() : _step3Screen(),
               _step4Screen(),
@@ -423,99 +423,132 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   Widget _welcomeScreen() {
     return _page(
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const SizedBox(height: 20),
+          const SizedBox(height: 10),
           _zenoLogoImage(),
-          const SizedBox(height: 13),
-          _logoHero(),
-          const SizedBox(height: 5),
+          const SizedBox(height: 14),
+          _welcomeHeroGraphic(),
+          const SizedBox(height: 16),
           const Text(
-            'Trade with a Calm Mind.\nWin with Discipline.',
+            'Create Your\nMind Control Trading\nProcess',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: _Type.screenTitle,
-              height: 1.18,
+              fontSize: 23,
+              height: 1.22,
               fontWeight: FontWeight.w800,
               color: ink,
-              letterSpacing: -0.3,
+              letterSpacing: -0.4,
             ),
           ),
-          const SizedBox(height: 11),
+          const SizedBox(height: 9),
           const Text(
-            'Set up your Mind Control Trading\n'
-            'Process in 7 simple steps.',
+            'Your trading process defines how you will trade —\nbefore the market starts.',
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: _Type.caption, height: 1.35, color: ink),
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.35,
+              color: Color(0xFF6B7280),
+            ),
           ),
-          const SizedBox(height: 17),
-          _gradientButton(text: 'Define My Process', onTap: nextPage),
+          const SizedBox(height: 18),
+          const Text(
+            'MCT Helps You Control',
+            style: TextStyle(
+              fontSize: 14.5,
+              fontWeight: FontWeight.w700,
+              color: ink,
+            ),
+          ),
+          const SizedBox(height: 10),
+          _mctControlCardsRow(),
           const SizedBox(height: 14),
-          _mctCard(),
-          const Spacer(),
+          _mctProcessDefinesCard(),
+          const SizedBox(height: 18),
+          _gradientButton(
+            text: 'Create My MCT Process',
+            trailing: const Icon(
+              Icons.arrow_forward_rounded,
+              color: Colors.white,
+              size: 18,
+            ),
+            onTap: nextPage,
+          ),
+          const SizedBox(height: 14),
           _welcomeBottom(),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
         ],
       ),
     );
   }
 
   Widget _zenoLogoImage() {
-    return Image.asset(
-      'assets/new_logo_zeno_ai.jpg',
-      height: 60,
-      fit: BoxFit.contain,
-    );
-  }
-
-  Widget _logoHero() {
-    return SizedBox(
-      height: 190,
-      width: double.infinity,
-      child: Image.asset('assets/z_trade.png', fit: BoxFit.contain),
-    );
-  }
-
-  Widget _mctCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFAF9FE),
-        borderRadius: BorderRadius.circular(11),
-        border: Border.all(color: const Color(0xFFE6E3EF)),
+    return Center(
+      child: Image.asset(
+        'assets/new_logo_zeno_ai.jpg',
+        height: 42,
+        fit: BoxFit.contain,
       ),
-      child: Row(
+    );
+  }
+
+  Widget _welcomeHeroGraphic() {
+    return SizedBox(
+      height: 120,
+      width: double.infinity,
+      child: Stack(
+        alignment: Alignment.center,
         children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF0EBFF),
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: const Icon(
-              Icons.track_changes_rounded,
-              color: purple,
-              size: 21,
+          Positioned.fill(
+            child: CustomPaint(
+              painter: _HeroCandlestickBackgroundPainter(),
             ),
           ),
-          const SizedBox(width: 10),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          SizedBox(
+            width: 106,
+            height: 94,
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
               children: [
-                Text(
-                  'Mind Control Trading (MCT)',
-                  style: TextStyle(
-                    fontSize: _Type.body,
-                    fontWeight: FontWeight.w800,
-                    color: ink,
-                  ),
+                Image.asset(
+                  'assets/brain.png',
+                  width: 80,
+                  height: 80,
+                  fit: BoxFit.contain,
                 ),
-                SizedBox(height: 3),
-                Text(
-                  'Discipline  •  Patience  •  Consistency',
-                  style: TextStyle(fontSize: _Type.caption, color: grey),
+                Positioned(
+                  right: 2,
+                  bottom: 6,
+                  child: Container(
+                    width: 32,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF4A22F4), Color(0xFF7C3AED)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(8),
+                        topRight: Radius.circular(8),
+                        bottomLeft: Radius.circular(16),
+                        bottomRight: Radius.circular(16),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF4A22F4).withValues(alpha: 0.35),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.check_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -525,19 +558,176 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     );
   }
 
+  Widget _mctControlCardsRow() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: _mctPillarCard(
+            icon: Icons.psychology_rounded,
+            title: 'Your Mind',
+            description: 'Stay away from FOMO, fear and revenge trading.',
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _mctPillarCard(
+            icon: Icons.track_changes_rounded,
+            title: 'Your Process',
+            description: 'Follow only the trades that match your defined setup.',
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _mctPillarCard(
+            icon: Icons.shield_outlined,
+            title: 'Your Risk',
+            description:
+                'Trade with controlled position sizing and predefined risk.',
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _mctPillarCard({
+    required IconData icon,
+    required String title,
+    required String description,
+  }) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 140),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFECE9F6)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF3EFFF),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: const Color(0xFF5124FF), size: 19),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: ink,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            description,
+            style: const TextStyle(
+              fontSize: 10.5,
+              height: 1.32,
+              color: Color(0xFF6B7280),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _mctProcessDefinesCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8F7FD),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFECE8F8)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEDE8FF),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.assignment_outlined,
+              color: Color(0xFF5124FF),
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Your MCT Process will define:',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                    color: ink,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _mctCheckItem('What you trade'),
+                const SizedBox(height: 5),
+                _mctCheckItem('How much capital you use'),
+                const SizedBox(height: 5),
+                _mctCheckItem('How much you risk per trade'),
+                const SizedBox(height: 5),
+                _mctCheckItem('When to stop receiving trade signals'),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _mctCheckItem(String text) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        const Icon(
+          Icons.check_circle_rounded,
+          color: Color(0xFF5124FF),
+          size: 15,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Color(0xFF505565),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _welcomeBottom() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         ...List.generate(
-          7,
+          8,
           (index) => Container(
             width: index == 0 ? 8 : 7,
             height: index == 0 ? 8 : 7,
             margin: const EdgeInsets.symmetric(horizontal: 3),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: index == 0 ? purple : const Color(0xFFD9D7E3),
+              color: index == 0 ? const Color(0xFF5124FF) : const Color(0xFFD9D7E3),
             ),
           ),
         ),
@@ -713,16 +903,25 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                           child: InkWell(
                             borderRadius: BorderRadius.circular(9),
                             onTap: onNext ?? nextPage,
-                            child: Center(
-                              child: Text(
-                                'Next',
-                                style: TextStyle(
-                                  fontFamily: 'Roboto',
-                                  color: Colors.white,
-                                  fontSize: capital ? 17 : 16,
-                                  fontWeight: FontWeight.w400,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  'Next',
+                                  style: TextStyle(
+                                    fontFamily: 'Roboto',
+                                    color: Colors.white,
+                                    fontSize: capital ? 17 : 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(width: 8),
+                                const Icon(
+                                  Icons.arrow_forward_rounded,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -740,7 +939,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
 
   Widget _setupSelectionScreen() {
     return _referenceStep(
-      step: 3,
+      step: 2,
       title: 'Select Trading Setup',
       subtitle: 'Choose how you want to get your trade setups',
       content: [
@@ -1006,11 +1205,11 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
 
   Widget _zenoCapitalScreen() {
     return _referenceStep(
-      step: 4,
+      step: 3,
       capital: true,
       title: 'Trading Capital',
       subtitle:
-          'Enter your trading capital to get started with Zeno AI signals.',
+          'Enter your trading capital to calculate your recommended risk per trade.',
       onNext: () {
         if (!isCapitalValid) {
           AppToast.showToast(capitalErrorText!);
@@ -1040,76 +1239,279 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         const SizedBox(height: 12),
         _wordsCard(signalStyle: true),
         const SizedBox(height: 16),
-        _setupInfoCard(
-          icon: Icons.bar_chart_rounded,
-          title: 'Risk Management',
-          description:
-              'When you follow Zeno AI signals, the maximum risk '
-              'per day is set to 2% of your capital.',
-          footer: Column(
+        _riskManagementCard(),
+        const SizedBox(height: 14),
+        _dailyTradeProtectionCard(),
+        const SizedBox(height: 14),
+        _disciplineConsistencyCard(),
+        const SizedBox(height: 20),
+      ],
+    );
+  }
+
+  Widget _riskManagementCard() {
+    final minRisk = (tradingCapital * 0.0075).round();
+    final maxRisk = (tradingCapital * 0.015).round();
+    final riskRangeText = tradingCapital > 0
+        ? '₹${_formatIndianNumber(minRisk)} – ₹${_formatIndianNumber(maxRisk)} per trade'
+        : '₹0 – ₹0 per trade';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9F8FE),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFECE8F8)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                width: 36,
+                height: 36,
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(10),
+                  color: const Color(0xFFEDE8FF),
+                  borderRadius: BorderRadius.circular(9),
                 ),
-                child: Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        'Max Risk per Day (2% of Capital)',
-                        style: TextStyle(
-                          color: ink,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '\u20b9${_formatIndianNumber(maxRiskPerTrade)}',
-                      style: const TextStyle(
-                        color: green,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+                child: const Icon(
+                  Icons.bar_chart_rounded,
+                  color: _referencePurple,
+                  size: 20,
                 ),
               ),
-              const SizedBox(height: 12),
-              const Row(
+              const SizedBox(width: 10),
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.lock_rounded, color: _referencePurple, size: 20),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'This is pre-defined to protect your '
-                      'capital and help you trade with discipline.',
-                      style: TextStyle(
-                        color: Color(0xFF898A95),
-                        fontSize: 13,
-                        height: 1.4,
-                      ),
+                  Text(
+                    'Risk Management',
+                    style: TextStyle(
+                      fontFamily: 'Roboto',
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w700,
+                      color: ink,
+                    ),
+                  ),
+                  SizedBox(height: 1),
+                  Text(
+                    'Your Risk Per Trade',
+                    style: TextStyle(
+                      fontFamily: 'Roboto',
+                      fontSize: 12,
+                      color: Color(0xFF6B7280),
                     ),
                   ),
                 ],
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 16),
-        _setupInfoCard(
-          icon: Icons.check_rounded,
-          title: 'Trade with discipline. Stay consistent.',
-          description:
-              'Zeno AI automatically manages position sizing based '
-              'on your capital and a maximum 2% daily risk.',
-          positive: true,
-        ),
-        const SizedBox(height: 20),
-      ],
+          const SizedBox(height: 8),
+          const Text(
+            'Based on your trading capital, we recommend a risk range per trade.',
+            style: TextStyle(
+              fontFamily: 'Roboto',
+              fontSize: 12,
+              color: Color(0xFF595B6E),
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFDED8F8)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Text(
+                      'Recommended Risk Range',
+                      style: TextStyle(
+                        fontFamily: 'Roboto',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: ink,
+                      ),
+                    ),
+                    Spacer(),
+                    Icon(
+                      Icons.info_outline_rounded,
+                      color: _referencePurple,
+                      size: 18,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  '0.75% – 1.5%',
+                  style: TextStyle(
+                    fontFamily: 'Roboto',
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: _referencePurple,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  riskRangeText,
+                  style: const TextStyle(
+                    fontFamily: 'Roboto',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: _referencePurple,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _dailyTradeProtectionCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF6EE),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFEAD9),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: const Icon(
+              Icons.shield_rounded,
+              color: Color(0xFFF25822),
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Daily Trade Protection',
+                  style: TextStyle(
+                    fontFamily: 'Roboto',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFFD32F2F),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'Maximum 2 Stop Losses or 2 Targets per day.',
+                  style: TextStyle(
+                    fontFamily: 'Roboto',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFFD32F2F),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                RichText(
+                  text: const TextSpan(
+                    style: TextStyle(
+                      fontFamily: 'Roboto',
+                      fontSize: 11.5,
+                      height: 1.35,
+                      color: Color(0xFF595B6E),
+                    ),
+                    children: [
+                      TextSpan(
+                        text:
+                            'Once you reach either limit, trade signals will automatically stop for the day. ',
+                      ),
+                      TextSpan(
+                        text:
+                            'This will help you avoid overtrading and protect your gains.',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: ink,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _disciplineConsistencyCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F5FE),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEDE8FF),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: const Icon(
+              Icons.track_changes_rounded,
+              color: _referencePurple,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Trade with discipline. Stay consistent.',
+                  style: TextStyle(
+                    fontFamily: 'Roboto',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: _referencePurple,
+                  ),
+                ),
+                SizedBox(height: 3),
+                Text(
+                  'We automatically manage your position sizing based on your capital and defined risk limits.',
+                  style: TextStyle(
+                    fontFamily: 'Roboto',
+                    fontSize: 11.5,
+                    height: 1.35,
+                    color: Color(0xFF6B7280),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1190,7 +1592,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
 
   Widget _step3Screen() {
     return _normalStep(
-      step: 4,
+      step: 3,
       title: 'Trading Capital & Rules',
       subtitle: 'Set your capital and trading discipline',
       onNext: () {
@@ -1688,7 +2090,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     ),
     _BrokerItem(
       name: 'ICICI Direct',
-      isSupported: false,
+      isSupported: true,
       brandColor: const Color(0xFFB01D22),
       customLogoBuilder: () => _buildIciciLogo(),
     ),
@@ -1701,19 +2103,19 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     ),
     _BrokerItem(
       name: 'Kotak Neo',
-      isSupported: false,
+      isSupported: true,
       brandColor: const Color(0xFFE31B23),
       customLogoBuilder: () => _buildKotakLogo(),
     ),
     _BrokerItem(
       name: 'HDFC Securities',
-      isSupported: false,
+      isSupported: true,
       brandColor: const Color(0xFF004C8F),
       customLogoBuilder: () => _buildHdfcLogo(),
     ),
     _BrokerItem(
       name: 'SBI Securities',
-      isSupported: false,
+      isSupported: true,
       brandColor: const Color(0xFF0081C6),
       customLogoBuilder: () => _buildSbiLogo(),
     ),
@@ -1725,67 +2127,67 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     ),
     _BrokerItem(
       name: 'Motilal Oswal',
-      isSupported: false,
+      isSupported: true,
       brandColor: const Color(0xFFF39200),
       customLogoBuilder: () => _buildMotilalLogo(),
     ),
     _BrokerItem(
       name: 'Paytm Money',
-      isSupported: false,
+      isSupported: true,
       brandColor: const Color(0xFF002E6C),
       customLogoBuilder: () => _buildPaytmLogo(),
     ),
     _BrokerItem(
       name: 'INDmoney',
-      isSupported: false,
+      isSupported: true,
       brandColor: const Color(0xFF000000),
       customLogoBuilder: () => _buildIndMoneyLogo(),
     ),
     _BrokerItem(
       name: 'Sharekhan',
-      isSupported: false,
+      isSupported: true,
       brandColor: const Color(0xFFF26522),
       customLogoBuilder: () => _buildSharekhanLogo(),
     ),
     _BrokerItem(
       name: 'Axis Securities',
-      isSupported: false,
+      isSupported: true,
       brandColor: const Color(0xFF97123A),
       customLogoBuilder: () => _buildAxisLogo(),
     ),
     _BrokerItem(
       name: 'IIFL Securities',
-      isSupported: false,
+      isSupported: true,
       brandColor: const Color(0xFFF37023),
       customLogoBuilder: () => _buildIiflLogo(),
     ),
     _BrokerItem(
       name: '5paisa',
-      isSupported: false,
+      isSupported: true,
       brandColor: const Color(0xFFCF1222),
       customLogoBuilder: () => _buildFivePaisaLogo(),
     ),
     _BrokerItem(
       name: 'Choice',
-      isSupported: false,
+      isSupported: true,
       brandColor: const Color(0xFF0068B3),
       customLogoBuilder: () => _buildChoiceLogo(),
     ),
     _BrokerItem(
       name: 'Geojit',
-      isSupported: false,
+      isSupported: true,
       brandColor: const Color(0xFF008269),
       customLogoBuilder: () => _buildGeojitLogo(),
     ),
     _BrokerItem(
       name: 'Mirae Asset',
-      isSupported: false,
+      isSupported: true,
       brandColor: const Color(0xFF00457C),
       customLogoBuilder: () => _buildMiraeLogo(),
     ),
     _BrokerItem(
       name: 'Sahi',
-      isSupported: false,
+      isSupported: true,
       brandColor: const Color(0xFF0E1E38),
       customLogoBuilder: () => _buildSahiLogo(),
     ),
@@ -1862,24 +2264,100 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   Widget _step4Screen() {
     final isBrokerSelected = brokerage != null && brokerage!.isNotEmpty;
 
-    return _normalStep(
-      step: 5,
-      title: 'Select Your Broker App',
-      subtitle:
-          'Choose the trading app you use. Zeno AI will monitor '
-          'only this app to help you stay focused and disciplined.',
-      onNext: () {
-        if (!isBrokerSelected) {
-          AppToast.showToast('Please select your trading broker app');
-          return;
-        }
-        nextPage();
-      },
-      isNextEnabled: isBrokerSelected,
-      content: [
-        _brokerGrid(),
-        const SizedBox(height: 12),
-      ],
+    return _page(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _header(4, inlineProgress: true),
+          const SizedBox(height: 20),
+          const Text(
+            'Select Your Broker App',
+            style: TextStyle(
+              fontSize: _Type.screenTitle,
+              fontWeight: FontWeight.w800,
+              color: ink,
+              letterSpacing: -0.2,
+            ),
+          ),
+          const SizedBox(height: 5),
+          const Text(
+            'Choose the trading app you use. Zeno AI will monitor '
+            'only this app to help you stay focused and disciplined.',
+            style: TextStyle(
+              fontSize: _Type.screenSubtitle,
+              height: 1.35,
+              color: ink,
+            ),
+          ),
+          const SizedBox(height: 18),
+          _brokerGrid(),
+          const SizedBox(height: 18),
+          const Spacer(),
+          if (!isBrokerSelected)
+            _buildMyBrokerNotListedButton()
+          else
+            _gradientButton(
+              text: 'Next',
+              trailing: const Icon(
+                Icons.arrow_forward_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
+              onTap: nextPage,
+            ),
+          const SizedBox(height: 4),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMyBrokerNotListedButton() {
+    return InkWell(
+      onTap: () => _showUnsupportedBrokerDialog(context),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF5F3FF),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 32,
+              height: 26,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(7),
+                border: Border.all(color: const Color(0xFF1E1B4B), width: 1.5),
+              ),
+              child: const Center(
+                child: Icon(
+                  Icons.more_horiz,
+                  color: Color(0xFF1E1B4B),
+                  size: 18,
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            const Expanded(
+              child: Text(
+                'My broker is not listed',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF1E1B4B),
+                ),
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: Color(0xFF1E1B4B),
+              size: 22,
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1919,26 +2397,24 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
 
   Widget _buildBrokerGridCard(_BrokerItem item) {
     final isSelected = _isSameBroker(brokerage, item.name);
-    final supported = _isSupportedBroker(item);
 
     return Material(
       color: isSelected ? const Color(0xFFFAF7FE) : Colors.white,
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
         onTap: () async {
-          if (supported) {
-            setState(() => brokerage = item.name);
-            final pkg = _getBrokerPackageName(item.name);
-            await _prefs.saveSelectedPackage(
-              userId: widget.userId,
-              packageName: pkg,
-            );
-            if (Platform.isAndroid) {
-              await _blockService.saveUserIdForOverlay(widget.userId);
-              await _blockService.blockApp(pkg);
-            }
-          } else {
-            _showUnsupportedBrokerDialog(context);
+          setState(() => brokerage = item.name);
+          final pkg = _getBrokerPackageName(item.name);
+          await _prefs.saveSelectedPackage(
+            userId: widget.userId,
+            packageName: pkg,
+          );
+          final storage = GetStorage();
+          await storage.write('mct_selected_package_${widget.userId}', pkg);
+          await storage.write('mct_brokerage_${widget.userId}', item.name);
+          if (Platform.isAndroid) {
+            await _blockService.saveUserIdForOverlay(widget.userId);
+            await _blockService.blockApp(pkg);
           }
         },
         borderRadius: BorderRadius.circular(14),
@@ -2422,51 +2898,51 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       builder: (context) {
         return Dialog(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(24),
           ),
           backgroundColor: Colors.white,
           surfaceTintColor: Colors.white,
           insetPadding:
-              const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+              const EdgeInsets.symmetric(horizontal: 26, vertical: 24),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  width: 68,
-                  height: 68,
+                  width: 76,
+                  height: 76,
                   decoration: const BoxDecoration(
-                    color: Color(0xFFF0ECFF),
+                    color: Color(0xFFEDE8FF),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
                     Icons.account_balance_rounded,
-                    color: Color(0xFF5124FF),
-                    size: 34,
+                    color: Color(0xFF6338F1),
+                    size: 36,
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 18),
                 const Text(
                   'Currently we support\nonly selected brokers',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: 19,
+                    fontSize: 18.5,
                     fontWeight: FontWeight.w800,
-                    color: ink,
+                    color: Color(0xFF111827),
                     height: 1.25,
                     letterSpacing: -0.2,
                   ),
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'You can create your trading account on one of these apps and then come back on Zeno AI to start Mind Control Trading.',
+                  'You can create your trading account\non one of these apps and then come\nback on Zeno AI to start\nMind Control Trading.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: 13,
-                    height: 1.4,
+                    fontSize: 13.5,
+                    height: 1.45,
                     fontWeight: FontWeight.w400,
-                    color: Color(0xFF6B6978),
+                    color: Color(0xFF6B7280),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -2476,7 +2952,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                   child: ElevatedButton(
                     onPressed: () => Navigator.pop(context),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF6C38FF),
+                      backgroundColor: const Color(0xFF6338F1),
                       foregroundColor: Colors.white,
                       elevation: 0,
                       shape: RoundedRectangleBorder(
@@ -2486,8 +2962,9 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                     child: const Text(
                       'Got It',
                       style: TextStyle(
-                        fontSize: 15,
+                        fontSize: 15.5,
                         fontWeight: FontWeight.w700,
+                        color: Colors.white,
                       ),
                     ),
                   ),
@@ -2507,7 +2984,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   Widget _permissionStep1Screen() {
     return _permissionPageLayout(
       key: const ValueKey('perm1'),
-      step: 6,
+      step: 5,
       title: 'Enable Permission 1',
       subtitle: '[ Display over the Top ]',
       description:
@@ -2730,7 +3207,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-          child: _header(7),
+          child: _header(6),
         ),
         Expanded(
           child: SingleChildScrollView(
@@ -3541,12 +4018,28 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   String _getBrokerPackageName(String? name) {
     if (name == null) return 'com.zerodha.kite3';
     final lower = name.toLowerCase().trim();
-    if (lower.contains('zerodha') || lower.contains('kite'))
+    if (lower.contains('zerodha') || lower.contains('kite')) {
       return 'com.zerodha.kite3';
+    }
     if (lower.contains('upstox')) return 'in.upstox.app';
     if (lower.contains('groww')) return 'com.nextbillion.groww';
     if (lower.contains('angel')) return 'com.msf.angelmobile';
     if (lower.contains('dhan')) return 'co.dhan';
+    if (lower.contains('icici')) return 'com.icicidirect.mobile';
+    if (lower.contains('kotak')) return 'com.kotak.neo';
+    if (lower.contains('hdfc')) return 'com.hdfcsec.trade';
+    if (lower.contains('sbi')) return 'com.sbi.smart';
+    if (lower.contains('motilal')) return 'com.motilaloswal.moinvestor';
+    if (lower.contains('paytm')) return 'com.paytmmoney';
+    if (lower.contains('ind')) return 'in.indwealth';
+    if (lower.contains('sharekhan')) return 'com.sharekhan';
+    if (lower.contains('axis')) return 'com.axis.direct';
+    if (lower.contains('iifl')) return 'com.indiainfoline';
+    if (lower.contains('5paisa')) return 'com.fivepaisa.trade';
+    if (lower.contains('choice')) return 'com.choicebroking.jiffy';
+    if (lower.contains('geojit')) return 'com.geojit.selfie';
+    if (lower.contains('mirae')) return 'com.mshare';
+    if (lower.contains('sahi')) return 'com.sahi.app';
     return 'com.zerodha.kite3';
   }
 
@@ -3567,7 +4060,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     final storage = GetStorage();
     final brokerPkg = _getBrokerPackageName(brokerage);
 
-    if (Platform.isAndroid && (_hasOverlay || _hasUsage)) {
+    if (Platform.isAndroid) {
       await _prefs.saveSelectedPackage(
         userId: widget.userId,
         packageName: brokerPkg,
@@ -3581,6 +4074,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     await storage.write('mct_trading_segment_${widget.userId}', tradingSegment);
     await storage.write('mct_instrument_${widget.userId}', instrument);
     await storage.write('mct_brokerage_${widget.userId}', brokerage);
+    await storage.write('mct_selected_package_${widget.userId}', brokerPkg);
     await storage.write(
       'mct_trades_per_day_${widget.userId}',
       _effectiveTradesPerDay,
@@ -3689,7 +4183,58 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     );
   }
 
-  Widget _header(int step, {bool reference = false}) {
+  Widget _header(
+    int step, {
+    bool reference = false,
+    bool inlineProgress = false,
+  }) {
+    final totalSteps = Platform.isAndroid ? 6 : 4;
+    final clampedStep = step.clamp(1, totalSteps);
+
+    if (inlineProgress) {
+      return Row(
+        children: [
+          SizedBox(
+            width: 32,
+            height: 32,
+            child: IconButton(
+              padding: EdgeInsets.zero,
+              onPressed: previousPage,
+              icon: const Icon(
+                Icons.arrow_back_ios_new_rounded,
+                size: 18,
+                color: ink,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: LinearProgressIndicator(
+                value: clampedStep / totalSteps,
+                minHeight: 5,
+                backgroundColor: const Color(0xFFE4E2EB),
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  reference ? _referencePurple : purple,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            '$clampedStep of $totalSteps',
+            style: TextStyle(
+              fontFamily: reference ? 'Roboto' : null,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: ink,
+            ),
+          ),
+        ],
+      );
+    }
+
     return Column(
       children: [
         Row(
@@ -3709,7 +4254,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
             ),
             Expanded(
               child: Text(
-                'Step $step of 7',
+                'Step $clampedStep of $totalSteps',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontFamily: reference ? 'Roboto' : null,
@@ -3726,7 +4271,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: LinearProgressIndicator(
-            value: step / 7,
+            value: clampedStep / totalSteps,
             minHeight: 5,
             backgroundColor: const Color(0xFFE4E2EB),
             valueColor: AlwaysStoppedAnimation<Color>(
@@ -3954,6 +4499,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     required String text,
     required VoidCallback? onTap,
     bool enabled = true,
+    Widget? trailing,
   }) {
     final isActuallyEnabled = enabled && onTap != null;
 
@@ -3989,13 +4535,23 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
             borderRadius: BorderRadius.circular(10),
           ),
         ),
-        child: Text(
-          text,
-          style: TextStyle(
-            fontSize: _Type.buttonLabel,
-            fontWeight: FontWeight.w700,
-            color: isActuallyEnabled ? Colors.white : const Color(0xFF8E8B99),
-          ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              text,
+              style: TextStyle(
+                fontSize: _Type.buttonLabel,
+                fontWeight: FontWeight.w700,
+                color: isActuallyEnabled ? Colors.white : const Color(0xFF8E8B99),
+              ),
+            ),
+            if (trailing != null) ...[
+              const SizedBox(width: 8),
+              trailing,
+            ],
+          ],
         ),
       ),
     );
@@ -4212,5 +4768,101 @@ class _BrokerItem {
     this.brandColor = const Color(0xFF4A22F4),
     this.customLogoBuilder,
   });
+}
+
+class _HeroCandlestickBackgroundPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final wavePaint = Paint()
+      ..color = const Color(0xFFEEEAFF).withValues(alpha: 0.7)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8;
+
+    final path1 = Path();
+    path1.moveTo(0, size.height * 0.45);
+    path1.cubicTo(
+      size.width * 0.25,
+      size.height * 0.2,
+      size.width * 0.6,
+      size.height * 0.6,
+      size.width,
+      size.height * 0.35,
+    );
+    canvas.drawPath(path1, wavePaint);
+
+    final path2 = Path();
+    path2.moveTo(0, size.height * 0.55);
+    path2.cubicTo(
+      size.width * 0.3,
+      size.height * 0.7,
+      size.width * 0.7,
+      size.height * 0.3,
+      size.width,
+      size.height * 0.5,
+    );
+    canvas.drawPath(
+      path2,
+      wavePaint..color = const Color(0xFFF3EFFF).withValues(alpha: 0.9),
+    );
+
+    final candlePaint = Paint()
+      ..color = const Color(0xFFDDD5FA).withValues(alpha: 0.65)
+      ..style = PaintingStyle.fill;
+
+    final wickPaint = Paint()
+      ..color = const Color(0xFFDDD5FA).withValues(alpha: 0.65)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2;
+
+    final candles = [
+      (
+        size.width * 0.66,
+        size.height * 0.42,
+        size.height * 0.68,
+        size.height * 0.48,
+        size.height * 0.62,
+      ),
+      (
+        size.width * 0.73,
+        size.height * 0.32,
+        size.height * 0.60,
+        size.height * 0.38,
+        size.height * 0.52,
+      ),
+      (
+        size.width * 0.80,
+        size.height * 0.24,
+        size.height * 0.52,
+        size.height * 0.30,
+        size.height * 0.44,
+      ),
+      (
+        size.width * 0.87,
+        size.height * 0.16,
+        size.height * 0.45,
+        size.height * 0.22,
+        size.height * 0.36,
+      ),
+      (
+        size.width * 0.94,
+        size.height * 0.22,
+        size.height * 0.50,
+        size.height * 0.28,
+        size.height * 0.42,
+      ),
+    ];
+
+    for (final c in candles) {
+      canvas.drawLine(Offset(c.$1, c.$2), Offset(c.$1, c.$3), wickPaint);
+      final rect = RRect.fromRectAndRadius(
+        Rect.fromLTRB(c.$1 - 4.5, c.$4, c.$1 + 4.5, c.$5),
+        const Radius.circular(2),
+      );
+      canvas.drawRRect(rect, candlePaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 

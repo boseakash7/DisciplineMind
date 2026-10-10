@@ -25,6 +25,21 @@ String resolveBrokerPackageName(String? name) {
   if (lower.contains('groww')) return 'com.nextbillion.groww';
   if (lower.contains('angel')) return 'com.msf.angelmobile';
   if (lower.contains('dhan')) return 'co.dhan';
+  if (lower.contains('icici')) return 'com.icicidirect.mobile';
+  if (lower.contains('kotak')) return 'com.kotak.neo';
+  if (lower.contains('hdfc')) return 'com.hdfcsec.trade';
+  if (lower.contains('sbi')) return 'com.sbi.smart';
+  if (lower.contains('motilal')) return 'com.motilaloswal.moinvestor';
+  if (lower.contains('paytm')) return 'com.paytmmoney';
+  if (lower.contains('ind')) return 'in.indwealth';
+  if (lower.contains('sharekhan')) return 'com.sharekhan';
+  if (lower.contains('axis')) return 'com.axis.direct';
+  if (lower.contains('iifl')) return 'com.indiainfoline';
+  if (lower.contains('5paisa')) return 'com.fivepaisa.trade';
+  if (lower.contains('choice')) return 'com.choicebroking.jiffy';
+  if (lower.contains('geojit')) return 'com.geojit.selfie';
+  if (lower.contains('mirae')) return 'com.mshare';
+  if (lower.contains('sahi')) return 'com.sahi.app';
   return 'com.zerodha.kite3';
 }
 

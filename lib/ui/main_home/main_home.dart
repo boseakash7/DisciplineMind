@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/controller/trading_process_controller.dart';
@@ -28,6 +30,24 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
   void initState() {
     super.initState();
     currentIndex = widget.initialIndex;
+    if (Platform.isAndroid) {
+      const MethodChannel('com.discipline_mind/app_lifecycle')
+          .setMethodCallHandler((call) async {
+        if (call.method == 'switchToChat') {
+          if (mounted) {
+            setState(() => currentIndex = 2);
+          }
+        }
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(MainHomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialIndex != oldWidget.initialIndex) {
+      setState(() => currentIndex = widget.initialIndex);
+    }
   }
 
   void _openMoreTab() {

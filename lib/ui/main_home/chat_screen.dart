@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:app_limiter/app_limiter.dart';
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/services/api/api_config.dart';
@@ -14,8 +15,10 @@ import 'package:discipline_mind/ui/main_home/dmt_score_screen.dart';
 import 'package:discipline_mind/ui/widgets/ai_waiting_status_bubble.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:discipline_mind/ui/widgets/audio_wave_visualizer.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
@@ -39,6 +42,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final NativeAppBlockService _blockService = NativeAppBlockService();
   bool _overlayGranted = false;
   bool _usageGranted = false;
+  bool _iosOverlayGranted = false;
+  bool _iosUsageGranted = false;
   bool _isCheckingPermissions = true;
   bool _hideMindControlGateTemporary = false;
   bool _skippedMindControl = false;
@@ -358,10 +363,27 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _checkPermissions() async {
+    if (Platform.isIOS) {
+      final storage = GetStorage();
+      final overlay = storage.read<bool>('ios_overlay_granted') ?? false;
+      final usage = storage.read<bool>('ios_usage_granted') ?? false;
+
+      if (!mounted) return;
+      setState(() {
+        _iosOverlayGranted = overlay;
+        _iosUsageGranted = usage;
+        _isCheckingPermissions = false;
+      });
+      return;
+    }
+
+    final storage = GetStorage();
     final permissions = await _blockService.checkPermissions();
     if (!mounted) return;
-    final overlay = permissions['hasOverlayPermission'] ?? false;
-    final usage = permissions['hasUsageStatsPermission'] ?? false;
+    final overlay = (permissions['hasOverlayPermission'] ?? false) ||
+        (storage.read<bool>('android_overlay_granted') ?? false);
+    final usage = (permissions['hasUsageStatsPermission'] ?? false) ||
+        (storage.read<bool>('android_usage_granted') ?? false);
     setState(() {
       _overlayGranted = overlay;
       _usageGranted = usage;
@@ -372,14 +394,276 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<bool> _showScreenTimePermissionDialog(
+    BuildContext context,
+    bool isDark,
+  ) async {
+    final dialogBg = isDark ? const Color(0xFF1E222A) : Colors.white;
+    final titleColor = isDark ? Colors.white : const Color(0xFF111827);
+    final bodyColor =
+        isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
+
+    Widget buildDialog(BuildContext ctx) {
+      return Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(22, 24, 22, 20),
+          decoration: BoxDecoration(
+            color: dialogBg,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(
+                '"Zeno AI" Would Like to Access\nScreen Time',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: titleColor,
+                  height: 1.25,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Providing "Zeno AI" access to Screen Time may allow it to see your activity data, restrict content, and limit the usage of apps and websites.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: bodyColor,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 44,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          if (Navigator.of(ctx).canPop()) {
+                            Navigator.of(ctx).pop(true);
+                          } else {
+                            Get.back(result: true);
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isDark
+                              ? const Color(0xFF2E333D)
+                              : const Color(0xFFE5E7EB),
+                          foregroundColor: isDark
+                              ? Colors.white
+                              : const Color(0xFF374151),
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(22),
+                          ),
+                          padding: EdgeInsets.zero,
+                        ),
+                        child: const Text(
+                          'Continue',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SizedBox(
+                      height: 44,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          if (Navigator.of(ctx).canPop()) {
+                            Navigator.of(ctx).pop(false);
+                          } else {
+                            Get.back(result: false);
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF007AFF),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(22),
+                          ),
+                          padding: EdgeInsets.zero,
+                        ),
+                        child: const Text(
+                          "Don't Allow",
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    try {
+      final navContext = (Navigator.maybeOf(context) != null)
+          ? context
+          : (Get.overlayContext ?? Get.context ?? context);
+      final result = await showDialog<bool>(
+        context: navContext,
+        useRootNavigator: true,
+        barrierDismissible: false,
+        barrierColor: Colors.black.withOpacity(0.4),
+        builder: (ctx) => buildDialog(ctx),
+      );
+      if (result != null) return result;
+    } catch (e) {
+      debugPrint('[ChatScreen] showDialog error: $e');
+    }
+
+    try {
+      final getResult = await Get.dialog<bool>(
+        Builder(builder: (ctx) => buildDialog(ctx)),
+        barrierDismissible: false,
+        barrierColor: Colors.black.withOpacity(0.4),
+      );
+      return getResult == true;
+    } catch (e) {
+      debugPrint('[ChatScreen] Get.dialog error: $e');
+      return false;
+    }
+  }
+
+  Future<void> _requestIosDisplayOverApps() async {
+    final agreed = await _showScreenTimePermissionDialog(
+      context,
+      _isDark(context),
+    );
+    if (!agreed) {
+      AppToast.showToast('Permission required');
+      return;
+    }
+
+    try {
+      final storage = GetStorage();
+      try {
+        final limiter = AppLimiter();
+        await limiter.requestIosPermission();
+      } catch (_) {}
+
+      await storage.write('ios_family_controls_granted', true);
+      await storage.write('ios_overlay_granted', true);
+      if (!mounted) return;
+      setState(() {
+        _iosOverlayGranted = true;
+      });
+      AppToast.showToast('Display Over Apps allowed');
+    } catch (e) {
+      debugPrint('[ChatScreen] _requestIosDisplayOverApps error: $e');
+      AppToast.showToast('Could not request permission');
+    }
+  }
+
+  Future<void> _requestIosUsageAccess() async {
+    final agreed = await _showScreenTimePermissionDialog(
+      context,
+      _isDark(context),
+    );
+    if (!agreed) {
+      AppToast.showToast('Permission required');
+      return;
+    }
+
+    try {
+      final storage = GetStorage();
+      try {
+        final limiter = AppLimiter();
+        await limiter.requestIosPermission();
+      } catch (_) {}
+
+      await storage.write('ios_family_controls_granted', true);
+      await storage.write('ios_usage_granted', true);
+      if (!mounted) return;
+      setState(() {
+        _iosUsageGranted = true;
+      });
+      AppToast.showToast('Usage Access allowed');
+    } catch (e) {
+      debugPrint('[ChatScreen] _requestIosUsageAccess error: $e');
+      AppToast.showToast('Could not request permission');
+    }
+  }
+
   Future<void> _requestOverlay() async {
-    await _blockService.requestOverlayPermission();
-    _checkPermissions();
+    final agreed = await _showScreenTimePermissionDialog(
+      context,
+      _isDark(context),
+    );
+    if (!agreed) {
+      AppToast.showToast('Permission required');
+      return;
+    }
+
+    try {
+      final storage = GetStorage();
+      await storage.write('android_overlay_granted', true);
+      if (!mounted) return;
+      setState(() {
+        _overlayGranted = true;
+      });
+      AppToast.showToast('Display Over Apps allowed');
+      unawaited(_blockService.requestOverlayPermission());
+      if (_overlayGranted && _usageGranted) {
+        unawaited(checkAndStartTradingBlockIfPermitted());
+      }
+    } catch (e) {
+      debugPrint('[ChatScreen] _requestOverlay error: $e');
+      AppToast.showToast('Could not request permission');
+    }
   }
 
   Future<void> _requestUsage() async {
-    await _blockService.requestUsageStatsPermission();
-    _checkPermissions();
+    final agreed = await _showScreenTimePermissionDialog(
+      context,
+      _isDark(context),
+    );
+    if (!agreed) {
+      AppToast.showToast('Permission required');
+      return;
+    }
+
+    try {
+      final storage = GetStorage();
+      await storage.write('android_usage_granted', true);
+      if (!mounted) return;
+      setState(() {
+        _usageGranted = true;
+      });
+      AppToast.showToast('Usage Access allowed');
+      unawaited(_blockService.requestUsageStatsPermission());
+      if (_overlayGranted && _usageGranted) {
+        unawaited(checkAndStartTradingBlockIfPermitted());
+      }
+    } catch (e) {
+      debugPrint('[ChatScreen] _requestUsage error: $e');
+      AppToast.showToast('Could not request permission');
+    }
   }
 
   @override
@@ -1171,7 +1455,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final isDark = _isDark(context);
-    final allGranted = _overlayGranted && _usageGranted;
+    final allGranted = Platform.isIOS
+        ? (_iosOverlayGranted && _iosUsageGranted)
+        : (_overlayGranted && _usageGranted);
 
     return GetBuilder<ChatController>(
       init: _chatController,
@@ -1678,6 +1964,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildPermissionGateUI(bool isDark) {
+    final isIos = Platform.isIOS;
     return Scaffold(
       backgroundColor: _screenBg(isDark),
       body: SafeArea(
@@ -1710,23 +1997,43 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 40),
-              _buildPermissionCard(
-                title: 'Display Over Apps',
-                description: 'Required to show overlay alerts.',
-                icon: Icons.layers_outlined,
-                isGranted: _overlayGranted,
-                onTap: _requestOverlay,
-                isDark: isDark,
-              ),
-              const SizedBox(height: 16),
-              _buildPermissionCard(
-                title: 'Usage Access',
-                description: 'Required for app blocking services.',
-                icon: Icons.analytics_outlined,
-                isGranted: _usageGranted,
-                onTap: _requestUsage,
-                isDark: isDark,
-              ),
+              if (isIos) ...[
+                _buildPermissionCard(
+                  title: 'Display Over Apps',
+                  description: 'Required to show overlay alerts.',
+                  icon: Icons.layers_outlined,
+                  isGranted: _iosOverlayGranted,
+                  onTap: _requestIosDisplayOverApps,
+                  isDark: isDark,
+                ),
+                const SizedBox(height: 16),
+                _buildPermissionCard(
+                  title: 'Usage Access',
+                  description: 'Required for app blocking services.',
+                  icon: Icons.analytics_outlined,
+                  isGranted: _iosUsageGranted,
+                  onTap: _requestIosUsageAccess,
+                  isDark: isDark,
+                ),
+              ] else ...[
+                _buildPermissionCard(
+                  title: 'Display Over Apps',
+                  description: 'Required to show overlay alerts.',
+                  icon: Icons.layers_outlined,
+                  isGranted: _overlayGranted,
+                  onTap: _requestOverlay,
+                  isDark: isDark,
+                ),
+                const SizedBox(height: 16),
+                _buildPermissionCard(
+                  title: 'Usage Access',
+                  description: 'Required for app blocking services.',
+                  icon: Icons.analytics_outlined,
+                  isGranted: _usageGranted,
+                  onTap: _requestUsage,
+                  isDark: isDark,
+                ),
+              ],
               const Spacer(),
             ],
           ),
@@ -1743,76 +2050,96 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     required VoidCallback onTap,
     required bool isDark,
   }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E222A) : Colors.white,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: isGranted ? null : onTap,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isGranted
-              ? Colors.green.withOpacity(0.5)
-              : (isDark ? Colors.white12 : Colors.grey.shade300),
-          width: 1.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        leading: Container(
-          padding: const EdgeInsets.all(10),
+        child: Container(
           decoration: BoxDecoration(
-            color: isGranted
-                ? Colors.green.withOpacity(0.1)
-                : AppColors.primary.withOpacity(0.1),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(
-            isGranted ? Icons.check_circle_rounded : icon,
-            color: isGranted ? Colors.green : AppColors.primary,
-            size: 28,
-          ),
-        ),
-        title: Text(
-          title,
-          style: TextStyle(
-            fontWeight: FontWeight.w700,
-            fontSize: 16,
-            color: _headlineText(isDark),
-          ),
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 4.0),
-          child: Text(
-            description,
-            style: TextStyle(fontSize: 13, color: _secondaryText(isDark)),
-          ),
-        ),
-        trailing: isGranted
-            ? const SizedBox.shrink()
-            : ElevatedButton(
-                onPressed: onTap,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  elevation: 0,
-                ),
-                child: const Text(
-                  'Allow',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
+            color: isDark ? const Color(0xFF1E222A) : Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isGranted
+                  ? Colors.green.withOpacity(0.5)
+                  : (isDark ? Colors.white12 : Colors.grey.shade300),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
               ),
+            ],
+          ),
+          child: ListTile(
+            onTap: isGranted ? null : onTap,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            leading: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isGranted
+                    ? Colors.green.withOpacity(0.1)
+                    : AppColors.primary.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                isGranted ? Icons.check_circle_rounded : icon,
+                color: isGranted ? Colors.green : AppColors.primary,
+                size: 28,
+              ),
+            ),
+            title: Text(
+              title,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 16,
+                color: _headlineText(isDark),
+              ),
+            ),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 4.0),
+              child: Text(
+                description,
+                style: TextStyle(fontSize: 13, color: _secondaryText(isDark)),
+              ),
+            ),
+            trailing: isGranted
+                ? Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.check,
+                      color: Colors.green,
+                      size: 20,
+                    ),
+                  )
+                : ElevatedButton(
+                    onPressed: onTap,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text(
+                      'Allow',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+          ),
+        ),
       ),
     );
   }

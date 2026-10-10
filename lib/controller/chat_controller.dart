@@ -15,6 +15,8 @@ import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:discipline_mind/controller/trading_process_controller.dart';
+import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class ChatController extends GetxController {
@@ -56,11 +58,45 @@ class ChatController extends GetxController {
   }
 
   List<String> _selectedBlockedPackages() {
-    final userId = _resolvedUserId;
+    final userId = _resolvedUserId ??
+        Common.userData.value?.payload?.id?.toString() ??
+        GetStorage().read<String>('user_id');
     if (userId == null || userId.isEmpty) {
       return [];
     }
-    return _prefs.getSelectedPackages(userId: userId);
+    final packages = _prefs.getSelectedPackages(userId: userId);
+    if (packages.isNotEmpty) {
+      return packages;
+    }
+
+    final storage = GetStorage();
+    final savedPkg = storage.read<String>('mct_selected_package_$userId');
+    if (savedPkg != null && savedPkg.isNotEmpty) {
+      _prefs.saveSelectedPackage(userId: userId, packageName: savedPkg);
+      return [savedPkg];
+    }
+
+    final savedBrokerage = storage.read<String>('mct_brokerage_$userId');
+    if (savedBrokerage != null && savedBrokerage.isNotEmpty) {
+      final pkg = resolveBrokerPackageName(savedBrokerage);
+      if (pkg.isNotEmpty) {
+        _prefs.saveSelectedPackage(userId: userId, packageName: pkg);
+        return [pkg];
+      }
+    }
+
+    if (Get.isRegistered<TradingProcessController>()) {
+      final proc = Get.find<TradingProcessController>().currentProcess.value;
+      if (proc?.brokingApp != null && proc!.brokingApp!.isNotEmpty) {
+        final pkg = resolveBrokerPackageName(proc.brokingApp);
+        if (pkg.isNotEmpty) {
+          _prefs.saveSelectedPackage(userId: userId, packageName: pkg);
+          return [pkg];
+        }
+      }
+    }
+
+    return [];
   }
 
   @override
@@ -1302,7 +1338,8 @@ class ChatController extends GetxController {
         for (final package in selectedPackages) {
           final aliases = tradingAppLaunchAliases[package] ?? [package];
           for (final candidate in aliases) {
-            final ok = await _launchTradingPackageWithUrlLauncher(candidate);
+            // Direct explicit launch via Android PackageManager - NO chooser dialog or list of apps
+            final ok = await _blockService.launchApp(candidate);
             if (ok) {
               launched = true;
               break;
@@ -1314,12 +1351,57 @@ class ChatController extends GetxController {
         }
         if (!launched) {
           AppToast.showToast('Selected trading app is not installed/enabled');
+        } else {
+          AppToast.showToast('Mind Control Guard is Deactivated');
         }
-        AppToast.showToast('Mind Control Guard is Deactivated');
       } else if (Platform.isIOS) {
         final limiter = AppLimiter();
         await limiter.blockAndUnblockIOSApp();
-        AppToast.showToast('Mind Control Guard is Deactivated');
+        final selectedPackages = _selectedBlockedPackages();
+        var launched = false;
+        for (final package in selectedPackages) {
+          final schemes = iosTradingAppSchemes[package] ?? [];
+          for (final scheme in schemes) {
+            final uri = Uri.parse(scheme);
+            try {
+              if (await canLaunchUrl(uri)) {
+                final ok = await launchUrl(
+                  uri,
+                  mode: LaunchMode.externalApplication,
+                );
+                if (ok) {
+                  launched = true;
+                  break;
+                }
+              }
+            } catch (_) {}
+          }
+          if (launched) break;
+        }
+        if (!launched) {
+          // Direct fallback attempt
+          for (final package in selectedPackages) {
+            final schemes = iosTradingAppSchemes[package] ?? [];
+            for (final scheme in schemes) {
+              try {
+                final ok = await launchUrl(
+                  Uri.parse(scheme),
+                  mode: LaunchMode.externalApplication,
+                );
+                if (ok) {
+                  launched = true;
+                  break;
+                }
+              } catch (_) {}
+            }
+            if (launched) break;
+          }
+        }
+        if (!launched && selectedPackages.isNotEmpty) {
+          AppToast.showToast('Selected trading app is not installed');
+        } else {
+          AppToast.showToast('Mind Control Guard is Deactivated');
+        }
       }
     } catch (e) {
       print('[ChatController] openTradingApp failed: $e');

@@ -55,11 +55,29 @@ class OverlayApp extends StatelessWidget {
   }
 }
 
-void _onAppResumed() {
+const MethodChannel _lifecycleChannel =
+    MethodChannel('com.discipline_mind/app_lifecycle');
+
+void _navigateToChatScreen() {
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    Get.offAll(() => const MainHomeScreen(initialIndex: 2));
+  });
+  Future.delayed(const Duration(milliseconds: 350), () {
+    if (Get.isRegistered<ChatController>()) {
+      Get.find<ChatController>().loadNewMessages(silent: true);
+    }
+  });
+}
+
+void _onAppResumed() async {
   if (!Platform.isAndroid) return;
   try {
-    const MethodChannel('com.discipline_mind/app_lifecycle')
-        .invokeMethod<void>('hideBlockOverlay');
+    await _lifecycleChannel.invokeMethod<void>('hideBlockOverlay');
+    final pending =
+        await _lifecycleChannel.invokeMethod<String?>('checkPendingAction');
+    if (pending == 'open_chat') {
+      _navigateToChatScreen();
+    }
   } catch (_) {}
   unawaited(checkAndStartTradingBlockIfPermitted());
 }
@@ -229,6 +247,13 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (Platform.isAndroid) {
+      _lifecycleChannel.setMethodCallHandler((call) async {
+        if (call.method == 'switchToChat') {
+          _navigateToChatScreen();
+        }
+      });
+    }
   }
 
   @override

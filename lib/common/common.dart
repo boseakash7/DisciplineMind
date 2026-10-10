@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
@@ -17,19 +18,41 @@ class Common {
     userData.value = data;
   }
 
+  static String apnsToken = "";
   static String fcmToken = "";
   LoginResponseModel? get currentUser => userData.value;
   static Future<void> getFcmToken() async {
     try {
+      if (Platform.isIOS) {
+        String? apns = await FirebaseMessaging.instance.getAPNSToken();
+        if (apns == null) {
+          for (var i = 0; i < 8; i++) {
+            await Future.delayed(const Duration(milliseconds: 600));
+            apns = await FirebaseMessaging.instance.getAPNSToken();
+            if (apns != null) break;
+          }
+        }
+        if (apns != null) {
+          apnsToken = apns;
+          final storage = GetStorage();
+          await storage.write('ios_apns_token', apns);
+          print("========================================");
+          print("🔥 [Common] iOS APNs Token: $apns");
+          print("========================================");
+        }
+      }
       String? token = await FirebaseMessaging.instance.getToken().timeout(
-        const Duration(seconds: 4),
+        const Duration(seconds: 8),
         onTimeout: () => null,
       );
       if (token != null) {
         fcmToken = token;
-        print("fcm token=$token");
+        final storage = GetStorage();
+        await storage.write('fcm_token', token);
+        print("🔥 [Common] FCM Token: $token");
       }
     } catch (e) {
+      print("getFcmToken error: $e");
       fcmToken = "";
     }
   }

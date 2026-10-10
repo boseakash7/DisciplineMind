@@ -670,6 +670,8 @@ class AppBlockingService : Service() {
             currentForegroundApp = packageName
             val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                putExtra("action", "open_chat")
+                putExtra("tab", 2)
             }
             if (launchIntent != null) {
                 startActivity(launchIntent)

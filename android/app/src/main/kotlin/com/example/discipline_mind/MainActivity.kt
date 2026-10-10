@@ -23,6 +23,8 @@ class MainActivity : FlutterActivity() {
     }
 
     private var appBlockPlugin: AppBlockPlugin? = null
+    private var lifecycleChannel: MethodChannel? = null
+    private var pendingAction: String? = null
 
     private var smsEventSink: EventChannel.EventSink? = null
     private var smsReceiver: BroadcastReceiver? = null
@@ -32,18 +34,27 @@ class MainActivity : FlutterActivity() {
         appBlockPlugin = AppBlockPlugin(this)
         appBlockPlugin!!.attachTo(flutterEngine)
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
-            if (call.method == "hideBlockOverlay") {
-                val intent = Intent().apply {
-                    setClassName(this@MainActivity, "com.discipline.mind.AppBlockingService")
-                    action = "HIDE_OVERLAY"
+        lifecycleChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).apply {
+            setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "hideBlockOverlay" -> {
+                        val intent = Intent().apply {
+                            setClassName(this@MainActivity, "com.discipline.mind.AppBlockingService")
+                            action = "HIDE_OVERLAY"
+                        }
+                        startService(intent)
+                        result.success(true)
+                    }
+                    "checkPendingAction" -> {
+                        val pending = pendingAction
+                        pendingAction = null
+                        result.success(pending)
+                    }
+                    else -> result.notImplemented()
                 }
-                startService(intent)
-                result.success(true)
-            } else {
-                result.notImplemented()
             }
         }
+        handleIntent(intent)
 
         // ==================== SMS USER CONSENT ====================
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SMS_METHOD_CHANNEL)
@@ -132,6 +143,22 @@ class MainActivity : FlutterActivity() {
     override fun onResume() {
         super.onResume()
         checkAndStartBlockingServiceIfPermitted()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent == null) return
+        val action = intent.getStringExtra("action")
+        val tab = intent.getIntExtra("tab", -1)
+        if (action == "open_chat" || tab == 2) {
+            pendingAction = "open_chat"
+            lifecycleChannel?.invokeMethod("switchToChat", null)
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
-import '../../common/app_colors.dart';
-import '../../controller/auth_controller.dart';
-import '../../services/notification/notification_handler.dart';
-import '../../services/trading_apps_service.dart';
-import '../auth/phone_login_screen.dart';
+import 'package:discipline_mind/controller/auth_controller.dart';
+import 'package:discipline_mind/services/notification/notification_handler.dart';
+import 'package:discipline_mind/services/trading_apps_service.dart';
+import 'package:discipline_mind/ui/auth/phone_login_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
