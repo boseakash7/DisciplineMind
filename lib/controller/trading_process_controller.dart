@@ -8,7 +8,9 @@ import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 
 class TradingProcessController extends GetxController {
-  final ApiService _apiService = Get.find<ApiService>();
+  final ApiService _apiService = Get.isRegistered<ApiService>()
+      ? Get.find<ApiService>()
+      : Get.put(ApiService(), permanent: true);
 
   final Rx<TradingProcessData?> currentProcess = Rx<TradingProcessData?>(null);
   final RxBool isLoading = false.obs;

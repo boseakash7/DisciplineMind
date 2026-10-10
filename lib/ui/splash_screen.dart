@@ -5,6 +5,7 @@ import '../../common/app_colors.dart';
 import '../../controller/auth_controller.dart';
 import '../../services/notification/notification_handler.dart';
 import '../../services/trading_apps_service.dart';
+import '../auth/phone_login_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -15,10 +16,13 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
-  final AuthController authController = Get.put(AuthController());
+  final AuthController authController = Get.isRegistered<AuthController>()
+      ? Get.find<AuthController>()
+      : Get.put(AuthController());
   late final AnimationController _animationController;
   late final Animation<double> _fadeAnimation;
   late final Animation<double> _scaleAnimation;
+  bool _hasNavigated = false;
 
   @override
   void initState() {
@@ -51,15 +55,37 @@ class _SplashScreenState extends State<SplashScreen>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _requestNotificationPermission();
-      Get.find<TradingAppsService>().refresh();
+      try {
+        Get.find<TradingAppsService>().refresh();
+      } catch (_) {}
 
       // Minimum splash duration
       Future.delayed(const Duration(milliseconds: 2500), () {
-        if (mounted) {
-          authController.autoLogin();
+        _triggerNavigation();
+      });
+
+      // Safety fallback: if app hasn't transitioned by 4.5 seconds, force route to login
+      Future.delayed(const Duration(milliseconds: 4500), () {
+        if (!_hasNavigated && mounted) {
+          debugPrint('[SplashScreen] Safety fallback timer triggered');
+          _hasNavigated = true;
+          Get.offAll(() => PhoneLoginScreen());
         }
       });
     });
+  }
+
+  void _triggerNavigation() async {
+    if (_hasNavigated || !mounted) return;
+    _hasNavigated = true;
+    try {
+      await authController.autoLogin();
+    } catch (e) {
+      debugPrint('[SplashScreen] Navigation error: $e');
+      if (mounted) {
+        Get.offAll(() => PhoneLoginScreen());
+      }
+    }
   }
 
   Future<void> _requestNotificationPermission() async {

@@ -19,7 +19,9 @@ import '../services/api/api_services.dart';
 
 class AlertController extends GetxController {
   var savedAlerts = <UserAlerts>[].obs;
-  final ApiService apiService = Get.find<ApiService>();
+  final ApiService apiService = Get.isRegistered<ApiService>()
+      ? Get.find<ApiService>()
+      : Get.put(ApiService(), permanent: true);
   var isQuoteLoading = false.obs;
   var instrumentData = Rxn<InstrumentData>();
   var instruments = <Payload>[].obs;

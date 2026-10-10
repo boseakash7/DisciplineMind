@@ -10,6 +10,8 @@ import 'package:discipline_mind/controller/chat_controller.dart';
 import 'package:discipline_mind/firebase_options.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
+import 'package:discipline_mind/services/api/api_services.dart';
+import 'package:discipline_mind/services/trading_apps_service.dart';
 import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:discipline_mind/ui/onboarding/post_login_trading_block_screen.dart';
 import 'package:discipline_mind/ui/android_app_block/blocked_app_overlay_page.dart';
@@ -105,18 +107,43 @@ bool _initialMessageCheckDone = false;
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  FlutterError.onError = (FlutterErrorDetails details) {
-    FlutterError.presentError(details);
-    FirebaseCrashlytics.instance.recordFlutterFatalError(details);
-    if (kReleaseMode) {
-      debugPrint('FlutterError: ${details.exception} ${details.stack}');
+  // 1. Initialize Firebase safely with options and fallback
+  try {
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
     }
-  };
-  
-  PlatformDispatcher.instance.onError = (error, stack) {
-    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
-    return true;
-  };
+  } catch (e) {
+    debugPrint('Firebase.initializeApp with options failed: $e');
+    try {
+      if (Firebase.apps.isEmpty) {
+        await Firebase.initializeApp();
+      }
+    } catch (e2) {
+      debugPrint('Firebase.initializeApp default fallback failed: $e2');
+    }
+  }
+
+  // 2. Safe Crashlytics hooks after Firebase is ready
+  try {
+    FlutterError.onError = (FlutterErrorDetails details) {
+      FlutterError.presentError(details);
+      try {
+        FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+      } catch (_) {}
+      if (kReleaseMode) {
+        debugPrint('FlutterError: ${details.exception} ${details.stack}');
+      }
+    };
+    
+    PlatformDispatcher.instance.onError = (error, stack) {
+      try {
+        FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+      } catch (_) {}
+      return true;
+    };
+  } catch (_) {}
 
   ErrorWidget.builder = (FlutterErrorDetails details) => Material(
     child: Container(
@@ -149,29 +176,43 @@ Future<void> main() async {
     ),
   );
 
-  // if (Firebase.apps.isEmpty) {
-    await Firebase.initializeApp();
-  
-  await GetStorage.init();
-
-  if (Platform.isAndroid) {
-    final blockService = NativeAppBlockService();
-    final blocked = await blockService.getBlockedApps();
-    if (blocked.isNotEmpty) {
-      await blockService.startBlockingService();
-    }
-    unawaited(checkAndStartTradingBlockIfPermitted());
+  // 3. Initialize GetStorage safely
+  try {
+    await GetStorage.init();
+  } catch (e) {
+    debugPrint('GetStorage.init error: $e');
   }
+
+  // 4. Register core permanent services immediately so they are available everywhere
+  Get.put(ApiService(), permanent: true);
+  Get.put(TradingAppsService(), permanent: true);
 
   NotificationHandler.onNotificationReceived = _refreshUserAlertsOnNotification;
 
   runApp(const MyApp());
 
+  // 5. Post-runApp asynchronous initializations (prevents white screen freeze)
   WidgetsBinding.instance.addPostFrameCallback((_) async {
     try {
       await NotificationHandler.initialize();
     } catch (e) {
       if (kDebugMode) debugPrint('NotificationHandler init: $e');
+    }
+
+    if (Platform.isAndroid) {
+      try {
+        final blockService = NativeAppBlockService();
+        final blocked = await blockService.getBlockedApps().timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => [],
+        );
+        if (blocked.isNotEmpty) {
+          await blockService.startBlockingService();
+        }
+        unawaited(checkAndStartTradingBlockIfPermitted());
+      } catch (e) {
+        debugPrint('blockService startup error: $e');
+      }
     }
   });
 }

@@ -21,7 +21,10 @@ class Common {
   LoginResponseModel? get currentUser => userData.value;
   static Future<void> getFcmToken() async {
     try {
-      String? token = await FirebaseMessaging.instance.getToken();
+      String? token = await FirebaseMessaging.instance.getToken().timeout(
+        const Duration(seconds: 4),
+        onTimeout: () => null,
+      );
       if (token != null) {
         fcmToken = token;
         print("fcm token=$token");

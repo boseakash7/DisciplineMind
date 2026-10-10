@@ -24,7 +24,9 @@ import '../services/local_db.dart';
 
 class AuthController extends GetxController {
   var isLoading = false.obs;
-  final ApiService apiService = Get.put(ApiService());
+  final ApiService apiService = Get.isRegistered<ApiService>()
+      ? Get.find<ApiService>()
+      : Get.put(ApiService(), permanent: true);
   final LocalStorageService storage = LocalStorageService();
   final AppBlockPreferencesService appBlockPrefs = AppBlockPreferencesService();
 
@@ -40,15 +42,19 @@ class AuthController extends GetxController {
   }
 
   Future<void> _syncFcmAndSubscribe(String userId) async {
-    await Common.getFcmToken();
-    if (Common.fcmToken.isNotEmpty) {
-      await apiService.postMultipartForm(ApiUrl.fcmSync, {
-        "user_id": userId,
-        "device_id": DeviceUtils.getDeviceId(),
-        "token": Common.fcmToken,
-      });
+    try {
+      await Common.getFcmToken();
+      if (Common.fcmToken.isNotEmpty) {
+        await apiService.postMultipartForm(ApiUrl.fcmSync, {
+          "user_id": userId,
+          "device_id": DeviceUtils.getDeviceId(),
+          "token": Common.fcmToken,
+        });
+      }
+      await NotificationHandler.subscribeToTradeAlerts();
+    } catch (e, stack) {
+      debugPrint('[AuthController] _syncFcmAndSubscribe error: $e\n$stack');
     }
-    await NotificationHandler.subscribeToTradeAlerts();
   }
 
   /// Call after OTP verify (existing user) or when restoring a saved session.
@@ -65,19 +71,24 @@ class AuthController extends GetxController {
     Common.userData.value = model;
     storage.saveUserSession(model);
     GetStorage().write('user_id', id);
-    final blockService = NativeAppBlockService();
-    unawaited(blockService.saveUserIdForOverlay(id));
-    unawaited(checkAndStartTradingBlockIfPermitted(explicitUserId: id));
-    if (Get.isRegistered<ChatController>()) {
-      final chatCtrl = Get.find<ChatController>();
-      chatCtrl.reset();
-      chatCtrl.loadMessages(force: true);
-    }
-    try {
-      await _syncFcmAndSubscribe(id);
-    } catch (e, stack) {
-      debugPrint('[AuthController] FCM sync error: $e\n$stack');
-    }
+
+    // Non-blocking background sync
+    unawaited(() async {
+      try {
+        final blockService = NativeAppBlockService();
+        await blockService.saveUserIdForOverlay(id);
+        await checkAndStartTradingBlockIfPermitted(explicitUserId: id);
+        if (Get.isRegistered<ChatController>()) {
+          final chatCtrl = Get.find<ChatController>();
+          chatCtrl.reset();
+          chatCtrl.loadMessages(force: true);
+        }
+        await _syncFcmAndSubscribe(id);
+      } catch (e, stack) {
+        debugPrint('[AuthController] post-login background error: $e\n$stack');
+      }
+    }());
+
     if (navigateAfterLogin) {
       await _navigateAfterLogin();
     }
@@ -143,20 +154,32 @@ class AuthController extends GetxController {
   }
 
   Future<void> autoLogin() async {
-    final session = storage.getUserSession();
-    if (session != null && session.payload?.id != null) {
-      final id = session.payload!.id.toString();
-      print("User ID (Auto Login): $id");
-      Common.userData.value = session;
-      GetStorage().write('user_id', id);
-      final blockService = NativeAppBlockService();
-      unawaited(blockService.saveUserIdForOverlay(id));
-      unawaited(checkAndStartTradingBlockIfPermitted(explicitUserId: id));
-      try {
-        await _syncFcmAndSubscribe(id);
-      } catch (_) {}
-      await _navigateAfterLogin();
-    } else {
+    try {
+      final session = storage.getUserSession();
+      if (session != null && session.payload?.id != null) {
+        final id = session.payload!.id.toString();
+        debugPrint("User ID (Auto Login): $id");
+        Common.userData.value = session;
+        GetStorage().write('user_id', id);
+
+        // Non-blocking background sync so screen does NOT freeze on splash
+        unawaited(() async {
+          try {
+            final blockService = NativeAppBlockService();
+            await blockService.saveUserIdForOverlay(id);
+            await checkAndStartTradingBlockIfPermitted(explicitUserId: id);
+            await _syncFcmAndSubscribe(id);
+          } catch (e) {
+            debugPrint('[AuthController] autoLogin background tasks error: $e');
+          }
+        }());
+
+        await _navigateAfterLogin();
+      } else {
+        Get.offAll(() => PhoneLoginScreen());
+      }
+    } catch (e, stack) {
+      debugPrint('[AuthController] autoLogin error: $e\n$stack');
       Get.offAll(() => PhoneLoginScreen());
     }
   }
