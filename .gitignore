@@ -46,3 +46,30 @@ app.*.map.json
 
 # FVM Version Cache
 .fvm/
+
+# Generated test reports and QA artifacts
+/coverage/
+/test-results/
+/test-reports/
+/reports/
+/test-output/
+/*.lcov
+/*.log
+/*_Test_Report.pdf
+/*_Test_Report.PDF
+/*_test_report.pdf
+/*_test_report.PDF
+/*_test_report.html
+/*_test_report.json
+/test/screenshots/
+/test/failures/
+/test/goldens/failures/
+
+# Local test source files and report generators
+/test/
+**/test.dart
+**/*_test.dart
+**/test_report.py
+**/*_test_report.py
+/*_test_report.py
+/generate_pdf_report.py

@@ -23,6 +23,12 @@ import 'package:url_launcher/url_launcher.dart';
 class ChatController extends GetxController {
   final NativeAppBlockService _blockService = NativeAppBlockService();
   final AppBlockPreferencesService _prefs = AppBlockPreferencesService();
+  final Future<bool> Function()? _permissionChecker;
+
+  /// [permissionChecker] is injectable for deterministic controller tests.
+  /// Production callers omit it and use the platform permission flow below.
+  ChatController({Future<bool> Function()? permissionChecker})
+    : _permissionChecker = permissionChecker;
 
   bool _isActionTakenValue(dynamic value) {
     if (value == null) return false;
@@ -353,16 +359,19 @@ class ChatController extends GetxController {
     final fomoDeleteKeys = <String>{};
     var hasFomoDelete = false;
     for (final item in payload) {
-      if (item is Map<String, dynamic>) {
-        hasFomoDelete = hasFomoDelete || _isFomoDeleteMessage(item);
-        final controlKeys = _fomoDeleteKeys(item);
+      if (item is Map) {
+        final map = item is Map<String, dynamic>
+            ? item
+            : Map<String, dynamic>.from(item);
+        hasFomoDelete = hasFomoDelete || _isFomoDeleteMessage(map);
+        final controlKeys = _fomoDeleteKeys(map);
         if (controlKeys.isNotEmpty) {
           fomoDeleteKeys.addAll(controlKeys);
         }
         // API returns messages oldest → newest (newest last). Chat list is the same.
         // [chatMessagesFromJson] order per row (e.g. trade card then prompt) is already
         // top-to-bottom for that row.
-        parsed.addAll(chatMessagesFromJson(item));
+        parsed.addAll(chatMessagesFromJson(map));
       }
     }
     final deduped = _dedupeRedundantDeleteTradeButtons(parsed);
@@ -1244,7 +1253,10 @@ class ChatController extends GetxController {
           GetStorage().read<String>('user_id') ??
           '123';
 
-      final response = await ApiService().postJson(_llmAskUrl(), {
+      final api = Get.isRegistered<ApiService>()
+          ? Get.find<ApiService>()
+          : ApiService();
+      final response = await api.postJson(_llmAskUrl(), {
         'user_id': userId,
         'user_query': query,
       });
@@ -1689,6 +1701,9 @@ class ChatController extends GetxController {
   }
 
   Future<bool> _checkBlockAppPermissions() async {
+    if (_permissionChecker != null) {
+      return _permissionChecker();
+    }
     if (Platform.isIOS) {
       final limiter = AppLimiter();
       final granted = await limiter.requestIosPermission();
@@ -1940,14 +1955,9 @@ class ChatController extends GetxController {
         'user_hit_price': trimmedPrice,
       });
       if (response.isSuccess) {
-        for (int i = 0; i < messages.length; i++) {
-          final m = messages[i];
-          if (m is AlertHitWithButtonMessage &&
-              (m.messageId == msg.messageId || m.tradeId == msg.tradeId)) {
-            messages[i] = _withActionTaken(m, 1);
-          }
-        }
-        messages.refresh();
+        // Persist the local action marker before refreshing. The backend may
+        // return the alert row again without action_taken on the next fetch.
+        markActionTaken(tradeId: msg.tradeId, messageId: msg.messageId);
         AppToast.showToast('Trade execution confirmed');
         await loadMessages(refresh: true);
       } else {
