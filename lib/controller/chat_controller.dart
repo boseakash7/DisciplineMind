@@ -162,6 +162,7 @@ class ChatController extends GetxController {
     _shownMindControlGuardNotificationKeys.clear();
     _takenActionMessageIds.clear();
     _takenActionTradeIds.clear();
+    livePriceRefreshingTradeIds.clear();
     _supersededActionKeys.clear();
     currentUserId = null;
     isLoading.value = false;
@@ -268,6 +269,7 @@ class ChatController extends GetxController {
 
   final Set<String> _takenActionMessageIds = <String>{};
   final Set<String> _takenActionTradeIds = <String>{};
+  final livePriceRefreshingTradeIds = <String>{}.obs;
   // Older rows disabled by a newer delete request. Include the row identity
   // because the backend can reuse a message_id for the delete update.
   final Set<String> _supersededActionKeys = <String>{};
@@ -729,6 +731,8 @@ class ChatController extends GetxController {
           buttonType: x.buttonType,
           tradeName: x.tradeName,
           tradeSymbol: x.tradeSymbol,
+          userLivePrice: x.userLivePrice,
+          userLivePriceFetchedAt: x.userLivePriceFetchedAt,
           messageId: x.messageId,
           isUnread: x.isUnread,
           actionTaken: actionTaken,
@@ -1698,6 +1702,123 @@ class ChatController extends GetxController {
       tradeId: msg.signalId.isNotEmpty ? msg.signalId : null,
       messageId: msg.messageId.isNotEmpty ? msg.messageId : null,
     );
+  }
+
+  bool isRefreshingLivePriceFor(String tradeId) =>
+      livePriceRefreshingTradeIds.contains(tradeId.trim());
+
+  /// Fetches the latest user-specific market price and updates visible trade
+  /// cards immediately. The next chat refresh remains the source of truth.
+  Future<bool> refreshTradeLivePrice(NewTradeOpportunityMessage msg) async {
+    final userId = Common.userData.value?.payload?.id?.toString();
+    final tradeId = msg.tradeId.trim();
+    if (userId == null || userId.isEmpty) {
+      AppToast.showToast('Please sign in to refresh market price');
+      return false;
+    }
+    if (tradeId.isEmpty) {
+      AppToast.showToast('Missing trade id');
+      return false;
+    }
+    if (livePriceRefreshingTradeIds.contains(tradeId)) return false;
+
+    livePriceRefreshingTradeIds.add(tradeId);
+    try {
+      final api = Get.isRegistered<ApiService>()
+          ? Get.find<ApiService>()
+          : Get.put(ApiService(), permanent: true);
+      final response = await api.postFormData(ApiUrl.tradeLivePrice, {
+        'user_id': userId,
+        'trade_id': tradeId,
+      });
+      if (!response.isSuccess) {
+        AppToast.showToast(
+          response.errorMessage ?? 'Could not refresh market price',
+        );
+        return false;
+      }
+
+      final rawPayload = response.data is Map
+          ? (response.data as Map)['payload']
+          : null;
+      final payload = rawPayload is Map
+          ? Map<String, dynamic>.from(rawPayload)
+          : <String, dynamic>{};
+      final livePrice = payload['live_price']?.toString().trim() ?? '';
+      if (livePrice.isEmpty || livePrice == 'null') {
+        AppToast.showToast('Market price is unavailable right now');
+        return false;
+      }
+      final fetchedAt = payload['fetched_at']?.toString().trim() ?? '';
+      _replaceTradeLivePrice(
+        tradeId: tradeId,
+        messageId: msg.messageId,
+        price: livePrice,
+        fetchedAt: fetchedAt,
+      );
+      AppToast.showToast('Market price refreshed');
+      return true;
+    } catch (e, stack) {
+      debugPrint('[ChatController] refreshTradeLivePrice error: $e\n$stack');
+      AppToast.showToast('Could not refresh market price');
+      return false;
+    } finally {
+      livePriceRefreshingTradeIds.remove(tradeId);
+    }
+  }
+
+  void _replaceTradeLivePrice({
+    required String tradeId,
+    required String messageId,
+    required String price,
+    required String fetchedAt,
+  }) {
+    for (var i = 0; i < messages.length; i++) {
+      final message = messages[i];
+      if (message is NewTradeOpportunityMessage &&
+          (message.tradeId == tradeId ||
+              (messageId.isNotEmpty && message.messageId == messageId))) {
+        messages[i] = message.withLivePrice(price: price, fetchedAt: fetchedAt);
+      } else if (message is TradeExecutionPromptMessage &&
+          (message.tradeData.tradeId == tradeId ||
+              (messageId.isNotEmpty && message.messageId == messageId))) {
+        messages[i] = TradeExecutionPromptMessage(
+          tradeData: message.tradeData.withLivePrice(
+            price: price,
+            fetchedAt: fetchedAt,
+          ),
+          text: message.text,
+          messageId: message.messageId,
+          isUnread: message.isUnread,
+          actionTaken: message.actionTaken,
+          timestamp: message.timestamp,
+        );
+      } else if (message is AlertHitWithButtonMessage &&
+          message.tradeData != null &&
+          (message.tradeData!.tradeId == tradeId ||
+              (messageId.isNotEmpty && message.messageId == messageId))) {
+        messages[i] = AlertHitWithButtonMessage(
+          text: message.text,
+          buttonLabel: message.buttonLabel,
+          buttonType: message.buttonType,
+          tradeId: message.tradeId,
+          isGttHit: message.isGttHit,
+          isSlHit: message.isSlHit,
+          isTargetHit: message.isTargetHit,
+          status: message.status,
+          targetHitPrice: message.targetHitPrice,
+          tradeData: message.tradeData!.withLivePrice(
+            price: price,
+            fetchedAt: fetchedAt,
+          ),
+          messageId: message.messageId,
+          isUnread: message.isUnread,
+          actionTaken: message.actionTaken,
+          timestamp: message.timestamp,
+        );
+      }
+    }
+    messages.refresh();
   }
 
   Future<bool> _checkBlockAppPermissions() async {

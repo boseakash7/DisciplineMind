@@ -37,6 +37,7 @@ class ApiUrl {
 
   static const String getMessagesByUser = "messages/get-by-user";
   static const String gttAlertCreate = "gtt/alert/create";
+  static const String tradeLivePrice = "trade/live-price";
 
   /// Confirms user deleted the trade in the broker app (form: trade_id, user_id).
   static const String deleteTrade = "delete/trade";

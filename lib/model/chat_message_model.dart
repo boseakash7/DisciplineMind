@@ -155,6 +155,18 @@ class NewTradeOpportunityMessage extends ChatMessage {
   /// Preferred trade card subtitle from payload `symbol`.
   final String tradeSymbol;
 
+  /// Optional user-specific live market price fetched by the backend.
+  final String userLivePrice;
+
+  /// Epoch/ISO timestamp for [userLivePrice].
+  final String userLivePriceFetchedAt;
+
+  /// Live price when available, otherwise the original trade current price.
+  String get currentMarketPrice =>
+      userLivePrice.trim().isNotEmpty ? userLivePrice : rtt;
+
+  bool get hasUserLivePrice => userLivePrice.trim().isNotEmpty;
+
   const NewTradeOpportunityMessage({
     required this.analystInfo,
     required this.instrument,
@@ -177,11 +189,48 @@ class NewTradeOpportunityMessage extends ChatMessage {
     this.buttonType = '',
     this.tradeName = '',
     this.tradeSymbol = '',
+    this.userLivePrice = '',
+    this.userLivePriceFetchedAt = '',
     super.messageId,
     super.isUnread,
     super.actionTaken,
     super.timestamp,
   }) : super(type: ChatMessageType.newTradeOpportunity);
+
+  NewTradeOpportunityMessage withLivePrice({
+    required String price,
+    required String fetchedAt,
+  }) {
+    return NewTradeOpportunityMessage(
+      analystInfo: analystInfo,
+      instrument: instrument,
+      contract: contract,
+      stopLoss: stopLoss,
+      entryRange: entryRange,
+      frr: frr,
+      rtt: rtt,
+      frrRatio: frrRatio,
+      rttRatio: rttRatio,
+      lotNumbers: lotNumbers,
+      action: action,
+      exchange: exchange,
+      tradeId: tradeId,
+      oldStopLoss: oldStopLoss,
+      oldTakeProfit: oldTakeProfit,
+      slChanged: slChanged,
+      tpChanged: tpChanged,
+      apiMessage: apiMessage,
+      buttonType: buttonType,
+      tradeName: tradeName,
+      tradeSymbol: tradeSymbol,
+      userLivePrice: price,
+      userLivePriceFetchedAt: fetchedAt,
+      messageId: messageId,
+      isUnread: isUnread,
+      actionTaken: actionTaken,
+      timestamp: timestamp,
+    );
+  }
 }
 
 /// Trade Executed - unlocks trading apps, button is display-only
@@ -743,6 +792,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       final stopLoss = (tp['stop_loss'] ?? '').toString();
       final takeProfit = (tp['take_profit'] ?? '').toString();
       final currentPrice = (tp['current_price'] ?? '').toString();
+      final livePrice = _userLivePriceFromPayload(tp);
       final oldStopLoss = (tp['old_stop_loss_history'] ?? '').toString();
       final oldTakeProfit = (tp['old_take_profit_history'] ?? '').toString();
       final action = (tp['action'] ?? '').toString();
@@ -777,6 +827,8 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         buttonType: buttonTypeOuter,
         tradeName: name,
         tradeSymbol: symbol,
+        userLivePrice: livePrice.price,
+        userLivePriceFetchedAt: livePrice.fetchedAt,
         messageId: messageId,
         isUnread: isUnread,
         actionTaken: actionTaken,
@@ -815,6 +867,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
     final stopLoss = (p['stop_loss'] ?? '').toString();
     final takeProfit = (p['take_profit'] ?? '').toString();
     final currentPrice = (p['current_price'] ?? '').toString();
+    final livePrice = _userLivePriceFromPayload(p);
     final oldStopLoss = (p['old_stop_loss_history'] ?? '').toString();
     final oldTakeProfit = (p['old_take_profit_history'] ?? '').toString();
     final action = (p['action'] ?? '').toString();
@@ -848,6 +901,8 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       buttonType: buttonTypeOuter,
       tradeName: name,
       tradeSymbol: symbol,
+      userLivePrice: livePrice.price,
+      userLivePriceFetchedAt: livePrice.fetchedAt,
       messageId: messageId,
       isUnread: isUnread,
       actionTaken: actionTaken,
@@ -878,6 +933,46 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       timestamp: outerTimestamp,
     ),
   ];
+}
+
+({String price, String fetchedAt}) _userLivePriceFromPayload(
+  Map<String, dynamic> payload,
+) {
+  final raw = payload['user_live_price_fetch'];
+  if (raw is! Map) return (price: '', fetchedAt: '');
+  final livePrice = raw['live_price'];
+  final fetchedAt = raw['fetched_at'];
+  return (
+    price: livePrice == null ? '' : livePrice.toString(),
+    fetchedAt: fetchedAt == null ? '' : fetchedAt.toString(),
+  );
+}
+
+/// Formats an epoch/ISO timestamp as a compact relative age label.
+String relativeTimeLabel(String raw, {DateTime? now}) {
+  final timestamp = _parseFlexibleTimestamp(raw);
+  if (timestamp == null) return '';
+
+  final current = (now ?? DateTime.now()).toUtc();
+  final age = current.difference(timestamp.toUtc());
+  if (age.isNegative || age.inMinutes < 1) return 'just now';
+  if (age.inHours < 1) return '${age.inMinutes} min ago';
+  if (age.inDays < 1) return '${age.inHours} hr ago';
+  if (age.inDays == 1) return 'yesterday';
+  return '${age.inDays} days ago';
+}
+
+DateTime? _parseFlexibleTimestamp(String raw) {
+  final value = raw.trim();
+  if (value.isEmpty) return null;
+  final numeric = int.tryParse(value);
+  if (numeric != null) {
+    final milliseconds = numeric.abs() > 100000000000
+        ? numeric
+        : numeric * 1000;
+    return DateTime.fromMillisecondsSinceEpoch(milliseconds, isUtc: true);
+  }
+  return DateTime.tryParse(value);
 }
 
 bool _isTradePromptAction(String action) {

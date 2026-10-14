@@ -67,6 +67,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final Set<String> _actionTakenTradeIds = <String>{};
   final Set<String> _animatedResponseKeys = <String>{};
   final Set<String> _completedResponseKeys = <String>{};
+  final Set<String> _autoLivePriceFetchKeys = <String>{};
+  Timer? _jumpToLatestTimer;
+  Timer? _scrollStabilizationTimer;
+  Timer? _firstNewMessageTimer;
 
   /// Voice recording states.
   AudioRecorder? _audioRecorder;
@@ -665,6 +669,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _jumpToLatestTimer?.cancel();
+    _scrollStabilizationTimer?.cancel();
+    _firstNewMessageTimer?.cancel();
     _disposeRecorder();
     _scrollController.removeListener(_onChatScroll);
     _textController.dispose();
@@ -693,7 +700,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (!_scrollController.hasClients) return;
     _showScrollToLatest.value = false;
     _scrollToBottom(animated: true);
-    Future.delayed(const Duration(milliseconds: 280), () {
+    _jumpToLatestTimer?.cancel();
+    _jumpToLatestTimer = Timer(const Duration(milliseconds: 280), () {
       if (!mounted) return;
       _scheduleScrollToBottom();
     });
@@ -837,9 +845,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
         // Late layout (images, rich cards) can still grow after extent looks stable.
         if (attempt < 8) {
-          Future.delayed(Duration(milliseconds: 40 + attempt * 25), () {
-            if (mounted) _scheduleScrollToBottom(attempt: attempt + 1);
-          });
+          _scrollStabilizationTimer?.cancel();
+          _scrollStabilizationTimer = Timer(
+            Duration(milliseconds: 40 + attempt * 25),
+            () {
+              if (mounted) _scheduleScrollToBottom(attempt: attempt + 1);
+            },
+          );
         }
       });
     });
@@ -864,11 +876,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
 
       if (attempt >= maxAttempts) return;
-      Future.delayed(Duration(milliseconds: 40 + attempt * 25), () {
-        if (mounted) {
-          _scheduleScrollToFirstNewMessage(attempt: attempt + 1);
-        }
-      });
+      _firstNewMessageTimer?.cancel();
+      _firstNewMessageTimer = Timer(
+        Duration(milliseconds: 40 + attempt * 25),
+        () {
+          if (mounted) {
+            _scheduleScrollToFirstNewMessage(attempt: attempt + 1);
+          }
+        },
+      );
     });
   }
 
@@ -4496,6 +4512,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
+  void _ensureLivePriceFetch(NewTradeOpportunityMessage msg) {
+    if (msg.hasUserLivePrice) return;
+    final tradeId = msg.tradeId.trim();
+    if (tradeId.isEmpty) return;
+
+    final fetchKey = '${msg.messageId}|$tradeId';
+    if (!_autoLivePriceFetchKeys.add(fetchKey)) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_chatController.refreshTradeLivePrice(msg));
+    });
+  }
+
   Widget _buildTradeOpportunityCard(
     BuildContext context,
     NewTradeOpportunityMessage msg, {
@@ -4528,6 +4558,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final tradeSymbol = msg.tradeSymbol.trim().isNotEmpty
         ? msg.tradeSymbol.trim()
         : msg.contract;
+    // Keep the existing CMP visibility rules intact. In particular,
+    // action_taken=1 hides the CMP section as it did before live-price data.
+    final showMarketPriceBadge = !effectiveHideMarketPrice;
+    if (showMarketPriceBadge && !msg.hasUserLivePrice) {
+      _ensureLivePriceFetch(msg);
+    }
 
     final inner = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -4599,12 +4635,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           hideMarketPrice: effectiveHideMarketPrice,
           showOldNew: isEdit,
         ),
-        if (!effectiveHideMarketPrice && msg.rtt.trim().isNotEmpty) ...[
+        if (showMarketPriceBadge) ...[
           const SizedBox(height: 10),
           Align(
             alignment: Alignment.centerLeft,
             child: _BlinkingCurrentPriceBadge(
-              price: _formatTradeCardPrice(msg.rtt),
+              price: msg.hasUserLivePrice
+                  ? _formatTradeCardPrice(msg.userLivePrice)
+                  : '',
+              isFetching: !msg.hasUserLivePrice,
             ),
           ),
         ],
@@ -4689,9 +4728,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final maxV = numeric.reduce((a, b) => a > b ? a : b);
     final denom = (maxV - minV).abs();
 
-    final rttTrim = msg.rtt.trim();
-    final hasCurrent = !hideMarketPrice && rttTrim.isNotEmpty;
-    final currentNumeric = hasCurrent ? parseNumeric(rttTrim) : null;
+    // LTP must come from the user-specific live-price response. Do not place
+    // the older trade current_price/rtt on the timeline while the fetch is
+    // still pending; the CMP badge shows the loading state instead.
+    final livePrice = msg.userLivePrice.trim();
+    final hasCurrent = !hideMarketPrice && livePrice.isNotEmpty;
+    final currentNumeric = hasCurrent ? parseNumeric(livePrice) : null;
 
     return LayoutBuilder(
       builder: (ctx, constraints) {
@@ -6805,13 +6847,21 @@ class _UnreadRevealGate extends StatefulWidget {
 }
 
 class _UnreadRevealGateState extends State<_UnreadRevealGate> {
+  Timer? _revealTimer;
+
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(milliseconds: 900), () {
+    _revealTimer = Timer(const Duration(milliseconds: 900), () {
       if (!mounted) return;
       widget.onRevealed(widget.messageId);
     });
+  }
+
+  @override
+  void dispose() {
+    _revealTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -6969,9 +7019,13 @@ class _DottedLinePainter extends CustomPainter {
 }
 
 class _BlinkingCurrentPriceBadge extends StatefulWidget {
-  const _BlinkingCurrentPriceBadge({required this.price});
+  const _BlinkingCurrentPriceBadge({
+    required this.price,
+    required this.isFetching,
+  });
 
   final String price;
+  final bool isFetching;
 
   @override
   State<_BlinkingCurrentPriceBadge> createState() =>
@@ -7013,7 +7067,9 @@ class _BlinkingCurrentPriceBadgeState extends State<_BlinkingCurrentPriceBadge>
           border: Border.all(color: Colors.red.shade300),
         ),
         child: Text(
-          'Current Market Price: ${widget.price}',
+          widget.isFetching
+              ? 'Getting live price'
+              : 'Current Market Price: ${widget.price}',
           style: TextStyle(
             color: Colors.red.shade700,
             fontSize: 12,
