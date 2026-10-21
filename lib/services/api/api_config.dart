@@ -1,10 +1,23 @@
 import 'package:discipline_mind/common/common.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:flutter/foundation.dart';
 
 class ApiConfig {
-  static const String _v2TestUrl =
+  static const String _defaultApiUrl =
       "https://api.disciplinedminds.in/api/v2test/";
-  static const String _phase5Url = "https://api.disciplinedminds.in/api/";
+  static const String _defaultPhase5ApiUrl =
+      "https://api.disciplinedminds.in/api/";
+
+  /// Each flavor has its own Dart define file. The values are currently the
+  /// same for staging and production and can be changed independently later.
+  static const String _v2TestUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: _defaultApiUrl,
+  );
+  static const String _phase5Url = String.fromEnvironment(
+    'PHASE5_API_BASE_URL',
+    defaultValue: _defaultPhase5ApiUrl,
+  );
 
   static String? activeSetupType;
 
@@ -44,4 +57,9 @@ class ApiConfig {
   static Map<String, String> defaultHeaders = {
     "Content-Type": "application/json",
   };
+
+  static String get flavor => const String.fromEnvironment(
+    'APP_FLAVOR',
+    defaultValue: kReleaseMode ? 'production' : 'staging',
+  );
 }

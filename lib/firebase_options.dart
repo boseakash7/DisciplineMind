@@ -6,7 +6,7 @@
 // ignore_for_file: lines_longer_than_80_chars, avoid_classes_with_only_static_members
 import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'package:flutter/foundation.dart'
-    show defaultTargetPlatform, kIsWeb, TargetPlatform;
+    show defaultTargetPlatform, kIsWeb, kReleaseMode, TargetPlatform;
 
 /// Default [FirebaseOptions] for use with your Firebase apps.
 ///
@@ -20,25 +20,49 @@ import 'package:flutter/foundation.dart'
 /// ```
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
+    final flavor = const String.fromEnvironment(
+      'APP_FLAVOR',
+      defaultValue: kReleaseMode ? 'production' : 'staging',
+    );
+    return flavor == 'staging'
+        ? _optionsForPlatform(_staging)
+        : _optionsForPlatform(_production);
+  }
+
+  static FirebaseOptions _optionsForPlatform(_FirebasePlatformOptions options) {
     if (kIsWeb) {
-      return web;
+      return options.web;
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
-        return android;
+        return options.android;
       case TargetPlatform.iOS:
-        return ios;
+        return options.ios;
       case TargetPlatform.macOS:
-        return macos;
+        return options.macos;
       // TODO(Lyokone): Remove when FlutterFire CLI updated
       case TargetPlatform.windows:
-        return android;
+        return options.android;
       default:
         throw UnsupportedError(
           'DefaultFirebaseOptions are not supported for this platform.',
         );
     }
   }
+
+  static const _FirebasePlatformOptions _staging = _FirebasePlatformOptions(
+    web: web,
+    android: android,
+    ios: ios,
+    macos: macos,
+  );
+
+  static const _FirebasePlatformOptions _production = _FirebasePlatformOptions(
+    web: web,
+    android: android,
+    ios: ios,
+    macos: macos,
+  );
 
   static const FirebaseOptions web = FirebaseOptions(
     apiKey: 'AIzaSyB7wZb2tO1-Fs6GbDADUSTs2Qs3w08Hovw',
@@ -91,4 +115,18 @@ class DefaultFirebaseOptions {
         '406099696497-taeapvle10rf355ljcvq5dt134mkghmp.apps.googleusercontent.com',
     iosBundleId: 'io.flutter.plugins.firebase.tests',
   );
+}
+
+class _FirebasePlatformOptions {
+  const _FirebasePlatformOptions({
+    required this.web,
+    required this.android,
+    required this.ios,
+    required this.macos,
+  });
+
+  final FirebaseOptions web;
+  final FirebaseOptions android;
+  final FirebaseOptions ios;
+  final FirebaseOptions macos;
 }

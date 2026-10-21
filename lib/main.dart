@@ -238,7 +238,7 @@ Future<void> main() async {
   );
 
   // if (Firebase.apps.isEmpty) {
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   await GetStorage.init();
   await AppDiagnosticLogger.initialize();

@@ -34,8 +34,44 @@ Run `flutter pub get` (adds `firebase_remote_config`).
 
 3. **Rebuild the app**:
    ```powershell
-   flutter run
+   flutter run --flavor staging --dart-define-from-file=config/staging.json
    ```
+
+## Build flavors
+
+The app has two flavors: `staging` and `production`. Each flavor has its own
+Firebase config and API define file. The values are currently identical so the
+environments can be split later without changing application code.
+
+Run staging:
+
+```powershell
+flutter run --flavor staging --dart-define-from-file=config/staging.json
+```
+
+Run or build production:
+
+```powershell
+flutter run --flavor production --dart-define-from-file=config/production.json
+flutter build apk --flavor production --dart-define-from-file=config/production.json
+```
+
+Build Android App Bundles:
+
+```powershell
+flutter build appbundle --release --flavor staging --dart-define-from-file=config/staging.json
+flutter build appbundle --release --flavor production --dart-define-from-file=config/production.json
+```
+
+The generated bundles are located at:
+
+```text
+build/app/outputs/bundle/stagingRelease/app-staging-release.aab
+build/app/outputs/bundle/productionRelease/app-production-release.aab
+```
+
+For iOS, use the same commands; the shared `staging` and `production` Xcode
+schemes are included in the project.
 
 ### Troubleshooting:
 

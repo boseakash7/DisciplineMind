@@ -1,0 +1,5 @@
+{
+  "APP_FLAVOR": "staging",
+  "API_BASE_URL": "https://api.disciplinedminds.in/api/v2test/",
+  "PHASE5_API_BASE_URL": "https://api.disciplinedminds.in/api/"
+}
