@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/model/dmt_level_model.dart';
 import 'package:discipline_mind/model/dmt_user_hit_trades_model.dart';
+import 'package:discipline_mind/services/api/api_config.dart';
 import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:get/get.dart';
@@ -55,7 +56,9 @@ class DmtLevelsService extends GetxService {
   String get displayMyAverageReturn {
     final payload = hitTrades.value;
     if (payload != null && payload.totalAverageReturnPercentage != null) {
-      final val = double.tryParse(payload.totalAverageReturnPercentage.toString());
+      final val = double.tryParse(
+        payload.totalAverageReturnPercentage.toString(),
+      );
       if (val != null) return '${val.toStringAsFixed(2)}%';
       return '${payload.totalAverageReturnPercentage}%';
     }
@@ -65,7 +68,9 @@ class DmtLevelsService extends GetxService {
   String get displayMctAverageReturn {
     final payload = hitTrades.value;
     if (payload != null && payload.totalMctAverageReturnPercentage != null) {
-      final val = double.tryParse(payload.totalMctAverageReturnPercentage.toString());
+      final val = double.tryParse(
+        payload.totalMctAverageReturnPercentage.toString(),
+      );
       if (val != null) return '${val.toStringAsFixed(2)}%';
       return '${payload.totalMctAverageReturnPercentage}%';
     }
@@ -77,12 +82,13 @@ class DmtLevelsService extends GetxService {
 
   List<DmtHitTrade> get displayTrades {
     final trades = hitTrades.value?.trades ?? const <DmtHitTrade>[];
-    return trades
-        .where((t) {
-          final s = t.status.toLowerCase().trim();
-          return s == 'completed' || s.endsWith('completed') || s.contains('completed') || s.isEmpty;
-        })
-        .toList();
+    return trades.where((t) {
+      final s = t.status.toLowerCase().trim();
+      return s == 'completed' ||
+          s.endsWith('completed') ||
+          s.contains('completed') ||
+          s.isEmpty;
+    }).toList();
   }
 
   /// True after a successful `user-hit-trades` response (including empty `trades`).
@@ -122,8 +128,9 @@ class DmtLevelsService extends GetxService {
   }
 
   Future<bool> refreshLevels() {
-    return _levelsRefresh ??= Future<bool>.microtask(_loadLevels)
-        .whenComplete(() => _levelsRefresh = null);
+    return _levelsRefresh ??= Future<bool>.microtask(
+      _loadLevels,
+    ).whenComplete(() => _levelsRefresh = null);
   }
 
   Future<bool> _loadLevels() async {
@@ -131,7 +138,8 @@ class DmtLevelsService extends GetxService {
       isLoadingLevels.value = true;
       levelsError.value = null;
       final api = _api();
-      final response = await api.get(ApiUrl.dmtLevels)
+      final response = await api
+          .get(ApiUrl.dmtLevels)
           .timeout(const Duration(seconds: 12));
 
       if (!response.isSuccess || response.data is! Map) {
@@ -181,26 +189,21 @@ class DmtLevelsService extends GetxService {
         'level_id': levelId.toString(),
       });
       if (!response.isSuccess) {
-        response = await _api().postFormData(
-          'https://api.disciplinedminds.in/api/v2test/dmt-level/user-hit-trades',
-          {
-            'user_id': userId,
-            'level_id': levelId.toString(),
-          },
-        );
+        response = await _api().postFormData(ApiUrl.dmtLevelUserHitTrades, {
+          'user_id': userId,
+          'level_id': levelId.toString(),
+        }, environment: ApiEnvironment.v2Test);
       }
       if (!response.isSuccess) {
-        response = await _api().postFormData(
-          'https://api.disciplinedminds.in/api/dmt-level/user-hit-trades',
-          {
-            'user_id': userId,
-            'level_id': levelId.toString(),
-          },
-        );
+        response = await _api().postFormData(ApiUrl.dmtLevelUserHitTrades, {
+          'user_id': userId,
+          'level_id': levelId.toString(),
+        }, environment: ApiEnvironment.phase5);
       }
 
       // If a newer request was dispatched while this was in-flight, discard this result.
-      if (currentToken != _fetchSequence || selectedLevel.value?.id != levelId) {
+      if (currentToken != _fetchSequence ||
+          selectedLevel.value?.id != levelId) {
         return false;
       }
 

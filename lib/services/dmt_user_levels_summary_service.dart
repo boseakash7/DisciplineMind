@@ -1,5 +1,6 @@
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/model/dmt_user_levels_summary_model.dart';
+import 'package:discipline_mind/services/api/api_config.dart';
 import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:get/get.dart';
@@ -35,21 +36,18 @@ class DmtUserLevelsSummaryService extends GetxService {
         {'user_id': userId},
       );
       if (!response.isSuccess) {
-        response = await _api().postFormData(
-          'https://api.disciplinedminds.in/api/v2test/dmt-level/user-levels-summary',
-          {'user_id': userId},
-        );
+        response = await _api().postFormData(ApiUrl.dmtLevelUserLevelsSummary, {
+          'user_id': userId,
+        }, environment: ApiEnvironment.v2Test);
       }
       if (!response.isSuccess) {
-        response = await _api().postFormData(
-          'https://api.disciplinedminds.in/api/dmt-level/user-levels-summary',
-          {'user_id': userId},
-        );
+        response = await _api().postFormData(ApiUrl.dmtLevelUserLevelsSummary, {
+          'user_id': userId,
+        }, environment: ApiEnvironment.phase5);
       }
 
       if (!response.isSuccess || response.data is! Map) {
-        error.value =
-            response.errorMessage ?? 'Could not load level summary';
+        error.value = response.errorMessage ?? 'Could not load level summary';
         summaryPayload.value = null;
         return false;
       }

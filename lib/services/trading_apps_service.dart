@@ -1,5 +1,6 @@
 import 'package:discipline_mind/constants/blocked_apps.dart';
 import 'package:discipline_mind/model/trading_app_model.dart';
+import 'package:discipline_mind/services/api/api_config.dart';
 import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
@@ -43,7 +44,10 @@ class TradingAppsService extends GetxService {
       var response = await api.get(ApiUrl.tradingApps);
       if (!response.isSuccess) {
         // Fallback to absolute base URL if relative path 404s on v2test
-        response = await api.get('https://api.disciplinedminds.in/api/trading-apps');
+        response = await api.get(
+          ApiUrl.tradingApps,
+          environment: ApiEnvironment.phase5,
+        );
       }
 
       final list = <TradingApp>[];
@@ -53,9 +57,7 @@ class TradingAppsService extends GetxService {
         if (payload is List) {
           for (final item in payload) {
             if (item is Map) {
-              list.add(
-                TradingApp.fromJson(Map<String, dynamic>.from(item)),
-              );
+              list.add(TradingApp.fromJson(Map<String, dynamic>.from(item)));
             }
           }
         }
@@ -91,9 +93,7 @@ class TradingAppsService extends GetxService {
         ]);
       }
 
-      apps.assignAll(
-        list.where((a) => a.packageName.isNotEmpty).toList(),
-      );
+      apps.assignAll(list.where((a) => a.packageName.isNotEmpty).toList());
       await _blockService.setMonitoredTradingApps(
         apps.map((e) => e.packageName).toList(),
       );

@@ -39,7 +39,6 @@ import java.util.concurrent.TimeUnit
  */
 class AppBlockingService : Service() {
     companion object {
-        private const val API_BASE = "https://api.disciplinedminds.in/api/v2test"
         private const val OLD_CHANNEL_ID_1 = "AppBlockingServiceChannel"
         private const val OLD_CHANNEL_ID_2 = "BlockAppService_Channel_ID"
         private const val CHANNEL_ID = "zeno_ai_protection_service_v1"
@@ -594,7 +593,7 @@ class AppBlockingService : Service() {
 
     private fun fetchAppState(userId: String): AppStateResult {
         try {
-            val url = URL("$API_BASE/app/state")
+            val url = URL(NativeApiConfig.v2TestUrl(NativeApiConfig.APP_STATE_PATH))
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
@@ -650,7 +649,9 @@ class AppBlockingService : Service() {
     /** POST app/force-unlock so backend knows user tried to open a locked trading app. */
     private fun notifyForceUnlockAttempt(userId: String, tradeId: String): Boolean {
         try {
-            val url = URL("$API_BASE/app/force-unlock")
+            val url = URL(
+                NativeApiConfig.v2TestUrl(NativeApiConfig.APP_FORCE_UNLOCK_PATH),
+            )
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")

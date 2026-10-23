@@ -58,12 +58,11 @@ class ApiService extends GetxService {
     String endpoint, {
     Map<String, String>? headers,
     Map<String, String>? queryParameters,
+    ApiEnvironment? environment,
   }) async {
     try {
       final uri = Uri.parse(
-        endpoint.startsWith('http')
-            ? endpoint
-            : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
+        ApiConfig.buildUrl(endpoint, environment: environment),
       ).replace(queryParameters: queryParameters);
       _logRequest(
         method: 'GET',
@@ -86,12 +85,11 @@ class ApiService extends GetxService {
     String endpoint,
     Map<String, dynamic> body, {
     Map<String, String>? headers,
+    ApiEnvironment? environment,
   }) async {
     try {
       final uri = Uri.parse(
-        endpoint.startsWith('http')
-            ? endpoint
-            : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
+        ApiConfig.buildUrl(endpoint, environment: environment),
       );
       _logRequest(method: 'POST', endpoint: endpoint, data: body);
       final response = await http.post(
@@ -115,12 +113,11 @@ class ApiService extends GetxService {
     Map<String, String> fields, {
     Map<String, String>? headers,
     bool usePersistedSessionCookie = true,
+    ApiEnvironment? environment,
   }) async {
     try {
       final uri = Uri.parse(
-        endpoint.startsWith('http')
-            ? endpoint
-            : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
+        ApiConfig.buildUrl(endpoint, environment: environment),
       );
       _logRequest(
         method: 'POST',
@@ -157,12 +154,11 @@ class ApiService extends GetxService {
     Map<String, String> fields, {
     Map<String, String>? headers,
     bool usePersistedSessionCookie = true,
+    ApiEnvironment? environment,
   }) async {
     try {
       final uri = Uri.parse(
-        endpoint.startsWith('http')
-            ? endpoint
-            : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
+        ApiConfig.buildUrl(endpoint, environment: environment),
       );
       _logRequest(
         method: 'POST',
@@ -206,6 +202,7 @@ class ApiService extends GetxService {
     required String filePath,
     Map<String, String>? headers,
     bool usePersistedSessionCookie = true,
+    ApiEnvironment? environment,
   }) async {
     try {
       final file = File(filePath);
@@ -214,9 +211,7 @@ class ApiService extends GetxService {
       }
 
       final uri = Uri.parse(
-        endpoint.startsWith('http')
-            ? endpoint
-            : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
+        ApiConfig.buildUrl(endpoint, environment: environment),
       );
       _logRequest(
         method: 'POST',
@@ -277,6 +272,7 @@ class ApiService extends GetxService {
     Map<String, String>? headers,
     Map<String, String>? cookies,
     bool usePersistedSessionCookie = true,
+    ApiEnvironment? environment,
   }) async {
     try {
       final Map<String, String> mergedCookies = {
@@ -295,9 +291,7 @@ class ApiService extends GetxService {
       };
 
       final uri = Uri.parse(
-        endpoint.startsWith('http')
-            ? endpoint
-            : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
+        ApiConfig.buildUrl(endpoint, environment: environment),
       );
       _logRequest(
         method: 'POST',
@@ -326,12 +320,11 @@ class ApiService extends GetxService {
     String endpoint,
     Map<String, dynamic> body, {
     Map<String, String>? headers,
+    ApiEnvironment? environment,
   }) async {
     try {
       final uri = Uri.parse(
-        endpoint.startsWith('http')
-            ? endpoint
-            : "${ApiConfig.getBaseUrl(endpoint)}$endpoint",
+        ApiConfig.buildUrl(endpoint, environment: environment),
       );
       _logRequest(method: 'PATCH', endpoint: endpoint, data: body);
       final response = await http.patch(

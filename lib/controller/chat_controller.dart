@@ -7,7 +7,6 @@ import 'package:discipline_mind/constants/blocked_apps.dart';
 import 'package:discipline_mind/controller/alert_controller.dart';
 import 'package:discipline_mind/controller/trading_process_controller.dart';
 import 'package:discipline_mind/model/chat_message_model.dart';
-import 'package:discipline_mind/services/api/api_config.dart';
 import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
@@ -1189,10 +1188,6 @@ class ChatController extends GetxController {
     return result;
   }
 
-  String _llmAskUrl() {
-    return '${ApiConfig.getBaseUrl(ApiUrl.llmAsk)}${ApiUrl.llmAsk}';
-  }
-
   void _markMessageSendFailed(String messageId) {
     if (messageId.isEmpty) return;
     for (var i = 0; i < messages.length; i++) {
@@ -1260,7 +1255,7 @@ class ChatController extends GetxController {
       final api = Get.isRegistered<ApiService>()
           ? Get.find<ApiService>()
           : ApiService();
-      final response = await api.postJson(_llmAskUrl(), {
+      final response = await api.postJson(ApiUrl.llmAsk, {
         'user_id': userId,
         'user_query': query,
       });

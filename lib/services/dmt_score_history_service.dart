@@ -2,6 +2,7 @@ import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/model/dmt_level_model.dart';
 import 'package:discipline_mind/model/dmt_score_history_model.dart';
 import 'package:discipline_mind/model/dmt_user_return_percentages_model.dart';
+import 'package:discipline_mind/services/api/api_config.dart';
 import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/services/dmt_levels_service.dart';
@@ -9,7 +10,8 @@ import 'package:get/get.dart';
 
 /// Loads Analysis tab data (score history + return percentages).
 class DmtScoreHistoryService extends GetxService {
-  final Rxn<DmtScoreHistoryPayload> historyPayload = Rxn<DmtScoreHistoryPayload>();
+  final Rxn<DmtScoreHistoryPayload> historyPayload =
+      Rxn<DmtScoreHistoryPayload>();
   final Rxn<DmtUserReturnPercentagesPayload> returnsPayload =
       Rxn<DmtUserReturnPercentagesPayload>();
   final Rxn<DmtLevel> selectedLevel = Rxn<DmtLevel>();
@@ -40,9 +42,7 @@ class DmtScoreHistoryService extends GetxService {
 
     final effectiveLevelId = levelId ?? selectedLevel.value?.id;
 
-    if (!force &&
-        _fetchInFlight &&
-        _lastHistoryLevelId == effectiveLevelId) {
+    if (!force && _fetchInFlight && _lastHistoryLevelId == effectiveLevelId) {
       return historyPayload.value != null;
     }
 
@@ -57,20 +57,19 @@ class DmtScoreHistoryService extends GetxService {
         fields['level_id'] = effectiveLevelId.toString();
       }
 
-      var response = await _api().postFormData(
-        ApiUrl.dmtScoreHistory,
-        fields,
-      );
+      var response = await _api().postFormData(ApiUrl.dmtScoreHistory, fields);
       if (!response.isSuccess) {
         response = await _api().postFormData(
-          'https://api.disciplinedminds.in/api/v2test/dmt-score/history',
+          ApiUrl.dmtScoreHistory,
           fields,
+          environment: ApiEnvironment.v2Test,
         );
       }
       if (!response.isSuccess) {
         response = await _api().postFormData(
-          'https://api.disciplinedminds.in/api/dmt-score/history',
+          ApiUrl.dmtScoreHistory,
           fields,
+          environment: ApiEnvironment.phase5,
         );
       }
 
@@ -86,7 +85,8 @@ class DmtScoreHistoryService extends GetxService {
       }
 
       // If backend has no score history endpoint yet, provide a fallback payload for selected level
-      final currentLvl = selectedLevel.value ?? _levelsService.levels.firstOrNull;
+      final currentLvl =
+          selectedLevel.value ?? _levelsService.levels.firstOrNull;
       historyPayload.value = DmtScoreHistoryPayload(
         userId: int.tryParse(userId) ?? 0,
         currentLevel: currentLvl,
@@ -95,7 +95,8 @@ class DmtScoreHistoryService extends GetxService {
       );
       return true;
     } catch (e) {
-      final currentLvl = selectedLevel.value ?? _levelsService.levels.firstOrNull;
+      final currentLvl =
+          selectedLevel.value ?? _levelsService.levels.firstOrNull;
       historyPayload.value = DmtScoreHistoryPayload(
         userId: int.tryParse(userId) ?? 0,
         currentLevel: currentLvl,
@@ -112,8 +113,7 @@ class DmtScoreHistoryService extends GetxService {
   void _syncSelectedLevel(DmtScoreHistoryPayload payload) {
     final requested = payload.requestedLevel;
     if (requested != null && requested.isValid) {
-      selectedLevel.value =
-          _levelsService.levelById(requested.id) ?? requested;
+      selectedLevel.value = _levelsService.levelById(requested.id) ?? requested;
       return;
     }
     final current = payload.currentLevel;
@@ -129,9 +129,7 @@ class DmtScoreHistoryService extends GetxService {
       return false;
     }
 
-    if (!force &&
-        _returnsFetchInFlight &&
-        _lastReturnLevelId == levelId) {
+    if (!force && _returnsFetchInFlight && _lastReturnLevelId == levelId) {
       return returnsPayload.value != null;
     }
 
@@ -143,27 +141,20 @@ class DmtScoreHistoryService extends GetxService {
     try {
       var response = await _api().postFormData(
         ApiUrl.dmtLevelUserReturnPercentages,
-        {
-          'user_id': userId,
-          'level_id': levelId.toString(),
-        },
+        {'user_id': userId, 'level_id': levelId.toString()},
       );
       if (!response.isSuccess) {
         response = await _api().postFormData(
-          'https://api.disciplinedminds.in/api/v2test/dmt-level/user-return-percentages',
-          {
-            'user_id': userId,
-            'level_id': levelId.toString(),
-          },
+          ApiUrl.dmtLevelUserReturnPercentages,
+          {'user_id': userId, 'level_id': levelId.toString()},
+          environment: ApiEnvironment.v2Test,
         );
       }
       if (!response.isSuccess) {
         response = await _api().postFormData(
-          'https://api.disciplinedminds.in/api/dmt-level/user-return-percentages',
-          {
-            'user_id': userId,
-            'level_id': levelId.toString(),
-          },
+          ApiUrl.dmtLevelUserReturnPercentages,
+          {'user_id': userId, 'level_id': levelId.toString()},
+          environment: ApiEnvironment.phase5,
         );
       }
 

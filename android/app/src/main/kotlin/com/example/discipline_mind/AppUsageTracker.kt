@@ -101,7 +101,8 @@ object AppUsageTracker {
         userId: String?,
         apiUrl: String?
     ): Map<String, Any> {
-        val resolvedUrl = apiUrl?.takeIf { it.isNotBlank() } ?: "https://httpbin.org/post"
+        val resolvedUrl = apiUrl?.takeIf { it.isNotBlank() }
+            ?: NativeApiConfig.USAGE_TRACKING_FALLBACK_URL
         val usageList = getAllUsage(context, packages)
         return try {
             val payload = JSONObject().apply {

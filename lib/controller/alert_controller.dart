@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:app_limiter/app_limiter.dart';
 import 'package:discipline_mind/common/common.dart';
+import 'package:discipline_mind/services/api/api_config.dart';
 import 'package:discipline_mind/services/api/api_reponse.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
@@ -36,6 +37,7 @@ class AlertController extends GetxController {
     }
     return _prefs.getSelectedPackages(userId: userId);
   }
+
   @override
   void onInit() {
     super.onInit();
@@ -273,9 +275,7 @@ class AlertController extends GetxController {
       }
 
       if (success) {
-        AppToast.showToast(
-          "Mind Control Guard is Activated",
-        );
+        AppToast.showToast("Mind Control Guard is Activated");
       }
       final alertsCreated = respUpper.isSuccess && respLower.isSuccess;
       if (alertsCreated) {
@@ -466,15 +466,13 @@ class AlertController extends GetxController {
     try {
       isUserAlertLoading.value = true;
 
-      var response = await apiService.postFormData(
-        ApiUrl.getAlertsByUser,
-        {"user_id": userId},
-      );
+      var response = await apiService.postFormData(ApiUrl.getAlertsByUser, {
+        "user_id": userId,
+      });
       if (!response.isSuccess) {
-        response = await apiService.postFormData(
-          'https://api.disciplinedminds.in/api/alert/get-by-user-id',
-          {"user_id": userId},
-        );
+        response = await apiService.postFormData(ApiUrl.getAlertsByUser, {
+          "user_id": userId,
+        }, environment: ApiEnvironment.phase5);
       }
 
       if (response.isSuccess) {

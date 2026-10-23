@@ -19,19 +19,19 @@ class ApiUrl {
   static const String dmtLevelUserLevelsSummary =
       'dmt-level/user-levels-summary';
 
-  static String loginUrl = "user/login";
-  static String sendOtpUrl = "user/send-otp";
-  static String verifyOtpUrl = "user/verify-otp";
-  static String searchInstrument = "instrument/search";
-  static String getAlertsByUser = "alert/get-by-user-id";
+  static const String loginUrl = "user/login";
+  static const String sendOtpUrl = "user/send-otp";
+  static const String verifyOtpUrl = "user/verify-otp";
+  static const String searchInstrument = "instrument/search";
+  static const String getAlertsByUser = "alert/get-by-user-id";
 
   /// API to check if trading apps should stay blocked. Returns { "should_block": true/false }.
   /// Backend can use alerts or any logic. If endpoint missing, app falls back to getAlertsByUser.
-  static String shouldBlockApps = "alert/should-block-apps";
-  static String deleteAlert = "alert/delete";
-  static String createAlertUrl = "alert/create";
-  static String signUpUrl = "user/register";
-  static String quoteUrl = "instrument/quote";
+  static const String shouldBlockApps = "alert/should-block-apps";
+  static const String deleteAlert = "alert/delete";
+  static const String createAlertUrl = "alert/create";
+  static const String signUpUrl = "user/register";
+  static const String quoteUrl = "instrument/quote";
 
   static const String fcmSync = "fcm/sync";
 
@@ -68,17 +68,14 @@ class ApiUrl {
   static const String llmAsk = "llm/ask";
 
   /// Endpoint to send a recorded voice note directly to the voice-chat API.
-  static const String voiceChatAsk =
-      'https://api.disciplinedminds.in/api/voice-chat/ask';
+  static const String voiceChatAsk = 'voice-chat/ask';
 
   /// Activate Mind Control (POST form: user_id, is_mind_controll_active).
   static const String mindControlActive = "user/mind-control-active";
 
   /// Upload the local diagnostic log file (multipart field: log_file).
-  static const String diagnosticUploadLog =
-      'https://api.disciplinedminds.in/api/diagnostic/upload-log';
+  static const String diagnosticUploadLog = 'diagnostic/upload-log';
 
   /// Fetches today's optional MCT plan (POST form: user_id).
-  static const String notificationToday =
-      'https://api.disciplinedminds.in/api/notification/today';
+  static const String notificationToday = 'notification/today';
 }
