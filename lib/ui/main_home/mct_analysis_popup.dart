@@ -32,19 +32,17 @@ Future<void> showMctAnalysisPopup(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (notification.title.isNotEmpty) ...[
-                      Text(
-                        notification.title,
-                        textAlign: TextAlign.left,
-                        style: TextStyle(
-                          color: textColor,
-                          fontSize: 24,
-                          fontWeight: FontWeight.w800,
-                          height: 1.15,
-                        ),
+                    Text(
+                      'MCT PLAN FOR TODAY',
+                      textAlign: TextAlign.left,
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        height: 1.15,
                       ),
-                      const SizedBox(height: 14),
-                    ],
+                    ),
+                    const SizedBox(height: 14),
                     if (notification.body.isNotEmpty) ...[
                       Text(
                         notification.body,
@@ -113,7 +111,7 @@ Future<void> showMctAnalysisPopup(
                           ),
                         ),
                         child: const Text(
-                      'OK',
+                          'MCT PLAN FOR TODAY',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w700,

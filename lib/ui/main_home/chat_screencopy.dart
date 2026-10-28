@@ -8,6 +8,7 @@ import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:flutter/services.dart';
 
 class chat_screencopy extends StatefulWidget {
   const chat_screencopy({super.key, this.onMonkkTap, this.isActive = true});
@@ -842,6 +843,44 @@ class _chat_screencopyState extends State<chat_screencopy> {
       msg.action.toLowerCase() == 'edit';
   bool _showButtons(ChatMessage msg) => msg.actionTaken == null;
 
+  Future<void> _openTradingApp(
+    ChatMessage sourceMessage,
+    ChatController controller,
+  ) async {
+    final formattedSymbol = _formattedSymbolFor(sourceMessage);
+    if (formattedSymbol.isNotEmpty) {
+      try {
+        await Clipboard.setData(ClipboardData(text: formattedSymbol));
+        await AppToast.showToast('Copied $formattedSymbol to clipboard');
+      } catch (e) {
+        debugPrint('[ChatScreenCopy] Failed to copy formatted symbol: $e');
+      }
+    }
+    await controller.openTradingApp();
+  }
+
+  String _formattedSymbolFor(ChatMessage message) {
+    if (message is NewTradeOpportunityMessage) {
+      return message.formattedSymbol.trim();
+    }
+    if (message is TradeExecutionPromptMessage) {
+      return message.tradeData.formattedSymbol.trim();
+    }
+    if (message is AlertHitWithButtonMessage) {
+      final tradeSymbol = message.tradeData?.formattedSymbol.trim() ?? '';
+      return tradeSymbol.isNotEmpty
+          ? tradeSymbol
+          : message.formattedSymbol.trim();
+    }
+    if (message is TradeSignalMessage) {
+      return message.formattedSymbol.trim();
+    }
+    if (message is AiWaitingMessage) {
+      return message.formattedSymbol.trim();
+    }
+    return '';
+  }
+
   String _tradeDeleteStepLine(int n, String api, String fallback) {
     final t = api.trim();
     if (t.isEmpty) return '$n. $fallback';
@@ -1004,7 +1043,7 @@ class _chat_screencopyState extends State<chat_screencopy> {
                     _tradePromptPrimaryButton(
                       label: 'Open Trading APP',
                       enabled: _showButtons(msg),
-                      onTap: () => controller.openTradingApp(),
+                      onTap: () => _openTradingApp(msg, controller),
                     ),
                     const SizedBox(height: 14),
                     Text(_deleteTradeStep2Text(msg), style: stepStyle),
@@ -1091,7 +1130,7 @@ class _chat_screencopyState extends State<chat_screencopy> {
                     _tradePromptPrimaryButton(
                       label: 'Open Trading APP',
                       enabled: _showButtons(msg),
-                      onTap: () => controller.openTradingApp(),
+                      onTap: () => _openTradingApp(msg, controller),
                     ),
                     const SizedBox(height: 14),
                     Text(
@@ -1508,7 +1547,7 @@ class _chat_screencopyState extends State<chat_screencopy> {
                 _tradePromptPrimaryButton(
                   label: 'Open Trading APP',
                   enabled: _showButtons(actionSource),
-                  onTap: () => controller.openTradingApp(),
+                  onTap: () => _openTradingApp(actionSource, controller),
                 ),
                 const SizedBox(height: 14),
                 Text('2. Intimate me once you apply the GTT', style: stepStyle),
@@ -2589,7 +2628,7 @@ class _chat_screencopyState extends State<chat_screencopy> {
                   _tradePromptPrimaryButton(
                     label: 'Open Trading APP',
                     enabled: _showButtons(msg),
-                    onTap: () => controller.openTradingApp(),
+                    onTap: () => _openTradingApp(msg, controller),
                   ),
                   const SizedBox(height: 10),
                 ],
@@ -2686,7 +2725,7 @@ class _chat_screencopyState extends State<chat_screencopy> {
                 _tradePromptPrimaryButton(
                   label: 'Open Trading APP',
                   enabled: _showButtons(msg),
-                  onTap: () => controller.openTradingApp(),
+                  onTap: () => _openTradingApp(msg, controller),
                 ),
                 const SizedBox(height: 14),
                 Text('2. Intimate me once you apply the GTT', style: stepStyle),

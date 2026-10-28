@@ -7,12 +7,56 @@ import 'package:discipline_mind/ui/main_home/alert_main.dart';
 import 'package:discipline_mind/ui/main_home/process_detail_screen.dart';
 import 'package:discipline_mind/services/app_diagnostic_logger.dart';
 import 'package:discipline_mind/services/app_url_launcher.dart';
+import 'package:discipline_mind/services/app_block_preferences_service.dart';
+import 'package:discipline_mind/services/trading_block_bootstrap.dart';
+import 'package:discipline_mind/controller/trading_process_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'mct_lessons_screen.dart';
+
+class _TradingAppOption {
+  const _TradingAppOption({
+    required this.value,
+    required this.label,
+    required this.packageName,
+    required this.logo,
+    required this.logoColor,
+  });
+
+  final String value;
+  final String label;
+  final String packageName;
+  final String logo;
+  final Color logoColor;
+}
+
+const _supportedTradingApps = [
+  _TradingAppOption(
+    value: 'zerodha_kite',
+    label: 'Zerodha Kite',
+    packageName: 'com.zerodha.kite3',
+    logo: 'K',
+    logoColor: Color(0xFFF15B35),
+  ),
+  _TradingAppOption(
+    value: 'upstox',
+    label: 'Upstox',
+    packageName: 'in.upstox.app',
+    logo: 'U',
+    logoColor: Color(0xFF5B35A5),
+  ),
+  _TradingAppOption(
+    value: 'groww',
+    label: 'Groww',
+    packageName: 'com.nextbillion.groww',
+    logo: 'G',
+    logoColor: Color(0xFF28B9A7),
+  ),
+];
 
 class MoreScreen extends StatelessWidget {
   const MoreScreen({super.key});
@@ -24,14 +68,219 @@ class MoreScreen extends StatelessWidget {
         AppToast.showToast('Diagnostic log file is not available.');
         return;
       }
-      await SharePlus.instance.share(
-        ShareParams(
-          files: [XFile(path)],
-        ),
-      );
+      await SharePlus.instance.share(ShareParams(files: [XFile(path)]));
     } catch (_) {
       AppToast.showToast('Unable to share diagnostic log.');
     }
+  }
+
+  TradingProcessController _processController() {
+    return Get.isRegistered<TradingProcessController>()
+        ? Get.find<TradingProcessController>()
+        : Get.put(TradingProcessController());
+  }
+
+  String _tradingAppLabel(String raw) {
+    final normalized = raw.trim().toLowerCase();
+    if (normalized == 'zerodha' ||
+        normalized == 'kite' ||
+        normalized == 'zerodha_kite') {
+      return 'Zerodha Kite';
+    }
+    if (normalized == 'upstox') return 'Upstox';
+    if (normalized == 'groww') return 'Groww';
+    return raw.trim().isEmpty ? 'Not selected' : raw;
+  }
+
+  Future<void> _showTradingAppPicker(
+    BuildContext context,
+    TradingProcessController controller,
+  ) async {
+    if (controller.currentProcess.value == null) {
+      await controller.fetchProcess();
+    }
+    if (!context.mounted) return;
+
+    final process = controller.currentProcess.value;
+    if (process == null) {
+      AppToast.showToast('Trading process is not available');
+      return;
+    }
+
+    final currentValue = process.brokingApp.trim().toLowerCase() == 'zerodha'
+        ? 'zerodha_kite'
+        : process.brokingApp.trim().toLowerCase();
+    final selectedValue = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        final isDark = Theme.of(sheetContext).brightness == Brightness.dark;
+        final surface = isDark ? AppColors.darkSurface : Colors.white;
+        final primaryText = isDark
+            ? AppColors.darkTextPrimary
+            : AppColors.lightTextPrimary;
+        final secondaryText = isDark
+            ? AppColors.darkTextSecondary
+            : Colors.grey.shade600;
+
+        return SafeArea(
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+            decoration: BoxDecoration(
+              color: surface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(22),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: secondaryText.withValues(alpha: 0.35),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'Change trading app',
+                  style: TextStyle(
+                    color: primaryText,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Choose the app you use for trading.',
+                  style: TextStyle(color: secondaryText, fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                ..._supportedTradingApps.map((app) {
+                  final selected = app.value == currentValue;
+                  return GestureDetector(
+                    onTap: () => Navigator.pop(sheetContext, app.value),
+                    child: Container(
+                      width: double.infinity,
+                      height: 48,
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? (isDark
+                                  ? AppColors.primary.withValues(alpha: 0.14)
+                                  : const Color(0xFFFBF8FF))
+                            : surface,
+                        borderRadius: BorderRadius.circular(9),
+                        border: Border.all(
+                          color: selected
+                              ? AppColors.primary
+                              : (isDark
+                                    ? AppColors.darkBorder
+                                    : const Color(0xFFE2E0E9)),
+                          width: selected ? 1.2 : 1,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          _buildTradingAppLogo(app),
+                          const SizedBox(width: 11),
+                          Expanded(
+                            child: Text(
+                              app.label,
+                              style: TextStyle(
+                                color: primaryText,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          Icon(
+                            selected
+                                ? Icons.radio_button_checked
+                                : Icons.radio_button_unchecked,
+                            color: selected
+                                ? AppColors.primary
+                                : (isDark
+                                      ? Colors.white38
+                                      : const Color(0xFF85838F)),
+                            size: 18,
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (selectedValue == null || selectedValue == currentValue) return;
+    final selectedApp = _supportedTradingApps.firstWhere(
+      (app) => app.value == selectedValue,
+    );
+    final updated = await controller.updateBrokingApp(selectedApp.value);
+    if (!updated) return;
+
+    final userId = Common.userData.value?.payload?.id?.toString();
+    if (userId == null || userId.isEmpty) return;
+
+    final preferences = AppBlockPreferencesService();
+    await preferences.saveSelectedPackage(
+      userId: userId,
+      packageName: selectedApp.packageName,
+    );
+    await GetStorage().write('mct_brokerage_$userId', selectedApp.value);
+    if (Platform.isAndroid) {
+      await applyAndroidTradingAppBlock(explicitUserId: userId);
+    }
+  }
+
+  Widget _buildTradingAppLogo(_TradingAppOption app) {
+    return Container(
+      width: 27,
+      height: 27,
+      decoration: BoxDecoration(
+        color: app.logoColor.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        app.logo,
+        style: TextStyle(
+          color: app.logoColor,
+          fontSize: 14,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTradingAppTile(BuildContext context) {
+    final controller = _processController();
+    return Obx(() {
+      final process = controller.currentProcess.value;
+      final currentApp = process == null
+          ? 'Not selected'
+          : _tradingAppLabel(process.brokingApp);
+      return _buildTile(
+        icon: Icons.swap_horiz_rounded,
+        title: 'Trading App',
+        subtitle: controller.isUpdating.value
+            ? 'Updating...'
+            : 'Currently using $currentApp',
+        isLoading: controller.isUpdating.value,
+        onTap: () => _showTradingAppPicker(context, controller),
+      );
+    });
   }
 
   @override
@@ -85,6 +334,8 @@ class MoreScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
+                _buildTradingAppTile(context),
+                const SizedBox(height: 12),
                 _buildTile(
                   icon: Icons.play_lesson_outlined,
                   title: 'MCT Lessons',
@@ -136,9 +387,14 @@ class MoreScreen extends StatelessWidget {
                 _buildTile(
                   icon: Icons.logout,
                   title: 'Logout',
-                  subtitle: 'Sign out from your account',
+                  subtitle: Common.isLoggingOut.value
+                      ? 'Signing out...'
+                      : 'Sign out from your account',
                   danger: true,
-                  onTap: Common.logout,
+                  isLoading: Common.isLoggingOut.value,
+                  onTap: () {
+                    Common.logout();
+                  },
                 ),
               ],
             ),
@@ -159,6 +415,7 @@ class MoreScreen extends StatelessWidget {
     required String subtitle,
     required VoidCallback onTap,
     bool danger = false,
+    bool isLoading = false,
   }) {
     final isDark = ThemeService().isDarkMode;
 
@@ -178,7 +435,7 @@ class MoreScreen extends StatelessWidget {
 
     return InkWell(
       borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
+      onTap: isLoading ? null : onTap,
       child: Ink(
         decoration: BoxDecoration(
           color: bgColor,
@@ -231,10 +488,20 @@ class MoreScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: danger ? Colors.red.shade400 : Colors.grey.shade500,
-              ),
+              if (isLoading)
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: danger ? Colors.red.shade600 : AppColors.primary,
+                  ),
+                )
+              else
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: danger ? Colors.red.shade400 : Colors.grey.shade500,
+                ),
             ],
           ),
         ),

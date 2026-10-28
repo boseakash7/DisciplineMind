@@ -228,7 +228,8 @@ class AuthController extends GetxController {
     }
   }
 
-  void logout() {
+  Future<void> logout() async {
+    await Common.notifyBackendLogout();
     storage.clearLogin();
     Common.userData.value = null;
     GetStorage().remove('user_id');

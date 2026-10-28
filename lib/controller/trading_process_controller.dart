@@ -185,6 +185,52 @@ class TradingProcessController extends GetxController {
     }
   }
 
+  /// Updates only the selected broker without changing the rest of the process.
+  Future<bool> updateBrokingApp(String brokingApp) async {
+    final effectiveUserId = Common.userData.value?.payload?.id?.toString();
+    final normalizedApp = brokingApp.trim().toLowerCase();
+    const supportedApps = {'zerodha_kite', 'upstox', 'groww'};
+
+    if (effectiveUserId == null || effectiveUserId.isEmpty) {
+      AppToast.showToast('User not authenticated');
+      return false;
+    }
+    if (!supportedApps.contains(normalizedApp)) {
+      AppToast.showToast('Unsupported trading app');
+      return false;
+    }
+
+    try {
+      isUpdating.value = true;
+      final response = await _apiService.postFormData(
+        ApiUrl.processUpdateBrokingApp,
+        {'user_id': effectiveUserId, 'broking_app': normalizedApp},
+      );
+
+      if (!response.isSuccess) {
+        AppToast.showToast(
+          response.errorMessage ?? 'Failed to update trading app',
+        );
+        return false;
+      }
+
+      if (currentProcess.value != null &&
+          currentProcess.value!.brokingApp != normalizedApp) {
+        currentProcess.value = currentProcess.value!.copyWith(
+          brokingApp: normalizedApp,
+        );
+      }
+      AppToast.showToast('Trading app updated successfully');
+      return true;
+    } catch (e) {
+      debugPrint('[TradingProcessController] updateBrokingApp error: $e');
+      AppToast.showToast('Error updating trading app');
+      return false;
+    } finally {
+      isUpdating.value = false;
+    }
+  }
+
   /// Activate Mind Control
   Future<bool> activateMindControl() async {
     final effectiveUserId = Common.userData.value?.payload?.id?.toString();

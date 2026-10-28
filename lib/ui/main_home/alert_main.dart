@@ -73,8 +73,7 @@ class _AlertsMainScreenState extends State<AlertsMainScreen> {
                 noButtonTitle: "Cancel",
                 onYesPress: () async {
                   Get.back();
-                  await Future.delayed(const Duration(seconds: 2));
-                  Common.logout();
+                  await Common.logout();
                 },
                 onNoPress: () => Get.back(),
               );

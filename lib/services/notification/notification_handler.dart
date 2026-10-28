@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:discipline_mind/services/app_diagnostic_logger.dart';
 
 /// Handles FCM and local notifications: shows notification when app is open (foreground)
@@ -19,6 +20,12 @@ class NotificationHandler {
       FlutterLocalNotificationsPlugin();
   bool _localInited = false;
   bool _firebaseInited = false;
+
+  /// Drives the in-app notification permission badge.
+  static final ValueNotifier<bool> notificationPermissionRequired =
+      ValueNotifier<bool>(false);
+  static final ValueNotifier<bool> notificationPermissionRequesting =
+      ValueNotifier<bool>(false);
 
   static const AndroidNotificationChannel _defaultChannel =
       AndroidNotificationChannel(
@@ -57,6 +64,31 @@ class NotificationHandler {
 
   /// Called only when the user taps/opens a notification.
   static void Function(Map<String, dynamic> data)? onNotificationOpened;
+
+  /// True while the chat tab is the currently visible tab.
+  ///
+  /// Notification data is still delivered while this is true so the chat can
+  /// refresh; only foreground notification presentation is suppressed.
+  static bool _isChatScreenVisible = false;
+
+  static bool get isChatScreenVisible => _isChatScreenVisible;
+
+  static Future<void> setChatScreenVisible(bool visible) async {
+    if (_isChatScreenVisible == visible) return;
+    _isChatScreenVisible = visible;
+
+    // iOS controls foreground notification presentation at the FCM level.
+    if (!Platform.isIOS) return;
+    try {
+      await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+        alert: !visible,
+        badge: !visible,
+        sound: !visible,
+      );
+    } catch (_) {
+      // Notification presentation must never affect the chat screen.
+    }
+  }
 
   // Set when user taps a DMT score notification (or opens it from terminated state).
   // ChatScreen reads this flag to auto-open the DMT score popup.
@@ -98,13 +130,51 @@ class NotificationHandler {
   }
 
   /// Request notification permission (FCM + Android 13+). Call from splash screen.
-  static Future<void> requestPermissions() async {
+  static Future<void> requestPermissions({
+    bool openSettingsIfStillDenied = false,
+  }) async {
+    if (notificationPermissionRequesting.value) return;
+    notificationPermissionRequesting.value = true;
     final handler = instance;
-    // Ensure local notifications are initialized before asking Android runtime permission.
-    await handler._initLocalNotifications();
-    // Ensure FCM is ready as well (safe no-op if already initialized).
-    await handler._initFirebaseMessaging();
-    await handler._requestPermissions();
+    try {
+      // Ensure local notifications are initialized before asking Android runtime permission.
+      await handler._initLocalNotifications();
+      // Ensure FCM is ready as well (safe no-op if already initialized).
+      await handler._initFirebaseMessaging();
+      await handler._requestPermissions();
+      if (openSettingsIfStillDenied &&
+          notificationPermissionRequired.value) {
+        debugPrint(
+          'Notifications are still disabled; opening app notification settings.',
+        );
+        await openAppSettings();
+      }
+    } finally {
+      notificationPermissionRequesting.value = false;
+    }
+  }
+
+  /// Re-checks the effective notification permission after returning from
+  /// system settings or after a permission request.
+  static Future<void> refreshPermissionStatus() async {
+    try {
+      final settings = await FirebaseMessaging.instance.getNotificationSettings();
+      var enabled =
+          settings.authorizationStatus == AuthorizationStatus.authorized ||
+          settings.authorizationStatus == AuthorizationStatus.provisional;
+
+      if (Platform.isAndroid) {
+        final androidPlugin = instance._localNotifications
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >();
+        enabled = await androidPlugin?.areNotificationsEnabled() ?? enabled;
+      }
+
+      notificationPermissionRequired.value = !enabled;
+    } catch (e) {
+      debugPrint('Notification permission status check failed: $e');
+    }
   }
 
   Future<void> _initLocalNotifications() async {
@@ -174,9 +244,9 @@ class NotificationHandler {
     if (Platform.isIOS) {
       await FirebaseMessaging.instance
           .setForegroundNotificationPresentationOptions(
-            alert: true,
-            badge: true,
-            sound: true,
+            alert: !_isChatScreenVisible,
+            badge: !_isChatScreenVisible,
+            sound: !_isChatScreenVisible,
           );
     }
 
@@ -201,6 +271,15 @@ class NotificationHandler {
     );
 
     if (Platform.isAndroid) {
+      if (_isChatScreenVisible) {
+        if (kDebugMode) {
+          debugPrint(
+            '[Notification] foreground notification suppressed while chat is open',
+          );
+        }
+        return;
+      }
+
       final notification = message.notification;
       final title = notification?.title ?? 'Zeno AI';
       final body = notification?.body ?? 'You have a new alert update';
@@ -374,30 +453,31 @@ class NotificationHandler {
 
       if (androidPlugin == null) {
         debugPrint('Android notifications plugin is null');
-        return;
+      } else {
+        final enabled = await androidPlugin.areNotificationsEnabled() ?? true;
+        debugPrint('Notifications enabled before request: $enabled');
+
+        if (!enabled) {
+          final granted = await androidPlugin.requestNotificationsPermission();
+          debugPrint('Android runtime permission result: $granted');
+        }
+
+        final enabledAfter =
+            await androidPlugin.areNotificationsEnabled() ?? false;
+        debugPrint('Notifications enabled after request: $enabledAfter');
+        unawaited(
+          AppDiagnosticLogger.log(
+            event: 'NOTIFICATION_PERMISSION',
+            data: {
+              'Platform': Platform.operatingSystem,
+              'Notifications Enabled': enabledAfter ? 'ENABLED' : 'DISABLED',
+            },
+          ),
+        );
       }
-
-      final enabled = await androidPlugin.areNotificationsEnabled() ?? true;
-      debugPrint('Notifications enabled before request: $enabled');
-
-      if (!enabled) {
-        final granted = await androidPlugin.requestNotificationsPermission();
-        debugPrint('Android runtime permission result: $granted');
-      }
-
-      final enabledAfter =
-          await androidPlugin.areNotificationsEnabled() ?? false;
-      debugPrint('Notifications enabled after request: $enabledAfter');
-      unawaited(
-        AppDiagnosticLogger.log(
-          event: 'NOTIFICATION_PERMISSION',
-          data: {
-            'Platform': Platform.operatingSystem,
-            'Notifications Enabled': enabledAfter ? 'ENABLED' : 'DISABLED',
-          },
-        ),
-      );
     }
+
+    await refreshPermissionStatus();
   }
 
   void _checkInitialMessage() {

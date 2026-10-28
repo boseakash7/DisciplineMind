@@ -15,6 +15,7 @@ import 'package:discipline_mind/ui/widgets/ai_waiting_status_bubble.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:discipline_mind/ui/widgets/audio_wave_visualizer.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:path_provider/path_provider.dart';
@@ -601,6 +602,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    unawaited(NotificationHandler.setChatScreenVisible(widget.isActive));
     _chatController = Get.isRegistered<ChatController>()
         ? Get.find<ChatController>()
         : Get.put(ChatController(), permanent: true);
@@ -642,6 +644,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _checkPermissions();
+      unawaited(NotificationHandler.refreshPermissionStatus());
       if (widget.isActive) _syncOnTabFocus();
     }
   }
@@ -649,6 +652,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(ChatScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.isActive != oldWidget.isActive) {
+      unawaited(NotificationHandler.setChatScreenVisible(widget.isActive));
+    }
     if (widget.isActive && !oldWidget.isActive) {
       if (_hideMindControlGateTemporary) {
         setState(() {
@@ -668,6 +674,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    if (widget.isActive) {
+      unawaited(NotificationHandler.setChatScreenVisible(false));
+    }
     WidgetsBinding.instance.removeObserver(this);
     _jumpToLatestTimer?.cancel();
     _scrollStabilizationTimer?.cancel();
@@ -1687,6 +1696,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         child: Column(
           children: [
             // _buildHeader(context, controller),
+            ValueListenableBuilder<bool>(
+              valueListenable:
+                  NotificationHandler.notificationPermissionRequired,
+              builder: (context, permissionRequired, _) {
+                if (!permissionRequired) return const SizedBox.shrink();
+                return _buildNotificationPermissionBadge(context, isDark);
+              },
+            ),
             Expanded(
               child: Obx(() {
                 if (controller.isLoading.value) {
@@ -1966,6 +1983,104 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildNotificationPermissionBadge(BuildContext context, bool isDark) {
+    final backgroundColor = isDark
+        ? const Color(0xFF3A3020)
+        : const Color(0xFFFFF8E1);
+    final borderColor = isDark
+        ? const Color(0xFF8B6B2D)
+        : const Color(0xFFE8C45A);
+    final warningColor = isDark
+        ? const Color(0xFFFFD166)
+        : const Color(0xFF9A6B00);
+    final titleColor = isDark ? Colors.white : const Color(0xFF4A3800);
+    final bodyColor = isDark ? Colors.white70 : const Color(0xFF6B5B2A);
+
+    return ValueListenableBuilder<bool>(
+      valueListenable: NotificationHandler.notificationPermissionRequesting,
+      builder: (context, requesting, _) {
+        return Padding(
+          // The parent screen owns the app header; keep this banner directly
+          // beneath it and let it span the full available width.
+          padding: const EdgeInsets.only(bottom: 2),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+            decoration: BoxDecoration(
+              color: backgroundColor,
+              borderRadius: const BorderRadius.vertical(
+                bottom: Radius.circular(14),
+              ),
+              border: Border.all(color: borderColor),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: warningColor.withValues(alpha: 0.16),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.warning_amber_rounded,
+                    size: 19,
+                    color: warningColor,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Notifications are disabled',
+                        style: TextStyle(
+                          color: titleColor,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'You may experience issues in chat and miss important updates.',
+                        style: TextStyle(color: bodyColor, fontSize: 11.5),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: requesting
+                      ? null
+                      : () => NotificationHandler.requestPermissions(
+                          openSettingsIfStillDenied: true,
+                        ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: warningColor,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 34),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: requesting
+                      ? const SizedBox(
+                          width: 17,
+                          height: 17,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text(
+                          'Enable',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -2470,7 +2585,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ),
           const SizedBox(height: 12),
           _tradePromptPrimaryButton(
-            label: 'View MCT Plan',
+            label: 'MCT PLAN FOR TODAY',
             icon: Icons.event_note_outlined,
             onTap: () {
               final mctController =
@@ -2968,7 +3083,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               enabled: true,
               onTap: () async {
                 _markTradingAppOpened(msg);
-                await controller.openTradingApp();
+                await _openTradingApp(msg, controller);
               },
             ),
 
@@ -4105,9 +4220,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   ) {
     final isDark = _isDark(context);
     final hasText = msg.text.trim().isNotEmpty;
-    final label = msg.buttonLabel.trim().isNotEmpty
-        ? msg.buttonLabel.trim()
-        : 'CREATE A PROCESS';
+    final rawLabel = msg.buttonLabel.trim();
+    final label = rawLabel.isEmpty || rawLabel.toUpperCase().contains('PROCESS')
+        ? 'CREATE MY MCT PROCESS'
+        : rawLabel;
 
     Future<void> handleButtonTap() async {
       final upperLabel = label.toUpperCase();
@@ -4237,6 +4353,44 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final key = _tradingAppStepKey(msg);
     if (key.isEmpty) return;
     setState(() => _openedTradingAppMessageIds.add(key));
+  }
+
+  Future<void> _openTradingApp(
+    ChatMessage sourceMessage,
+    ChatController controller,
+  ) async {
+    final formattedSymbol = _formattedSymbolFor(sourceMessage);
+    if (formattedSymbol.isNotEmpty) {
+      try {
+        await Clipboard.setData(ClipboardData(text: formattedSymbol));
+        await AppToast.showToast('Copied $formattedSymbol to clipboard');
+      } catch (e) {
+        debugPrint('[ChatScreen] Failed to copy formatted symbol: $e');
+      }
+    }
+    await controller.openTradingApp();
+  }
+
+  String _formattedSymbolFor(ChatMessage message) {
+    if (message is NewTradeOpportunityMessage) {
+      return message.formattedSymbol.trim();
+    }
+    if (message is TradeExecutionPromptMessage) {
+      return message.tradeData.formattedSymbol.trim();
+    }
+    if (message is AlertHitWithButtonMessage) {
+      final tradeSymbol = message.tradeData?.formattedSymbol.trim() ?? '';
+      return tradeSymbol.isNotEmpty
+          ? tradeSymbol
+          : message.formattedSymbol.trim();
+    }
+    if (message is TradeSignalMessage) {
+      return message.formattedSymbol.trim();
+    }
+    if (message is AiWaitingMessage) {
+      return message.formattedSymbol.trim();
+    }
+    return '';
   }
 
   bool _sameTradeCardPrice(String a, String b) {
@@ -4400,7 +4554,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             enabled: _showButtons(msg),
             onTap: () {
               _markTradingAppOpened(msg);
-              controller.openTradingApp();
+              _openTradingApp(msg, controller);
             },
           ),
           const SizedBox(height: 14),
@@ -4492,7 +4646,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             enabled: _showButtons(msg),
             onTap: () {
               _markTradingAppOpened(msg);
-              controller.openTradingApp();
+              _openTradingApp(msg, controller);
             },
           ),
           const SizedBox(height: 14),
@@ -5029,7 +5183,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               enabled: true,
               onTap: () {
                 _markTradingAppOpened(actionSource);
-                controller.openTradingApp();
+                _openTradingApp(actionSource, controller);
               },
             ),
             const SizedBox(height: 14),
@@ -5977,7 +6131,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               enabled: _showButtons(msg),
               onTap: () {
                 _markTradingAppOpened(msg);
-                controller.openTradingApp();
+                _openTradingApp(msg, controller);
               },
             ),
             const SizedBox(height: 10),
@@ -6057,7 +6211,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               enabled: true,
               onTap: () {
                 _markTradingAppOpened(msg);
-                controller.openTradingApp();
+                _openTradingApp(msg, controller);
               },
             ),
             const SizedBox(height: 14),

@@ -38,6 +38,7 @@ class ApiConfig {
       'voice-chat/ask',
       'diagnostic/upload-log',
       'notification/today',
+      'user/logout',
     ];
     final isPhase5 = phase5Endpoints.any((e) => endpoint.contains(e));
     if (isPhase5) return _phase5Url;
@@ -51,6 +52,7 @@ class ApiConfig {
       'process/setup',
       'process/fetch',
       'process/edit',
+      'process/update-broking-app',
       'user/mind-control-active',
     ];
 

@@ -20,6 +20,7 @@ class ApiUrl {
       'dmt-level/user-levels-summary';
 
   static const String loginUrl = "user/login";
+  static const String logoutUrl = "user/logout";
   static const String sendOtpUrl = "user/send-otp";
   static const String verifyOtpUrl = "user/verify-otp";
   static const String searchInstrument = "instrument/search";
@@ -63,6 +64,9 @@ class ApiUrl {
 
   /// Edit/update existing process (form: user_id, process_id, trading_segment, instrument, trading_capital, trades_per_day, max_risk_percent, market_entry_time, broking_app, permission_overlay_enabled, permission_usage_stats_enabled, terms_accepted).
   static const String processEdit = "process/edit";
+
+  /// Update only the user's selected trading app (form: user_id, broking_app).
+  static const String processUpdateBrokingApp = "process/update-broking-app";
 
   /// Endpoint to send user query to LLM AI (POST JSON: user_id, user_query).
   static const String llmAsk = "llm/ask";

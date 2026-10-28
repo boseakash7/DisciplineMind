@@ -83,11 +83,13 @@ class AiWaitingMessage extends ChatMessage {
   final String text;
   final String heading;
   final String tradeId;
+  final String formattedSymbol;
 
   const AiWaitingMessage({
     required this.text,
     this.heading = '',
     this.tradeId = '',
+    this.formattedSymbol = '',
     super.messageId,
     super.isUnread,
     super.actionTaken,
@@ -155,6 +157,9 @@ class NewTradeOpportunityMessage extends ChatMessage {
   /// Preferred trade card subtitle from payload `symbol`.
   final String tradeSymbol;
 
+  /// Broker-ready symbol to copy before opening the trading app.
+  final String formattedSymbol;
+
   /// Optional user-specific live market price fetched by the backend.
   final String userLivePrice;
 
@@ -189,6 +194,7 @@ class NewTradeOpportunityMessage extends ChatMessage {
     this.buttonType = '',
     this.tradeName = '',
     this.tradeSymbol = '',
+    this.formattedSymbol = '',
     this.userLivePrice = '',
     this.userLivePriceFetchedAt = '',
     super.messageId,
@@ -223,6 +229,7 @@ class NewTradeOpportunityMessage extends ChatMessage {
       buttonType: buttonType,
       tradeName: tradeName,
       tradeSymbol: tradeSymbol,
+      formattedSymbol: formattedSymbol,
       userLivePrice: price,
       userLivePriceFetchedAt: fetchedAt,
       messageId: messageId,
@@ -364,6 +371,7 @@ class TradeSignalMessage extends ChatMessage {
   final String sequenceNo;
   final String status;
   final String createdAt;
+  final String formattedSymbol;
 
   const TradeSignalMessage({
     required this.headline,
@@ -383,6 +391,7 @@ class TradeSignalMessage extends ChatMessage {
     this.sequenceNo = '',
     this.status = '',
     this.createdAt = '',
+    this.formattedSymbol = '',
     super.timestamp,
     super.messageId,
     super.isUnread,
@@ -401,6 +410,7 @@ class AlertHitWithButtonMessage extends ChatMessage {
   final bool isTargetHit;
   final String status;
   final String targetHitPrice;
+  final String formattedSymbol;
   final NewTradeOpportunityMessage? tradeData;
 
   const AlertHitWithButtonMessage({
@@ -413,6 +423,7 @@ class AlertHitWithButtonMessage extends ChatMessage {
     this.isTargetHit = false,
     this.status = '',
     this.targetHitPrice = '',
+    this.formattedSymbol = '',
     this.tradeData,
     super.messageId,
     super.isUnread,
@@ -578,6 +589,9 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         text: message,
         heading: (json['heading'] ?? '').toString().trim(),
         tradeId: relatedTradeId,
+        formattedSymbol: (payloadMap?['formatted_symbol'] ?? '')
+            .toString()
+            .trim(),
         messageId: messageId,
         isUnread: isUnread,
         actionTaken: actionTaken,
@@ -592,7 +606,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
     return [
       AgentWithButtonMessage(
         text: '',
-        buttonLabel: message.isNotEmpty ? message : 'CREATE A PROCESS',
+        buttonLabel: message.isNotEmpty ? message : 'CREATE MY MCT PROCESS',
         messageId: messageId,
         isUnread: isUnread,
         actionTaken: actionTaken,
@@ -705,6 +719,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         sequenceNo: (p['sequence_no'] ?? '').toString(),
         status: (p['status'] ?? '').toString(),
         createdAt: (p['created_at'] ?? '').toString(),
+        formattedSymbol: (p['formatted_symbol'] ?? '').toString().trim(),
         timestamp: outerTimestamp,
         messageId: messageId,
         isUnread: isUnread,
@@ -792,6 +807,8 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       final stopLoss = (tp['stop_loss'] ?? '').toString();
       final takeProfit = (tp['take_profit'] ?? '').toString();
       final currentPrice = (tp['current_price'] ?? '').toString();
+      final formattedSymbol =
+          (tp['formatted_symbol'] ?? p['formatted_symbol'] ?? '').toString();
       final livePrice = _userLivePriceFromPayload(tp);
       final oldStopLoss = (tp['old_stop_loss_history'] ?? '').toString();
       final oldTakeProfit = (tp['old_take_profit_history'] ?? '').toString();
@@ -827,6 +844,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         buttonType: buttonTypeOuter,
         tradeName: name,
         tradeSymbol: symbol,
+        formattedSymbol: formattedSymbol.trim(),
         userLivePrice: livePrice.price,
         userLivePriceFetchedAt: livePrice.fetchedAt,
         messageId: messageId,
@@ -847,6 +865,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         isTargetHit: isTargetHit,
         status: status,
         targetHitPrice: _targetHitPriceFromPayload(p, isSlHit: isSlHit),
+        formattedSymbol: (p['formatted_symbol'] ?? '').toString().trim(),
         tradeData: tradeData,
         messageId: messageId,
         isUnread: isUnread,
@@ -867,6 +886,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
     final stopLoss = (p['stop_loss'] ?? '').toString();
     final takeProfit = (p['take_profit'] ?? '').toString();
     final currentPrice = (p['current_price'] ?? '').toString();
+    final formattedSymbol = (p['formatted_symbol'] ?? '').toString();
     final livePrice = _userLivePriceFromPayload(p);
     final oldStopLoss = (p['old_stop_loss_history'] ?? '').toString();
     final oldTakeProfit = (p['old_take_profit_history'] ?? '').toString();
@@ -901,6 +921,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       buttonType: buttonTypeOuter,
       tradeName: name,
       tradeSymbol: symbol,
+      formattedSymbol: formattedSymbol.trim(),
       userLivePrice: livePrice.price,
       userLivePriceFetchedAt: livePrice.fetchedAt,
       messageId: messageId,

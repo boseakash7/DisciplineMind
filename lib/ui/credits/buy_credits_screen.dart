@@ -86,7 +86,7 @@ class _BuyCreditsScreenState extends State<BuyCreditsScreen> {
                                 package: _controller.packages[i],
                                 selected:
                                     _controller.selectedPackageId.value ==
-                                        _controller.packages[i].id,
+                                    _controller.packages[i].id,
                                 onTap: () => _controller.selectPackage(
                                   _controller.packages[i].id,
                                 ),
@@ -106,8 +106,7 @@ class _BuyCreditsScreenState extends State<BuyCreditsScreen> {
                           discountAmount: _controller.discountAmount,
                           onApply: () {
                             FocusScope.of(context).unfocus();
-                            _controller
-                                .applyCouponCode(_couponController.text);
+                            _controller.applyCouponCode(_couponController.text);
                           },
                           onRemove: () {
                             _controller.removeCoupon();
@@ -137,9 +136,10 @@ class _BuyCreditsScreenState extends State<BuyCreditsScreen> {
                         final amount = _controller.amountToPay;
                         final hasCoupon =
                             _controller.appliedCoupon.value != null &&
-                                _controller.discountAmount > 0;
-                        final label =
-                            hasCoupon ? 'Buy Now | ₹$amount' : 'Buy Now';
+                            _controller.discountAmount > 0;
+                        final label = hasCoupon
+                            ? 'Buy Now | ₹$amount'
+                            : 'Buy Now';
                         return CreditGradientButton(
                           label: label,
                           isLoading: _controller.isPurchasing.value,
@@ -171,7 +171,7 @@ class _BuyCreditsScreenState extends State<BuyCreditsScreen> {
             children: [
               IconButton(
                 onPressed: () => Get.back(),
-                icon: const Icon(Icons.close, size: 24),
+                icon: const Icon(Icons.close, size: 20),
                 color: CreditsColors.textPrimary,
               ),
               const Expanded(
