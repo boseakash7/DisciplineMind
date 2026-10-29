@@ -2003,9 +2003,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       valueListenable: NotificationHandler.notificationPermissionRequesting,
       builder: (context, requesting, _) {
         return Padding(
-          // The parent screen owns the app header; keep this banner directly
-          // beneath it and let it span the full available width.
-          padding: const EdgeInsets.only(bottom: 2),
+          // Leave a small horizontal inset so the badge border is visible.
+          padding: const EdgeInsets.fromLTRB(4, 0, 4, 2),
           child: Container(
             width: double.infinity,
             padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),

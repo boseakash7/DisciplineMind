@@ -27,78 +27,92 @@ Future<void> showMctAnalysisPopup(
           constraints: const BoxConstraints(maxWidth: 420, maxHeight: 650),
           child: Stack(
             children: [
-              SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 53, 24, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'MCT PLAN FOR TODAY',
-                      textAlign: TextAlign.left,
-                      style: TextStyle(
-                        color: textColor,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        height: 1.15,
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(24, 53, 24, 20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'MCT PLAN FOR TODAY',
+                            textAlign: TextAlign.left,
+                            style: TextStyle(
+                              color: textColor,
+                              fontSize: 24,
+                              fontWeight: FontWeight.w800,
+                              height: 1.15,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          if (notification.body.isNotEmpty) ...[
+                            Text(
+                              notification.body,
+                              textAlign: TextAlign.left,
+                              style: TextStyle(
+                                color: secondaryTextColor,
+                                fontSize: 15,
+                                height: 1.45,
+                              ),
+                            ),
+                            const SizedBox(height: 18),
+                          ],
+                          ...notification.sections.map(
+                            (section) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.fromLTRB(
+                                  18,
+                                  16,
+                                  18,
+                                  17,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: sectionBackground,
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (section.heading.isNotEmpty)
+                                      Text(
+                                        section.heading,
+                                        textAlign: TextAlign.left,
+                                        style: TextStyle(
+                                          color: textColor,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w800,
+                                          height: 1.2,
+                                        ),
+                                      ),
+                                    if (section.heading.isNotEmpty &&
+                                        section.content.isNotEmpty)
+                                      const SizedBox(height: 9),
+                                    if (section.content.isNotEmpty)
+                                      Text(
+                                        section.content,
+                                        textAlign: TextAlign.left,
+                                        style: TextStyle(
+                                          color: secondaryTextColor,
+                                          fontSize: 14,
+                                          height: 1.45,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 14),
-                    if (notification.body.isNotEmpty) ...[
-                      Text(
-                        notification.body,
-                        textAlign: TextAlign.left,
-                        style: TextStyle(
-                          color: secondaryTextColor,
-                          fontSize: 15,
-                          height: 1.45,
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-                    ],
-                    ...notification.sections.map(
-                      (section) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.fromLTRB(18, 16, 18, 17),
-                          decoration: BoxDecoration(
-                            color: sectionBackground,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (section.heading.isNotEmpty)
-                                Text(
-                                  section.heading,
-                                  textAlign: TextAlign.left,
-                                  style: TextStyle(
-                                    color: textColor,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w800,
-                                    height: 1.2,
-                                  ),
-                                ),
-                              if (section.heading.isNotEmpty &&
-                                  section.content.isNotEmpty)
-                                const SizedBox(height: 9),
-                              if (section.content.isNotEmpty)
-                                Text(
-                                  section.content,
-                                  textAlign: TextAlign.left,
-                                  style: TextStyle(
-                                    color: secondaryTextColor,
-                                    fontSize: 14,
-                                    height: 1.45,
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    SizedBox(
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                    child: SizedBox(
                       width: double.infinity,
                       height: 52,
                       child: FilledButton(
@@ -119,8 +133,8 @@ Future<void> showMctAnalysisPopup(
                         ),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
               Positioned(
                 top: 2,
