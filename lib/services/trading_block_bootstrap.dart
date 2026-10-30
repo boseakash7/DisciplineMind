@@ -2,6 +2,9 @@ import 'dart:io';
 
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/constants/blocked_apps.dart';
+import 'package:discipline_mind/model/trading_process_model.dart';
+import 'package:discipline_mind/services/api/api_services.dart';
+import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_apps_service.dart';
@@ -20,7 +23,8 @@ Future<bool> hasAndroidTradingBlockPermissions() async {
 String resolveBrokerPackageName(String? name) {
   if (name == null || name.isEmpty) return 'com.zerodha.kite3';
   final lower = name.toLowerCase().trim();
-  if (lower.contains('zerodha') || lower.contains('kite')) return 'com.zerodha.kite3';
+  if (lower.contains('zerodha') || lower.contains('kite'))
+    return 'com.zerodha.kite3';
   if (lower.contains('upstox')) return 'in.upstox.app';
   if (lower.contains('groww')) return 'com.nextbillion.groww';
   if (lower.contains('angel')) return 'com.msf.angelmobile';
@@ -28,12 +32,33 @@ String resolveBrokerPackageName(String? name) {
   return 'com.zerodha.kite3';
 }
 
+/// Returns the broker saved in the user's existing process, if any. This is
+/// used after a fresh install, before there is a local selected-app preference.
+Future<String?> _fetchProcessBroker(String userId) async {
+  try {
+    final response = await ApiService().postFormData(ApiUrl.processFetch, {
+      'user_id': userId,
+    });
+    final raw = response.data;
+    if (!response.isSuccess || raw is! Map<String, dynamic>) return null;
+
+    final process = TradingProcessResponse.fromJson(raw);
+    final broker = process.payload?.brokingApp.trim();
+    return broker != null && broker.isNotEmpty ? broker : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 /// Checks permissions and starts the blocking service immediately if permitted.
 /// Safe to call frequently (e.g. on resume, login, permission callbacks).
-Future<bool> checkAndStartTradingBlockIfPermitted({String? explicitUserId}) async {
+Future<bool> checkAndStartTradingBlockIfPermitted({
+  String? explicitUserId,
+}) async {
   if (!Platform.isAndroid) return false;
   final blockService = NativeAppBlockService();
-  final userId = explicitUserId ??
+  final userId =
+      explicitUserId ??
       Common.userData.value?.payload?.id?.toString() ??
       GetStorage().read<String>('user_id');
 
@@ -60,7 +85,8 @@ Future<void> applyAndroidTradingAppBlock({String? explicitUserId}) async {
   if (!Platform.isAndroid) return;
   final blockService = NativeAppBlockService();
   final prefs = AppBlockPreferencesService();
-  final userId = explicitUserId ??
+  final userId =
+      explicitUserId ??
       Common.userData.value?.payload?.id?.toString() ??
       GetStorage().read<String>('user_id');
   if (userId != null && userId.isNotEmpty) {
@@ -93,10 +119,33 @@ Future<void> applyAndroidTradingAppBlock({String? explicitUserId}) async {
     }
   }
 
-  // If still empty (e.g. fresh login before broker selection), fallback to
-  // default monitored trading apps so protection is immediately active.
+  // Fresh install: local preferences do not exist yet, but the user may
+  // already have a trading process and selected broker on the server.
+  if (packages.isEmpty && userId != null && userId.isNotEmpty) {
+    final processBroker = await _fetchProcessBroker(userId);
+    if (processBroker != null) {
+      final pkg = resolveBrokerPackageName(processBroker);
+      await prefs.saveSelectedPackage(userId: userId, packageName: pkg);
+      await GetStorage().write('mct_brokerage_$userId', processBroker);
+      packages = [pkg];
+    }
+  }
+
+  // A user who has not selected a broker must not have every supported
+  // trading app blocked. Clear any stale default blocks instead.
   if (packages.isEmpty) {
-    packages = List<String>.from(blockedTradingAppPackages);
+    final known = blockedTradingAppPackages.toSet();
+    if (Get.isRegistered<TradingAppsService>()) {
+      final svc = Get.find<TradingAppsService>();
+      known.addAll(svc.apps.map((e) => e.packageName));
+    }
+    for (final package in known) {
+      await blockService.unblockApp(package);
+    }
+    if (known.isNotEmpty) {
+      await blockService.unblockAndClose(known.toList());
+    }
+    return;
   }
 
   // Ensure switching selection does not keep old apps blocked.

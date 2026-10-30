@@ -188,8 +188,12 @@ class TradingProcessController extends GetxController {
   /// Updates only the selected broker without changing the rest of the process.
   Future<bool> updateBrokingApp(String brokingApp) async {
     final effectiveUserId = Common.userData.value?.payload?.id?.toString();
-    final normalizedApp = brokingApp.trim().toLowerCase();
-    const supportedApps = {'zerodha_kite', 'upstox', 'groww'};
+    final requestedApp = brokingApp.trim().toLowerCase();
+    final normalizedApp =
+        requestedApp == 'zerodha_kite' || requestedApp == 'kite'
+        ? 'zerodha'
+        : requestedApp;
+    const supportedApps = {'zerodha', 'upstox', 'groww'};
 
     if (effectiveUserId == null || effectiveUserId.isEmpty) {
       AppToast.showToast('User not authenticated');

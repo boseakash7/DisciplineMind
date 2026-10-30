@@ -2867,10 +2867,9 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   // ============================================================
 
   String _getBrokingAppKey(String? name) {
-    if (name == null) return 'zerodha_kite';
+    if (name == null) return 'zerodha';
     final lower = name.toLowerCase().trim();
-    if (lower.contains('zerodha') || lower.contains('kite'))
-      return 'zerodha_kite';
+    if (lower.contains('zerodha') || lower.contains('kite')) return 'zerodha';
     if (lower.contains('upstox')) return 'upstox';
     if (lower.contains('groww')) return 'groww';
     if (lower.contains('angel')) return 'angel_one';

@@ -4,15 +4,9 @@ import 'package:get_storage/get_storage.dart';
 enum ApiEnvironment { v2Test, phase5 }
 
 class ApiConfig {
-  // Previous production URLs (kept commented for reference):
-  // static const String _legacyV2TestUrl =
-  //     "https://api.disciplinedminds.in/api/v2test/";
-  // static const String _legacyPhase5Url = "https://api.disciplinedminds.in/api/";
-
   static const String _v2TestUrl =
-      "https://staging-api.disciplinedminds.in/api/v2test/";
-  static const String _phase5Url =
-      "https://staging-api.disciplinedminds.in/api/";
+      "https://api.disciplinedminds.in/api/v2test/";
+  static const String _phase5Url = "https://api.disciplinedminds.in/api/";
 
   static String get v2TestBaseUrl => _v2TestUrl;
   static String get phase5BaseUrl => _phase5Url;
@@ -32,18 +26,8 @@ class ApiConfig {
   }
 
   static String getBaseUrl(String endpoint) {
-    // These endpoints previously used the /api/ family explicitly and must
-    // keep that routing after centralization.
-    const phase5Endpoints = [
-      'voice-chat/ask',
-      'diagnostic/upload-log',
-      'notification/today',
-      'user/logout',
-    ];
-    final isPhase5 = phase5Endpoints.any((e) => endpoint.contains(e));
-    if (isPhase5) return _phase5Url;
-
-    // These APIs are core to the new flow and must ALWAYS use v2test
+    // Only these APIs use the live /api/v2test/ route. Every other API uses
+    // the live /api/ route.
     const v2Endpoints = [
       'user/send-otp',
       'user/verify-otp',
@@ -59,10 +43,10 @@ class ApiConfig {
     final isV2 = v2Endpoints.any((e) => endpoint.contains(e));
     if (isV2) return _v2TestUrl;
 
-    return isZenoAi ? _phase5Url : _v2TestUrl;
+    return _phase5Url;
   }
 
-  /// Builds every API URL from the centralized staging base URLs.
+  /// Builds every API URL from the centralized live base URLs.
   ///
   /// [environment] is used only by intentional fallback calls that need to
   /// target a specific API generation.

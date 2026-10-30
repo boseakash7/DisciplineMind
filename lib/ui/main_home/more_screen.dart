@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:discipline_mind/common/ThemeService.dart';
@@ -8,6 +9,7 @@ import 'package:discipline_mind/ui/main_home/process_detail_screen.dart';
 import 'package:discipline_mind/services/app_diagnostic_logger.dart';
 import 'package:discipline_mind/services/app_url_launcher.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
+import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:discipline_mind/controller/trading_process_controller.dart';
 import 'package:flutter/material.dart';
@@ -36,7 +38,7 @@ class _TradingAppOption {
 
 const _supportedTradingApps = [
   _TradingAppOption(
-    value: 'zerodha_kite',
+    value: 'zerodha',
     label: 'Zerodha Kite',
     packageName: 'com.zerodha.kite3',
     logo: 'K',
@@ -107,9 +109,10 @@ class MoreScreen extends StatelessWidget {
       return;
     }
 
-    final currentValue = process.brokingApp.trim().toLowerCase() == 'zerodha'
-        ? 'zerodha_kite'
-        : process.brokingApp.trim().toLowerCase();
+    final savedBroker = process.brokingApp.trim().toLowerCase();
+    final currentValue = savedBroker == 'zerodha_kite' || savedBroker == 'kite'
+        ? 'zerodha'
+        : savedBroker;
     final selectedValue = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -224,23 +227,60 @@ class MoreScreen extends StatelessWidget {
     );
 
     if (selectedValue == null || selectedValue == currentValue) return;
+    if (!context.mounted) return;
     final selectedApp = _supportedTradingApps.firstWhere(
       (app) => app.value == selectedValue,
     );
-    final updated = await controller.updateBrokingApp(selectedApp.value);
-    if (!updated) return;
-
     final userId = Common.userData.value?.payload?.id?.toString();
     if (userId == null || userId.isEmpty) return;
 
-    final preferences = AppBlockPreferencesService();
-    await preferences.saveSelectedPackage(
-      userId: userId,
-      packageName: selectedApp.packageName,
+    final rootNavigator = Navigator.of(context, rootNavigator: true);
+    unawaited(
+      showDialog<void>(
+        context: context,
+        useRootNavigator: true,
+        barrierDismissible: false,
+        builder: (_) => PopScope(
+          canPop: false,
+          child: Center(
+            child: Semantics(
+              label: 'Updating selected trading app',
+              liveRegion: true,
+              child: CircularProgressIndicator(),
+            ),
+          ),
+        ),
+      ),
     );
-    await GetStorage().write('mct_brokerage_$userId', selectedApp.value);
-    if (Platform.isAndroid) {
-      await applyAndroidTradingAppBlock(explicitUserId: userId);
+
+    try {
+      // Keep the loader visible for both the API request and the native
+      // app-blocking changes that follow it.
+      final updated = await controller.updateBrokingApp(selectedApp.value);
+      if (!updated) return;
+
+      final preferences = AppBlockPreferencesService();
+      final previousPackage = preferences.getSelectedPackage(userId: userId);
+      await preferences.saveSelectedPackage(
+        userId: userId,
+        packageName: selectedApp.packageName,
+      );
+      await GetStorage().write('mct_brokerage_$userId', selectedApp.value);
+
+      if (Platform.isAndroid) {
+        final blockService = NativeAppBlockService();
+        if (previousPackage != null &&
+            previousPackage.isNotEmpty &&
+            previousPackage != selectedApp.packageName) {
+          await blockService.unblockApp(previousPackage);
+          await blockService.unblockAndClose([previousPackage]);
+        }
+        await applyAndroidTradingAppBlock(explicitUserId: userId);
+      }
+    } catch (_) {
+      AppToast.showToast('Unable to update trading app. Please try again.');
+    } finally {
+      if (rootNavigator.canPop()) rootNavigator.pop();
     }
   }
 
