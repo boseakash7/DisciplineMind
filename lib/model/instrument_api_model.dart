@@ -5,7 +5,7 @@ class InstrumentApiModel {
   InstrumentApiModel({this.status, this.payload});
 
   InstrumentApiModel.fromJson(Map<String, dynamic> json) {
-    status = json['status'];
+    status = json['status']?.toString();
     if (json['payload'] != null) {
       payload = <Payload>[];
       json['payload'].forEach((v) {
@@ -56,19 +56,19 @@ class Payload {
   });
 
   Payload.fromJson(Map<String, dynamic> json) {
-    instrumentToken = json['instrument_token'];
-    exchangeToken = json['exchange_token'];
-    exchange = json['exchange'];
-    tradingsymbol = json['tradingsymbol'];
-    name = json['name'];
-    lastPrice = json['last_price'];
-    expiryDate = json['expiry_date'];
-    expiryTimezone = json['expiry_timezone'];
-    strike = json['strike'];
-    tickSize = json['tick_size'];
-    lotSize = json['lot_size'];
-    instrumentType = json['instrument_type'];
-    segment = json['segment'];
+    instrumentToken = json['instrument_token']?.toString();
+    exchangeToken = json['exchange_token']?.toString();
+    exchange = json['exchange']?.toString();
+    tradingsymbol = json['tradingsymbol']?.toString();
+    name = json['name']?.toString();
+    lastPrice = json['last_price']?.toString();
+    expiryDate = json['expiry_date']?.toString();
+    expiryTimezone = json['expiry_timezone']?.toString();
+    strike = json['strike']?.toString();
+    tickSize = json['tick_size']?.toString();
+    lotSize = json['lot_size']?.toString();
+    instrumentType = json['instrument_type']?.toString();
+    segment = json['segment']?.toString();
   }
 
   Map<String, dynamic> toJson() {

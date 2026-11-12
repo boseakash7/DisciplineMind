@@ -5,7 +5,7 @@ class UserAlertModel {
   UserAlertModel({this.status, this.payload});
 
   UserAlertModel.fromJson(Map<String, dynamic> json) {
-    status = json['status'];
+    status = json['status']?.toString();
     if (json['payload'] != null) {
       payload = <UserAlerts>[];
       json['payload'].forEach((v) {

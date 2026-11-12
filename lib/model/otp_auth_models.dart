@@ -8,7 +8,7 @@ class SendOtpResponse {
 
   factory SendOtpResponse.fromJson(Map<String, dynamic> json) {
     return SendOtpResponse(
-      status: json['status'] as String?,
+      status: json['status']?.toString(),
       payload: json['payload'] != null
           ? SendOtpPayload.fromJson(
               Map<String, dynamic>.from(json['payload'] as Map),
@@ -23,17 +23,13 @@ class SendOtpPayload {
   final bool isOldUser;
   final String? message;
 
-  SendOtpPayload({
-    required this.phone,
-    required this.isOldUser,
-    this.message,
-  });
+  SendOtpPayload({required this.phone, required this.isOldUser, this.message});
 
   factory SendOtpPayload.fromJson(Map<String, dynamic> json) {
     return SendOtpPayload(
       phone: json['phone']?.toString() ?? '',
       isOldUser: _isOldUserFlag(json['is_old_user']),
-      message: json['message'] as String?,
+      message: json['message']?.toString(),
     );
   }
 }
@@ -46,7 +42,7 @@ class VerifyOtpResponse {
 
   factory VerifyOtpResponse.fromJson(Map<String, dynamic> json) {
     return VerifyOtpResponse(
-      status: json['status'] as String?,
+      status: json['status']?.toString(),
       payload: json['payload'] != null
           ? VerifyOtpPayload.fromJson(
               Map<String, dynamic>.from(json['payload'] as Map),
@@ -67,9 +63,9 @@ class VerifyOtpPayload {
     final userPayload = userRaw is Map<String, dynamic>
         ? Payload.fromJson(userRaw)
         : userRaw is Map
-            ? Payload.fromJson(Map<String, dynamic>.from(userRaw))
-            : null;
-            
+        ? Payload.fromJson(Map<String, dynamic>.from(userRaw))
+        : null;
+
     // Ensure trading_setup_type is passed to the user payload if it exists at the root of verify-otp payload
     if (userPayload != null && json.containsKey('trading_setup_type')) {
       userPayload.tradingSetupType = json['trading_setup_type']?.toString();

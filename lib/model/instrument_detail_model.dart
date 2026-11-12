@@ -5,7 +5,7 @@ class InstrumentDetailModel {
   InstrumentDetailModel({this.status, this.payload});
 
   InstrumentDetailModel.fromJson(Map<String, dynamic> json) {
-    status = json['status'];
+    status = json['status']?.toString();
     payload = json['payload'] != null
         ? InstrumentPayload.fromJson(json['payload'])
         : null;
@@ -185,9 +185,9 @@ class Timestamp {
   Timestamp({this.date, this.timezoneType, this.timezone});
 
   Timestamp.fromJson(Map<String, dynamic> json) {
-    date = json['date'];
+    date = json['date']?.toString();
     timezoneType = json['timezone_type'];
-    timezone = json['timezone'];
+    timezone = json['timezone']?.toString();
   }
 
   Map<String, dynamic> toJson() {
