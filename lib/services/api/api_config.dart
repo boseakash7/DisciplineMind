@@ -4,9 +4,11 @@ import 'package:get_storage/get_storage.dart';
 enum ApiEnvironment { v2Test, phase5 }
 
 class ApiConfig {
-  static const String _v2TestUrl =
-      "https://api.disciplinedminds.in/api/v2test/";
-  static const String _phase5Url = "https://api.disciplinedminds.in/api/";
+  // static const String _baseUrl = "https://api.disciplinedminds.in/api/"; //LIVE
+   static const String _baseUrl = "https://staging-api.disciplinedminds.in/api/"; //Staging
+
+static const String _v2TestUrl = "${_baseUrl}v2test/";
+static const String _phase5Url = _baseUrl;
 
   static String get v2TestBaseUrl => _v2TestUrl;
   static String get phase5BaseUrl => _phase5Url;

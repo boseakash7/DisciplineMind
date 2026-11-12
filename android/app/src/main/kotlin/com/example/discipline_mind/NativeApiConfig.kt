@@ -2,8 +2,11 @@ package com.discipline.mind
 
 /** Centralized API configuration for native Android code. */
 internal object NativeApiConfig {
-    const val V2_TEST_BASE_URL = "https://api.disciplinedminds.in/api/v2test/"
-    const val PHASE5_BASE_URL = "https://api.disciplinedminds.in/api/"
+    // const val BASE_URL = "https://api.disciplinedminds.in/api/" // LIVE
+    const val BASE_URL = "https://staging-api.disciplinedminds.in/api/" // STAGING
+
+    const val V2_TEST_BASE_URL = "${BASE_URL}v2test/"
+    const val PHASE5_BASE_URL = BASE_URL
 
     const val APP_STATE_PATH = "app/state"
     const val APP_FORCE_UNLOCK_PATH = "app/force-unlock"
