@@ -41,17 +41,22 @@ class AuthController extends GetxController {
     await _navigateAfterLogin();
   }
 
-  Future<void> _syncFcmAndSubscribe(String userId) async {
+  Future<void> _syncFcmAndSubscribe(String userId, {int attempt = 0}) async {
     try {
       await Common.getFcmToken();
       if (Common.fcmToken.isNotEmpty) {
-        await apiService.postMultipartForm(ApiUrl.fcmSync, {
+        final res = await apiService.postMultipartForm(ApiUrl.fcmSync, {
           "user_id": userId,
           "device_id": DeviceUtils.getDeviceId(),
           "token": Common.fcmToken,
         });
+        debugPrint('[AuthController] fcmSync status: isSuccess=${res.isSuccess}');
+        await NotificationHandler.subscribeToTradeAlerts();
+      } else if (attempt < 4) {
+        Future.delayed(Duration(seconds: 2 + attempt * 2), () {
+          _syncFcmAndSubscribe(userId, attempt: attempt + 1);
+        });
       }
-      await NotificationHandler.subscribeToTradeAlerts();
     } catch (e, stack) {
       debugPrint('[AuthController] _syncFcmAndSubscribe error: $e\n$stack');
     }

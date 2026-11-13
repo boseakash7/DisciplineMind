@@ -3,14 +3,18 @@ import 'dart:io';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/constants/blocked_apps.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
+import 'package:discipline_mind/services/ios_screen_time.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_apps_service.dart';
 import 'package:get/get.dart';
 
 import 'package:get_storage/get_storage.dart';
 
-/// Whether overlay + usage access are granted (required to use blocking on Android).
+/// Whether overlay + usage access (Android) or Screen Time (iOS) are granted.
 Future<bool> hasAndroidTradingBlockPermissions() async {
+  if (Platform.isIOS) {
+    return await IosScreenTime.isAuthorized();
+  }
   if (!Platform.isAndroid) return true;
   final p = await NativeAppBlockService().checkPermissions();
   return p['hasOverlayPermission'] == true &&
@@ -46,6 +50,14 @@ String resolveBrokerPackageName(String? name) {
 /// Checks permissions and starts the blocking service immediately if permitted.
 /// Safe to call frequently (e.g. on resume, login, permission callbacks).
 Future<bool> checkAndStartTradingBlockIfPermitted({String? explicitUserId}) async {
+  if (Platform.isIOS) {
+    final isAuth = await IosScreenTime.isAuthorized();
+    if (isAuth) {
+      await IosScreenTime.enableRestrictions();
+      return true;
+    }
+    return false;
+  }
   if (!Platform.isAndroid) return false;
   final blockService = NativeAppBlockService();
   final userId = explicitUserId ??
@@ -69,9 +81,13 @@ Future<bool> checkAndStartTradingBlockIfPermitted({String? explicitUserId}) asyn
   return false;
 }
 
-/// Applies selected-app blocking + foreground service (Android).
+/// Applies selected-app blocking + foreground service (Android) or Screen Time (iOS).
 /// Same building blocks as GTT / alert flows.
 Future<void> applyAndroidTradingAppBlock({String? explicitUserId}) async {
+  if (Platform.isIOS) {
+    await IosScreenTime.enableRestrictions();
+    return;
+  }
   if (!Platform.isAndroid) return;
   final blockService = NativeAppBlockService();
   final prefs = AppBlockPreferencesService();

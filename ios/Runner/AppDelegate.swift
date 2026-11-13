@@ -9,6 +9,11 @@ import UserNotifications
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+    if #available(iOS 16.0, *) {
+      if let registrar = self.registrar(forPlugin: "ZenoScreenTimeBridge") {
+        ScreenTimeBridge.register(with: registrar)
+      }
+    }
     if #available(iOS 10.0, *) {
       UNUserNotificationCenter.current().delegate = self as? UNUserNotificationCenterDelegate
     }
@@ -27,18 +32,6 @@ import UserNotifications
     print(token)
     print("========================================")
     super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
-  }
-
-  override func userNotificationCenter(
-    _ center: UNUserNotificationCenter,
-    willPresent notification: UNNotification,
-    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
-  ) {
-    if #available(iOS 14.0, *) {
-      completionHandler([.banner, .badge, .sound, .list])
-    } else {
-      completionHandler([.alert, .badge, .sound])
-    }
   }
 
   override func application(

@@ -227,11 +227,21 @@ class ApiService extends GetxService {
       String body = response.body.trim();
       // Strip leading HTML/whitespace that breaks jsonDecode
       if (!body.startsWith('{') && !body.startsWith('[')) {
+        if (body.contains('Error 404') || body.toLowerCase().contains('<html') || body.contains('<!doctype')) {
+          throw const FormatException('Response is HTML/Error page, not JSON');
+        }
         final jsonStart = body.indexOf('{');
-        if (jsonStart >= 0) {
-          body = body.substring(jsonStart);
+        final jsonEnd = body.lastIndexOf('}');
+        if (jsonStart >= 0 && jsonEnd > jsonStart) {
+          body = body.substring(jsonStart, jsonEnd + 1);
         } else {
-          throw const FormatException('Response is not JSON');
+          final arrayStart = body.indexOf('[');
+          final arrayEnd = body.lastIndexOf(']');
+          if (arrayStart >= 0 && arrayEnd > arrayStart) {
+            body = body.substring(arrayStart, arrayEnd + 1);
+          } else {
+            throw const FormatException('Response is not JSON');
+          }
         }
       }
       final jsonResponse = jsonDecode(body);

@@ -13,7 +13,7 @@ class _AppBlockIOSPageState extends State<AppBlockIOSPage> {
   bool granted = false;
   bool blocked = false;
 
-  final youtubeBundleId = "com.google.ios.youtube";
+  final youtubeBundleId = "Selected apps (Screen Time tokens)";
 
   @override
   Widget build(BuildContext context) {
@@ -41,7 +41,9 @@ class _AppBlockIOSPageState extends State<AppBlockIOSPage> {
                   ? null
                   : (v) async {
                       if (v) {
-                        await IosScreenTime.blockApp(youtubeBundleId);
+                        final picked = await IosScreenTime.showAppPicker();
+                        if (!picked) return;
+                        await IosScreenTime.enableRestrictions();
                       } else {
                         await IosScreenTime.unblockAll();
                       }

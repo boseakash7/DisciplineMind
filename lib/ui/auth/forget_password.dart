@@ -7,7 +7,9 @@ import '../../controller/auth_controller.dart';
 import '../widgets/common_widgets.dart';
 
 class ForgotPasswordScreen extends StatelessWidget {
-  final authController = Get.find<AuthController>();
+  final AuthController authController = Get.isRegistered<AuthController>()
+      ? Get.find<AuthController>()
+      : Get.put(AuthController(), permanent: true);
 
   ForgotPasswordScreen({super.key});
 

@@ -8,6 +8,9 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>Zeno AI</string>
+	<key>FirebaseAppDelegateProxyEnabled</key>
+	<true/>
+
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -47,10 +50,8 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>com.apple.developer.device-activity-monitoring</key>
-	<true/>
-	<key>com.apple.developer.family-controls</key>
-	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Zeno AI requires microphone access for voice messages and speech input.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

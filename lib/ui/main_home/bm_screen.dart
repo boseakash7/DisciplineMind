@@ -464,6 +464,7 @@
 //   @override
 //   bool shouldRepaint(covariant _DottedLinePainter oldDelegate) => oldDelegate.color != color;
 // }
+import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/controller/trading_process_controller.dart';
 import 'package:discipline_mind/services/dmt_user_levels_summary_service.dart';
@@ -522,14 +523,14 @@ class _BmScreenState extends State<BmScreen> with SingleTickerProviderStateMixin
 
   List<Color> get _levelColors => _isZenoAi
       ? [
-          const Color(0xFF00BCD4),
+          AppColors.primary,
           Colors.purple,
           Colors.green,
           Colors.orange,
           Colors.indigo,
         ]
       : [
-          const Color(0xFF5E35B1),
+          AppColors.primary,
           const Color(0xFF7E57C2),
           const Color(0xFFA657B7),
         ];

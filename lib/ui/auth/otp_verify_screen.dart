@@ -26,7 +26,9 @@ class OtpVerifyScreen extends StatefulWidget {
 }
 
 class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
-  final AuthController authController = Get.find<AuthController>();
+  final AuthController authController = Get.isRegistered<AuthController>()
+      ? Get.find<AuthController>()
+      : Get.put(AuthController(), permanent: true);
   final SmsConsentService _smsConsentService = SmsConsentService();
 
   static const List<Color> _brandGradient = [

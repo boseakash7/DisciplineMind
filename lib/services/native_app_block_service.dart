@@ -1,15 +1,19 @@
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'ios_screen_time.dart';
 
-/// Native app blocking - no package dependency.
-/// Uses platform channels to communicate with Kotlin code in the app.
+/// Native app blocking - cross platform (Android + iOS Screen Time).
+/// Uses platform channels to communicate with Kotlin on Android and ScreenTime on iOS.
 class NativeAppBlockService {
   static const _channel = MethodChannel('com.discipline_mind/app_block_manager');
   static const _overlayChannel = MethodChannel('com.discipline_mind/app_blocking_overlay');
 
-  /// Block an app by package name.
+  /// Block an app by package name (Android) or enable Screen Time restrictions (iOS).
   Future<bool> blockApp(String packageName) async {
+    if (Platform.isIOS) {
+      return await IosScreenTime.enableRestrictions();
+    }
     if (!Platform.isAndroid) return false;
     try {
       return (await _channel.invokeMethod<bool>('blockApp', {
@@ -22,8 +26,11 @@ class NativeAppBlockService {
     }
   }
 
-  /// Unblock an app by package name.
+  /// Unblock an app by package name (Android) or clear Screen Time restrictions (iOS).
   Future<bool> unblockApp(String packageName) async {
+    if (Platform.isIOS) {
+      return await IosScreenTime.unblockAll();
+    }
     if (!Platform.isAndroid) return false;
     try {
       return (await _channel.invokeMethod<bool>('unblockApp', {
@@ -38,6 +45,10 @@ class NativeAppBlockService {
 
   /// Get list of blocked package names.
   Future<List<String>> getBlockedApps() async {
+    if (Platform.isIOS) {
+      final hasSelected = await IosScreenTime.hasSelectedApps();
+      return hasSelected ? ['ios_selected_apps'] : [];
+    }
     if (!Platform.isAndroid) return [];
     try {
       final result = await _channel.invokeMethod<List<dynamic>>('getBlockedApps');
@@ -50,6 +61,9 @@ class NativeAppBlockService {
 
   /// Check if app is blocked.
   Future<bool> isAppBlocked(String packageName) async {
+    if (Platform.isIOS) {
+      return await IosScreenTime.hasSelectedApps();
+    }
     if (!Platform.isAndroid) return false;
     try {
       return (await _channel.invokeMethod<bool>('isAppBlocked', {
@@ -64,6 +78,9 @@ class NativeAppBlockService {
 
   /// Start the foreground blocking service.
   Future<bool> startBlockingService() async {
+    if (Platform.isIOS) {
+      return await IosScreenTime.enableRestrictions();
+    }
     if (!Platform.isAndroid) return false;
     try {
       return (await _channel.invokeMethod<bool>('startBlockingService')) ?? false;
@@ -75,6 +92,9 @@ class NativeAppBlockService {
 
   /// Stop the blocking service.
   Future<bool> stopBlockingService() async {
+    if (Platform.isIOS) {
+      return await IosScreenTime.unblockAll();
+    }
     if (!Platform.isAndroid) return false;
     try {
       return (await _channel.invokeMethod<bool>('stopBlockingService')) ?? false;
@@ -84,8 +104,15 @@ class NativeAppBlockService {
     }
   }
 
-  /// Check overlay and usage stats permissions.
+  /// Check overlay and usage stats permissions (Android) or Screen Time authorization (iOS).
   Future<Map<String, bool>> checkPermissions() async {
+    if (Platform.isIOS) {
+      final isAuth = await IosScreenTime.isAuthorized();
+      return {
+        'hasOverlayPermission': isAuth,
+        'hasUsageStatsPermission': isAuth,
+      };
+    }
     if (!Platform.isAndroid) {
       return {'hasOverlayPermission': false, 'hasUsageStatsPermission': false};
     }
@@ -102,8 +129,12 @@ class NativeAppBlockService {
     }
   }
 
-  /// Request overlay (display over other apps) permission.
+  /// Request overlay (Android) or Screen Time (iOS) permission.
   Future<void> requestOverlayPermission() async {
+    if (Platform.isIOS) {
+      await IosScreenTime.requestPermission();
+      return;
+    }
     if (!Platform.isAndroid) return;
     try {
       await _channel.invokeMethod('requestOverlayPermission');
@@ -247,6 +278,9 @@ class NativeAppBlockService {
 
   /// Unblock packages and close overlay (force unblock from overlay).
   Future<bool> unblockAndClose(List<String> packages) async {
+    if (Platform.isIOS) {
+      return await IosScreenTime.unblockAll();
+    }
     if (!Platform.isAndroid) return false;
     try {
       return (await _overlayChannel.invokeMethod<bool>('unblockAndClose', {

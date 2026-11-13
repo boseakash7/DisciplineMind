@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:app_limiter/app_limiter.dart';
+import 'package:discipline_mind/services/ios_screen_time.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/services/api/api_reponse.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
@@ -9,6 +9,7 @@ import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
 
 import '../common/device_utils.dart';
 import '../controller/chat_controller.dart';
@@ -155,12 +156,16 @@ class AlertController extends GetxController {
           }
           AppToast.showToast("Mind Control Guard is Activated");
         } else if (Platform.isIOS) {
-          final limiter = AppLimiter();
-          final granted = await limiter.requestIosPermission();
-          if (granted) {
-            await limiter.blockAndUnblockIOSApp();
-            AppToast.showToast("Mind Control Guard is Activated");
+          final isAuth = await IosScreenTime.isAuthorized();
+          if (!isAuth) {
+            await IosScreenTime.requestPermission();
           }
+          final hasApps = await IosScreenTime.hasSelectedApps();
+          if (!hasApps) {
+            await IosScreenTime.showAppPicker();
+          }
+          await IosScreenTime.enableRestrictions();
+          AppToast.showToast("Mind Control Guard is Activated");
         }
         return true;
       } else {
@@ -232,7 +237,6 @@ class AlertController extends GetxController {
         );
         return false;
       }
-      final AppLimiter limiter = AppLimiter();
 
       // Create upper alert (price above current)
       final respUpper = await apiService.postFormData(ApiUrl.createAlertUrl, {
@@ -266,8 +270,7 @@ class AlertController extends GetxController {
         }
       } else if (Platform.isIOS) {
         try {
-          await limiter.blockAndUnblockIOSApp();
-          success = true;
+          success = await IosScreenTime.enableRestrictions();
         } catch (e) {
           print('[AlertController] iOS block failed: $e');
           success = false;
@@ -371,14 +374,22 @@ class AlertController extends GetxController {
   Future<bool> checkBlockAppPermissions() async {
     // ✅ iOS Permission Flow
     if (Platform.isIOS) {
-      final AppLimiter limiter = AppLimiter();
-      final granted = await limiter.requestIosPermission();
-
-      if (!granted) {
-        AppToast.showToast("iOS ScreenTime permission required");
+      var authorized = await IosScreenTime.isAuthorized();
+      if (!authorized) {
+        authorized = await IosScreenTime.requestPermission();
+      }
+      if (!authorized) {
+        AppToast.showToast("iOS Screen Time permission required");
         return false;
       }
-
+      final hasApps = await IosScreenTime.hasSelectedApps();
+      if (!hasApps) {
+        final picked = await IosScreenTime.showAppPicker();
+        if (!picked) {
+          AppToast.showToast("Please select apps in Screen Time");
+          return false;
+        }
+      }
       return true;
     }
 
@@ -445,9 +456,9 @@ class AlertController extends GetxController {
             await _blockService.unblockApp(package);
           }
           AppToast.showToast("Mind Control Guard is Deactivated");
-        } else {
-          final AppLimiter limiter = AppLimiter();
-          await limiter.blockAndUnblockIOSApp();
+        } else if (Platform.isIOS) {
+          await _blockService.unblockApp('');
+          AppToast.showToast("Mind Control Guard is Deactivated");
         }
         final uid = Common.userData.value?.payload?.id;
         if (uid != null && uid.isNotEmpty) {

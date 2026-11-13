@@ -1,7 +1,7 @@
+import 'package:discipline_mind/services/ios_screen_time.dart';
 import 'dart:async';
 import 'dart:io';
 
-import 'package:app_limiter/app_limiter.dart';
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/services/api/api_config.dart';
@@ -363,11 +363,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _checkPermissions() async {
+    final storage = GetStorage();
     if (Platform.isIOS) {
-      final storage = GetStorage();
-      final overlay = storage.read<bool>('ios_overlay_granted') ?? false;
-      final usage = storage.read<bool>('ios_usage_granted') ?? false;
-
+      bool overlay = false;
+      bool usage = false;
+      try {
+        final authorized = await IosScreenTime.isAuthorized();
+        overlay = authorized || storage.read('ios_overlay_granted') == true;
+        usage = (storage.read('ios_usage_granted') == true) ||
+            (authorized && await IosScreenTime.hasSelectedApps());
+      } catch (e) {
+        debugPrint('[ScreenTime] $e');
+        overlay = storage.read('ios_overlay_granted') == true;
+        usage = storage.read('ios_usage_granted') == true;
+      }
       if (!mounted) return;
       setState(() {
         _iosOverlayGranted = overlay;
@@ -377,13 +386,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       return;
     }
 
-    final storage = GetStorage();
+    storage.remove('android_overlay_granted');
+    storage.remove('android_usage_granted');
+
     final permissions = await _blockService.checkPermissions();
     if (!mounted) return;
-    final overlay = (permissions['hasOverlayPermission'] ?? false) ||
-        (storage.read<bool>('android_overlay_granted') ?? false);
-    final usage = (permissions['hasUsageStatsPermission'] ?? false) ||
-        (storage.read<bool>('android_usage_granted') ?? false);
+    final overlay = permissions['hasOverlayPermission'] ?? false;
+    final usage = permissions['hasUsageStatsPermission'] ?? false;
     setState(() {
       _overlayGranted = overlay;
       _usageGranted = usage;
@@ -551,119 +560,96 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _requestIosDisplayOverApps() async {
-    final agreed = await _showScreenTimePermissionDialog(
-      context,
-      _isDark(context),
-    );
-    if (!agreed) {
-      AppToast.showToast('Permission required');
-      return;
-    }
-
     try {
-      final storage = GetStorage();
-      try {
-        final limiter = AppLimiter();
-        await limiter.requestIosPermission();
-      } catch (_) {}
+      final confirmed = await _showScreenTimePermissionDialog(
+        context,
+        _isDark(context),
+      );
+      if (!confirmed) {
+        if (mounted) AppToast.showToast('Permission denied');
+        return;
+      }
 
-      await storage.write('ios_family_controls_granted', true);
+      final storage = GetStorage();
       await storage.write('ios_overlay_granted', true);
-      if (!mounted) return;
       setState(() {
         _iosOverlayGranted = true;
       });
-      AppToast.showToast('Display Over Apps allowed');
+
+      try {
+        await IosScreenTime.requestPermission();
+      } catch (_) {}
+
+      await _checkPermissions();
+      if (mounted) AppToast.showToast('Display Over Apps allowed');
     } catch (e) {
-      debugPrint('[ChatScreen] _requestIosDisplayOverApps error: $e');
-      AppToast.showToast('Could not request permission');
+      final storage = GetStorage();
+      await storage.write('ios_overlay_granted', true);
+      setState(() {
+        _iosOverlayGranted = true;
+      });
     }
   }
 
   Future<void> _requestIosUsageAccess() async {
-    final agreed = await _showScreenTimePermissionDialog(
-      context,
-      _isDark(context),
-    );
-    if (!agreed) {
-      AppToast.showToast('Permission required');
-      return;
-    }
-
     try {
-      final storage = GetStorage();
-      try {
-        final limiter = AppLimiter();
-        await limiter.requestIosPermission();
-      } catch (_) {}
+      final confirmed = await _showScreenTimePermissionDialog(
+        context,
+        _isDark(context),
+      );
+      if (!confirmed) {
+        if (mounted) AppToast.showToast('Permission denied');
+        return;
+      }
 
-      await storage.write('ios_family_controls_granted', true);
+      final storage = GetStorage();
       await storage.write('ios_usage_granted', true);
-      if (!mounted) return;
       setState(() {
         _iosUsageGranted = true;
       });
-      AppToast.showToast('Usage Access allowed');
+
+      // Do NOT show app picker! The broker app is already selected during onboarding.
+      if (!await IosScreenTime.isAuthorized()) {
+        try {
+          await IosScreenTime.requestPermission();
+        } catch (_) {}
+      }
+
+      await _checkPermissions();
+      if (mounted) AppToast.showToast('Usage Access permission granted');
     } catch (e) {
-      debugPrint('[ChatScreen] _requestIosUsageAccess error: $e');
-      AppToast.showToast('Could not request permission');
+      final storage = GetStorage();
+      await storage.write('ios_usage_granted', true);
+      setState(() {
+        _iosUsageGranted = true;
+      });
     }
   }
 
   Future<void> _requestOverlay() async {
-    final agreed = await _showScreenTimePermissionDialog(
+    final confirmed = await _showScreenTimePermissionDialog(
       context,
       _isDark(context),
     );
-    if (!agreed) {
-      AppToast.showToast('Permission required');
+    if (!confirmed) {
+      if (mounted) AppToast.showToast('Permission denied');
       return;
     }
-
-    try {
-      final storage = GetStorage();
-      await storage.write('android_overlay_granted', true);
-      if (!mounted) return;
-      setState(() {
-        _overlayGranted = true;
-      });
-      AppToast.showToast('Display Over Apps allowed');
-      unawaited(_blockService.requestOverlayPermission());
-      if (_overlayGranted && _usageGranted) {
-        unawaited(checkAndStartTradingBlockIfPermitted());
-      }
-    } catch (e) {
-      debugPrint('[ChatScreen] _requestOverlay error: $e');
-      AppToast.showToast('Could not request permission');
-    }
+    await _blockService.requestOverlayPermission();
+    _checkPermissions();
   }
 
   Future<void> _requestUsage() async {
-    final agreed = await _showScreenTimePermissionDialog(
+    final confirmed = await _showScreenTimePermissionDialog(
       context,
       _isDark(context),
     );
-    if (!agreed) {
-      AppToast.showToast('Permission required');
+    if (!confirmed) {
+      if (mounted) AppToast.showToast('Permission denied');
       return;
     }
-
-    try {
-      final storage = GetStorage();
-      await storage.write('android_usage_granted', true);
-      if (!mounted) return;
-      setState(() {
-        _usageGranted = true;
-      });
-      AppToast.showToast('Usage Access allowed');
-      unawaited(_blockService.requestUsageStatsPermission());
-      if (_overlayGranted && _usageGranted) {
-        unawaited(checkAndStartTradingBlockIfPermitted());
-      }
-    } catch (e) {
-      debugPrint('[ChatScreen] _requestUsage error: $e');
-      AppToast.showToast('Could not request permission');
-    }
+    await _blockService.requestUsageStatsPermission();
+    _checkPermissions();
   }
 
   @override
@@ -1975,7 +1961,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Spacer(),
-              Icon(Icons.security_rounded, size: 80, color: AppColors.primary),
+              Icon(Icons.shield_rounded, size: 84, color: AppColors.primary),
               const SizedBox(height: 24),
               Text(
                 'Permissions Required',
@@ -2001,7 +1987,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 _buildPermissionCard(
                   title: 'Display Over Apps',
                   description: 'Required to show overlay alerts.',
-                  icon: Icons.layers_outlined,
+                  icon: Icons.layers_rounded,
                   isGranted: _iosOverlayGranted,
                   onTap: _requestIosDisplayOverApps,
                   isDark: isDark,
@@ -2019,7 +2005,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 _buildPermissionCard(
                   title: 'Display Over Apps',
                   description: 'Required to show overlay alerts.',
-                  icon: Icons.layers_outlined,
+                  icon: Icons.layers_rounded,
                   isGranted: _overlayGranted,
                   onTap: _requestOverlay,
                   isDark: isDark,
@@ -2034,7 +2020,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   isDark: isDark,
                 ),
               ],
-              const Spacer(),
+              const Spacer(flex: 2),
             ],
           ),
         ),
@@ -2050,95 +2036,93 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     required VoidCallback onTap,
     required bool isDark,
   }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: isGranted ? null : onTap,
+    final cardBg = isDark ? const Color(0xFF1E222A) : Colors.white;
+    return Container(
+      decoration: BoxDecoration(
+        color: cardBg,
         borderRadius: BorderRadius.circular(16),
-        child: Container(
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1E222A) : Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
+        border: Border.all(
+          color: isGranted
+              ? Colors.green.withOpacity(0.5)
+              : (isDark ? Colors.white12 : Colors.grey.shade300),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: ListTile(
+          onTap: isGranted ? null : onTap,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          leading: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
               color: isGranted
-                  ? Colors.green.withOpacity(0.5)
-                  : (isDark ? Colors.white12 : Colors.grey.shade300),
-              width: 1.5,
+                  ? Colors.green.withOpacity(0.1)
+                  : AppColors.primary.withOpacity(0.1),
+              shape: BoxShape.circle,
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
+            child: Icon(
+              isGranted ? Icons.check_circle_rounded : icon,
+              color: isGranted ? Colors.green : AppColors.primary,
+              size: 28,
+            ),
           ),
-          child: ListTile(
-            onTap: isGranted ? null : onTap,
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            leading: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: isGranted
-                    ? Colors.green.withOpacity(0.1)
-                    : AppColors.primary.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                isGranted ? Icons.check_circle_rounded : icon,
-                color: isGranted ? Colors.green : AppColors.primary,
-                size: 28,
-              ),
+          title: Text(
+            title,
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 16,
+              color: _headlineText(isDark),
             ),
-            title: Text(
-              title,
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 16,
-                color: _headlineText(isDark),
-              ),
+          ),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 4.0),
+            child: Text(
+              description,
+              style: TextStyle(fontSize: 13, color: _secondaryText(isDark)),
             ),
-            subtitle: Padding(
-              padding: const EdgeInsets.only(top: 4.0),
-              child: Text(
-                description,
-                style: TextStyle(fontSize: 13, color: _secondaryText(isDark)),
-              ),
-            ),
-            trailing: isGranted
-                ? Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: Colors.green.withOpacity(0.12),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.check,
-                      color: Colors.green,
-                      size: 20,
-                    ),
-                  )
-                : ElevatedButton(
-                    onPressed: onTap,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      elevation: 0,
-                    ),
-                    child: const Text(
-                      'Allow',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
+          ),
+          trailing: isGranted
+              ? Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.12),
+                    shape: BoxShape.circle,
                   ),
-          ),
+                  child: const Icon(
+                    Icons.check,
+                    color: Colors.green,
+                    size: 20,
+                  ),
+                )
+              : ElevatedButton(
+                  onPressed: onTap,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    'Allow',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
         ),
       ),
     );

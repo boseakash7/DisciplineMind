@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:app_limiter/app_limiter.dart';
+import 'package:discipline_mind/services/ios_screen_time.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/constants/blocked_apps.dart';
 import 'package:discipline_mind/controller/alert_controller.dart';
@@ -61,27 +61,28 @@ class ChatController extends GetxController {
     final userId = _resolvedUserId ??
         Common.userData.value?.payload?.id?.toString() ??
         GetStorage().read<String>('user_id');
-    if (userId == null || userId.isEmpty) {
-      return [];
-    }
-    final packages = _prefs.getSelectedPackages(userId: userId);
-    if (packages.isNotEmpty) {
-      return packages;
-    }
 
     final storage = GetStorage();
-    final savedPkg = storage.read<String>('mct_selected_package_$userId');
-    if (savedPkg != null && savedPkg.isNotEmpty) {
-      _prefs.saveSelectedPackage(userId: userId, packageName: savedPkg);
-      return [savedPkg];
-    }
 
-    final savedBrokerage = storage.read<String>('mct_brokerage_$userId');
-    if (savedBrokerage != null && savedBrokerage.isNotEmpty) {
-      final pkg = resolveBrokerPackageName(savedBrokerage);
-      if (pkg.isNotEmpty) {
-        _prefs.saveSelectedPackage(userId: userId, packageName: pkg);
-        return [pkg];
+    if (userId != null && userId.isNotEmpty) {
+      final packages = _prefs.getSelectedPackages(userId: userId);
+      if (packages.isNotEmpty) {
+        return packages;
+      }
+
+      final savedPkg = storage.read<String>('mct_selected_package_$userId');
+      if (savedPkg != null && savedPkg.isNotEmpty) {
+        _prefs.saveSelectedPackage(userId: userId, packageName: savedPkg);
+        return [savedPkg];
+      }
+
+      final savedBrokerage = storage.read<String>('mct_brokerage_$userId');
+      if (savedBrokerage != null && savedBrokerage.isNotEmpty) {
+        final pkg = resolveBrokerPackageName(savedBrokerage);
+        if (pkg.isNotEmpty) {
+          _prefs.saveSelectedPackage(userId: userId, packageName: pkg);
+          return [pkg];
+        }
       }
     }
 
@@ -90,11 +91,32 @@ class ChatController extends GetxController {
       if (proc?.brokingApp != null && proc!.brokingApp!.isNotEmpty) {
         final pkg = resolveBrokerPackageName(proc.brokingApp);
         if (pkg.isNotEmpty) {
-          _prefs.saveSelectedPackage(userId: userId, packageName: pkg);
+          if (userId != null && userId.isNotEmpty) {
+            _prefs.saveSelectedPackage(userId: userId, packageName: pkg);
+          }
           return [pkg];
         }
       }
     }
+
+    // Storage key scan fallback
+    try {
+      final keys = storage.getKeys();
+      for (final key in keys) {
+        final keyStr = key.toString();
+        if (keyStr.startsWith('mct_selected_package_')) {
+          final val = storage.read<String>(keyStr);
+          if (val != null && val.isNotEmpty) return [val];
+        }
+        if (keyStr.startsWith('mct_brokerage_')) {
+          final val = storage.read<String>(keyStr);
+          if (val != null && val.isNotEmpty) {
+            final pkg = resolveBrokerPackageName(val);
+            if (pkg.isNotEmpty) return [pkg];
+          }
+        }
+      }
+    } catch (_) {}
 
     return [];
   }
@@ -747,13 +769,10 @@ class ChatController extends GetxController {
         }
         AppToast.showToast('Mind Control Guard is Activated');
       } else if (Platform.isIOS) {
-        final limiter = AppLimiter();
-        final granted = await limiter.requestIosPermission();
-        if (granted) {
-          await limiter.blockAndUnblockIOSApp();
+        final ok = await _checkBlockAppPermissions();
+        if (ok) {
+          await IosScreenTime.enableRestrictions();
           AppToast.showToast('Mind Control Guard is Activated');
-        } else {
-          AppToast.showToast('iOS permission required to block apps');
         }
       }
     } catch (e, stack) {
@@ -1033,11 +1052,21 @@ class ChatController extends GetxController {
 
   Future<bool> _checkBlockAppPermissions() async {
     if (Platform.isIOS) {
-      final limiter = AppLimiter();
-      final granted = await limiter.requestIosPermission();
-      if (!granted) {
-        AppToast.showToast('iOS ScreenTime permission required');
+      var authorized = await IosScreenTime.isAuthorized();
+      if (!authorized) {
+        authorized = await IosScreenTime.requestPermission();
+      }
+      if (!authorized) {
+        AppToast.showToast('iOS Screen Time permission required');
         return false;
+      }
+      final hasApps = await IosScreenTime.hasSelectedApps();
+      if (!hasApps) {
+        final picked = await IosScreenTime.showAppPicker();
+        if (!picked) {
+          AppToast.showToast('Please select apps in Screen Time');
+          return false;
+        }
       }
       return true;
     }
@@ -1085,9 +1114,11 @@ class ChatController extends GetxController {
 
     if (Platform.isIOS) {
       try {
-        final limiter = AppLimiter();
-        await limiter.blockAndUnblockIOSApp();
-        AppToast.showToast('Mind Control Guard is Activated');
+        final ok = await _checkBlockAppPermissions();
+        if (ok) {
+          await IosScreenTime.enableRestrictions();
+          AppToast.showToast('Mind Control Guard is Activated');
+        }
       } catch (e) {
         print('[ChatController] iOS block failed: $e');
       }
@@ -1355,10 +1386,11 @@ class ChatController extends GetxController {
           AppToast.showToast('Mind Control Guard is Deactivated');
         }
       } else if (Platform.isIOS) {
-        final limiter = AppLimiter();
-        await limiter.blockAndUnblockIOSApp();
+        await _blockService.unblockApp('');
         final selectedPackages = _selectedBlockedPackages();
         var launched = false;
+
+        // 1. First attempt: Launch the selected broker app schemes
         for (final package in selectedPackages) {
           final schemes = iosTradingAppSchemes[package] ?? [];
           for (final scheme in schemes) {
@@ -1378,8 +1410,9 @@ class ChatController extends GetxController {
           }
           if (launched) break;
         }
+
+        // 2. Direct launch attempt for selected broker without canLaunchUrl pre-check
         if (!launched) {
-          // Direct fallback attempt
           for (final package in selectedPackages) {
             final schemes = iosTradingAppSchemes[package] ?? [];
             for (final scheme in schemes) {
@@ -1397,10 +1430,46 @@ class ChatController extends GetxController {
             if (launched) break;
           }
         }
-        if (!launched && selectedPackages.isNotEmpty) {
-          AppToast.showToast('Selected trading app is not installed');
-        } else {
+
+        // 3. Fallback attempt: Check if user has ANY other supported trading app installed on iPhone
+        if (!launched) {
+          for (final entry in iosTradingAppSchemes.entries) {
+            if (selectedPackages.contains(entry.key)) continue;
+            for (final scheme in entry.value) {
+              try {
+                final uri = Uri.parse(scheme);
+                if (await canLaunchUrl(uri)) {
+                  final ok = await launchUrl(
+                    uri,
+                    mode: LaunchMode.externalApplication,
+                  );
+                  if (ok) {
+                    launched = true;
+                    break;
+                  }
+                }
+              } catch (_) {}
+            }
+            if (launched) break;
+          }
+        }
+
+        // 4. App Store fallback: If the app is not installed on this iPhone, open its App Store page
+        if (!launched) {
+          final pkg = selectedPackages.isNotEmpty ? selectedPackages.first : 'com.zerodha.kite3';
+          final appStoreUrl = iosAppStoreUrls[pkg] ?? 'https://apps.apple.com/search?term=trading';
+          try {
+            launched = await launchUrl(
+              Uri.parse(appStoreUrl),
+              mode: LaunchMode.externalApplication,
+            );
+          } catch (_) {}
+        }
+
+        if (launched) {
           AppToast.showToast('Mind Control Guard is Deactivated');
+        } else {
+          AppToast.showToast('Selected trading app is not installed');
         }
       }
     } catch (e) {
@@ -1420,8 +1489,7 @@ class ChatController extends GetxController {
         await _blockService.stopBlockingService();
         AppToast.showToast('Mind Control Guard is Deactivated');
       } else if (Platform.isIOS) {
-        final limiter = AppLimiter();
-        await limiter.blockAndUnblockIOSApp();
+        await _blockService.unblockApp('');
         AppToast.showToast('Mind Control Guard is Deactivated');
       }
     } catch (e) {

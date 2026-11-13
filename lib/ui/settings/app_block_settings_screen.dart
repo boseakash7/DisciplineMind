@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
+import 'package:discipline_mind/services/ios_screen_time.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_apps_service.dart';
 import 'package:discipline_mind/services/trading_block_bootstrap.dart';
@@ -90,6 +93,25 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
 
     setState(() => _isSaving = true);
     try {
+      if (Platform.isIOS) {
+        final authorized = await IosScreenTime.isAuthorized();
+        if (!authorized) {
+          final granted = await IosScreenTime.requestPermission();
+          if (!granted) {
+            AppToast.showToast('Screen Time permission required to block apps');
+            return;
+          }
+        }
+        final hasApps = await IosScreenTime.hasSelectedApps();
+        if (!hasApps) {
+          final picked = await IosScreenTime.showAppPicker();
+          if (!picked) {
+            AppToast.showToast('Please select apps in Screen Time');
+            return;
+          }
+        }
+      }
+
       final previousPackage = _prefs.getSelectedPackage(userId: userId);
       final nextPackage = _selectedPackage!;
 

@@ -99,3 +99,16 @@ const Map<String, List<String>> iosTradingAppSchemes = {
   "com.mshare": ["mstock://"],
   "com.sahi.app": ["sahiapp://"],
 };
+
+/// App Store URLs for fallback when trading app is not installed.
+const Map<String, String> iosAppStoreUrls = {
+  "com.zerodha.kite3": "https://apps.apple.com/in/app/kite-by-zerodha/id1449453802",
+  "com.nextbillion.groww": "https://apps.apple.com/in/app/groww-stocks-mutual-fund-ipo/id1404871703",
+  "in.upstox.app": "https://apps.apple.com/in/app/upstox-stocks-mf-options/id6443944636",
+  "com.msf.angelmobile": "https://apps.apple.com/in/app/angel-one-stocks-mutual-fund/id1060530986",
+  "co.dhan": "https://apps.apple.com/in/app/dhan-stock-market-trading-app/id1575318726",
+  "com.kotak.neo": "https://apps.apple.com/in/app/kotak-neo-stock-trading-app/id1593676542",
+  "com.paytmmoney": "https://apps.apple.com/in/app/paytm-money-stocks-mutual-funds/id1344445880",
+  "com.icicidirect.mobile": "https://apps.apple.com/in/app/icicidirect-markets-stocks/id1566265737",
+  "com.hdfcsec.trade": "https://apps.apple.com/in/app/hdfc-sky-stock-market-invest/id6448375631",
+};

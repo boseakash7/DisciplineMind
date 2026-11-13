@@ -6,6 +6,7 @@ import 'package:discipline_mind/common/ThemeService.dart';
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/controller/alert_controller.dart';
+import 'package:discipline_mind/controller/auth_controller.dart';
 import 'package:discipline_mind/controller/chat_controller.dart';
 import 'package:discipline_mind/firebase_options.dart';
 import 'package:discipline_mind/services/notification/notification_handler.dart';
@@ -204,6 +205,7 @@ Future<void> main() async {
   // 4. Register core permanent services immediately so they are available everywhere
   Get.put(ApiService(), permanent: true);
   Get.put(TradingAppsService(), permanent: true);
+  Get.put(AuthController(), permanent: true);
 
   NotificationHandler.onNotificationReceived = _refreshUserAlertsOnNotification;
 
@@ -217,7 +219,7 @@ Future<void> main() async {
       if (kDebugMode) debugPrint('NotificationHandler init: $e');
     }
 
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid || Platform.isIOS) {
       try {
         final blockService = NativeAppBlockService();
         final blocked = await blockService.getBlockedApps().timeout(

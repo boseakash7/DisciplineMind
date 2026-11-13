@@ -190,7 +190,7 @@ class _TradesScreenState extends State<TradesScreen>
 
     switch (upperCode) {
       case "BM": // Believe Mode
-        return const Color(0xFF00BCD4);
+        return AppColors.primary;
       case "AM": // Achieve Purple
       case "AP":
         return const Color(0xFFAB47BC);

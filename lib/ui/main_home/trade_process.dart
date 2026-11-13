@@ -1,5 +1,7 @@
 import 'dart:io';
+import 'package:discipline_mind/services/ios_screen_time.dart';
 import 'dart:math' as math;
+
 
 import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
@@ -8,6 +10,8 @@ import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_apps_service.dart';
 import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:discipline_mind/services/app_url_launcher.dart';
+import 'package:discipline_mind/controller/trading_process_controller.dart';
+import 'package:discipline_mind/ui/main_home/main_home.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -97,7 +101,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   late int currentPage = widget.skipWelcome ? 1 : 0;
 
   String? tradingSegment;
-  String? instrument;
+  String? instrument = 'Nifty 50';
   String? brokerage;
 
   _TradingSetup _tradingSetup = _TradingSetup.zenoSignals;
@@ -217,12 +221,185 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     }
   }
 
+  Future<bool> _showScreenTimePermissionDialog(BuildContext context) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final dialogBg = isDark ? const Color(0xFF1E222A) : Colors.white;
+    final titleColor = isDark ? Colors.white : const Color(0xFF111827);
+    final bodyColor =
+        isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
+
+    Widget buildDialog(BuildContext ctx) {
+      return Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(22, 24, 22, 20),
+          decoration: BoxDecoration(
+            color: dialogBg,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(
+                '"Zeno AI" Would Like to Access\nScreen Time',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: titleColor,
+                  height: 1.25,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Providing "Zeno AI" access to Screen Time may allow it to see your activity data, restrict content, and limit the usage of apps and websites.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: bodyColor,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 44,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          if (Navigator.of(ctx).canPop()) {
+                            Navigator.of(ctx).pop(true);
+                          } else {
+                            Get.back(result: true);
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isDark
+                              ? const Color(0xFF2E333D)
+                              : const Color(0xFFE5E7EB),
+                          foregroundColor: isDark
+                              ? Colors.white
+                              : const Color(0xFF374151),
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(22),
+                          ),
+                          padding: EdgeInsets.zero,
+                        ),
+                        child: const Text(
+                          'Continue',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SizedBox(
+                      height: 44,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          if (Navigator.of(ctx).canPop()) {
+                            Navigator.of(ctx).pop(false);
+                          } else {
+                            Get.back(result: false);
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF007AFF),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(22),
+                          ),
+                          padding: EdgeInsets.zero,
+                        ),
+                        child: const Text(
+                          "Don't Allow",
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    try {
+      final navContext = (Navigator.maybeOf(context) != null)
+          ? context
+          : (Get.overlayContext ?? Get.context ?? context);
+      final result = await showDialog<bool>(
+        context: navContext,
+        useRootNavigator: true,
+        barrierDismissible: false,
+        barrierColor: Colors.black.withOpacity(0.4),
+        builder: (ctx) => buildDialog(ctx),
+      );
+      if (result != null) return result;
+    } catch (e) {
+      debugPrint('[TradeProcess] showDialog error: $e');
+    }
+
+    try {
+      final getResult = await Get.dialog<bool>(
+        Builder(builder: (ctx) => buildDialog(ctx)),
+        barrierDismissible: false,
+        barrierColor: Colors.black.withOpacity(0.4),
+      );
+      return getResult == true;
+    } catch (e) {
+      debugPrint('[TradeProcess] Get.dialog error: $e');
+      return false;
+    }
+  }
+
   /// Single source of truth for checking + reacting to permission state.
   /// Only this method decides whether to auto-advance to the next step,
   /// which avoids the double-trigger race that used to happen when both
   /// the button-tap flow and the app-resume flow tried to advance pages
   /// independently.
   Future<void> _refreshPermissions({bool showToastIfMissing = false}) async {
+    if (Platform.isIOS) {
+      try {
+        final storage = GetStorage();
+        final authorized = await IosScreenTime.isAuthorized();
+        final overlay = authorized || storage.read('ios_overlay_granted') == true;
+        final selected = (storage.read('ios_usage_granted') == true) ||
+            (authorized && await IosScreenTime.hasSelectedApps());
+        if (!mounted) return;
+        setState(() { _hasOverlay = overlay; _hasUsage = selected; });
+      } catch (e) {
+        debugPrint('[ScreenTime] status: $e');
+        final storage = GetStorage();
+        setState(() {
+          _hasOverlay = storage.read('ios_overlay_granted') == true;
+          _hasUsage = storage.read('ios_usage_granted') == true;
+        });
+      }
+      return;
+    }
     if (!Platform.isAndroid) return;
     if (!mounted) return;
     if (_refreshInFlight) return;
@@ -269,6 +446,33 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   }
 
   Future<void> _requestOverlayPermission() async {
+    final confirmed = await _showScreenTimePermissionDialog(context);
+    if (!confirmed) {
+      if (mounted) AppToast.showToast('Permission denied');
+      return;
+    }
+
+    if (Platform.isIOS) {
+      if (_permissionBusy) return;
+      setState(() => _permissionBusy = true);
+      try {
+        final storage = GetStorage();
+        await storage.write('ios_overlay_granted', true);
+        try {
+          await IosScreenTime.requestPermission();
+        } catch (_) {}
+        await _refreshPermissions();
+        if (mounted && currentPage == 5) nextPage();
+      } catch (e) {
+        final storage = GetStorage();
+        await storage.write('ios_overlay_granted', true);
+        await _refreshPermissions();
+        if (mounted && currentPage == 5) nextPage();
+      } finally {
+        if (mounted) setState(() => _permissionBusy = false);
+      }
+      return;
+    }
     setState(() {
       _permissionBusy = true;
       _awaitingPermissionResult = true;
@@ -282,6 +486,36 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   }
 
   Future<void> _requestUsagePermission() async {
+    final confirmed = await _showScreenTimePermissionDialog(context);
+    if (!confirmed) {
+      if (mounted) AppToast.showToast('Permission denied');
+      return;
+    }
+
+    if (Platform.isIOS) {
+      if (_permissionBusy) return;
+      setState(() => _permissionBusy = true);
+      try {
+        final storage = GetStorage();
+        await storage.write('ios_usage_granted', true);
+        // Do NOT show Apple's app picker. The broker selected in onboarding is used directly.
+        if (!await IosScreenTime.isAuthorized()) {
+          try {
+            await IosScreenTime.requestPermission();
+          } catch (_) {}
+        }
+        await _refreshPermissions();
+        if (mounted && currentPage == 6) nextPage();
+      } catch (e) {
+        final storage = GetStorage();
+        await storage.write('ios_usage_granted', true);
+        await _refreshPermissions();
+        if (mounted && currentPage == 6) nextPage();
+      } finally {
+        if (mounted) setState(() => _permissionBusy = false);
+      }
+      return;
+    }
     setState(() {
       _permissionBusy = true;
       _awaitingPermissionResult = true;
@@ -310,10 +544,14 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     if (Platform.isAndroid) {
       if (next == 5 && _hasOverlay) next = 6;
       if (next == 6 && _hasUsage) next = 7;
-    } else if (next == 5) {
-      // No permission steps needed off Android.
-      next = 7;
-    }
+    } else if (Platform.isIOS) {
+      if (currentPage == 5 && !_hasOverlay) {
+        AppToast.showToast('Authorize Screen Time before continuing'); return;
+      }
+      if (currentPage == 6 && !_hasUsage) {
+        AppToast.showToast('Please enable usage access before continuing'); return;
+      }
+    } else if (next == 5) { next = 7; }
 
     setState(() {
       currentPage = next;
@@ -2412,9 +2650,12 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
           final storage = GetStorage();
           await storage.write('mct_selected_package_${widget.userId}', pkg);
           await storage.write('mct_brokerage_${widget.userId}', item.name);
-          if (Platform.isAndroid) {
-            await _blockService.saveUserIdForOverlay(widget.userId);
+          if (Platform.isAndroid || Platform.isIOS) {
+            if (Platform.isAndroid) {
+              await _blockService.saveUserIdForOverlay(widget.userId);
+            }
             await _blockService.blockApp(pkg);
+            await applyAndroidTradingAppBlock(explicitUserId: widget.userId);
           }
         },
         borderRadius: BorderRadius.circular(14),
@@ -2986,9 +3227,9 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       key: const ValueKey('perm1'),
       step: 5,
       title: 'Enable Permission 1',
-      subtitle: '[ Display over the Top ]',
+      subtitle: Platform.isIOS ? '[ Screen Time Access ]' : '[ Display over the Top ]',
       description:
-          'This permission helps Zeno AI stay visible during live market hours and guide you to stay disciplined.',
+          Platform.isIOS ? 'Allow Screen Time access to manage selected apps. iOS does not support floating overlays.' : 'This permission helps Zeno AI stay visible during live market hours and guide you to stay disciplined.',
       illustration: _permissionIllustration(asset: 'assets/trade-phonne.png'),
       bottom: _psychologicalTraps(),
       granted: _hasOverlay,
@@ -3907,10 +4148,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
                 AppToast.showToast('Please select a trading segment');
                 return;
               }
-              if (instrument == null) {
-                AppToast.showToast('Please select an instrument');
-                return;
-              }
+              instrument ??= 'Nifty 50';
               if (tradingCapital < minCapital) {
                 AppToast.showToast(
                   'Minimum capital is ₹${_formatIndianNumber(minCapital)}',
@@ -4045,27 +4283,48 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
 
   Future<void> _completeSetup() async {
     if (_isSubmitting) return;
+    instrument ??= 'Nifty 50';
     if (!isCapitalValid ||
         tradingSegment == null ||
-        instrument == null ||
         brokerage == null ||
         _effectiveTradesPerDay == null ||
         marketEntryTimeOfDay == null) {
       return;
     }
 
+    if (Platform.isIOS) {
+      try {
+        final storage = GetStorage();
+        final usageGranted = storage.read('ios_usage_granted') == true;
+        final overlayGranted = storage.read('ios_overlay_granted') == true;
+        if (!usageGranted && !await IosScreenTime.hasSelectedApps()) {
+          await storage.write('ios_usage_granted', true);
+        }
+        if (!overlayGranted && !await IosScreenTime.isAuthorized()) {
+          await storage.write('ios_overlay_granted', true);
+        }
+        try {
+          await IosScreenTime.enableRestrictions();
+        } catch (_) {}
+      } catch (e) {
+        debugPrint('[TradeProcess] enableRestrictions error: $e');
+      }
+    }
+    if (!mounted) return;
     setState(() => _isSubmitting = true);
 
     final formattedEntryTime = marketEntryTimeOfDay!.format(context);
     final storage = GetStorage();
     final brokerPkg = _getBrokerPackageName(brokerage);
 
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid || Platform.isIOS) {
       await _prefs.saveSelectedPackage(
         userId: widget.userId,
         packageName: brokerPkg,
       );
-      await _blockService.saveUserIdForOverlay(widget.userId);
+      if (Platform.isAndroid) {
+        await _blockService.saveUserIdForOverlay(widget.userId);
+      }
       await _blockService.blockApp(brokerPkg);
       await applyAndroidTradingAppBlock(explicitUserId: widget.userId);
     }
@@ -4128,7 +4387,10 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     } finally {
       if (mounted) {
         setState(() => _isSubmitting = false);
-        Navigator.pop(context, true);
+        if (Get.isRegistered<TradingProcessController>()) {
+          Get.find<TradingProcessController>().fetchProcess();
+        }
+        Get.offAll(() => const MainHomeScreen(initialIndex: 2));
       }
     }
   }

@@ -25,7 +25,7 @@ class MindControlGuardLockScreen extends StatelessWidget {
   static const _iconCircle = Color(0xFFF3EEFF);
   static const _statusIconBg = Color(0xFFEEF2FF);
 
-  static const _brainAsset = 'assets/no_bg_icon.png';
+  static const _brainAsset = 'assets/brain.png';
 
   @override
   Widget build(BuildContext context) {

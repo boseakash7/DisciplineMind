@@ -181,12 +181,9 @@ class MainActivity : FlutterActivity() {
             if (appBlockPlugin?.isOverlayPermissionGranted() == true &&
                 appBlockPlugin?.isUsageStatsEnabled() == true
             ) {
-                val userId = AppManager.loadUserIdForOverlay(this)
-                if (!userId.isNullOrEmpty()) {
-                    AppManager.loadBlockedApps(this)
-                    if (AppManager.blockedApps.isNotEmpty()) {
-                        AppManager.startBlockingService(this)
-                    }
+                AppManager.loadBlockedApps(this)
+                if (AppManager.blockedApps.isNotEmpty()) {
+                    AppManager.startBlockingService(this)
                 }
             }
         } catch (_: Exception) {}

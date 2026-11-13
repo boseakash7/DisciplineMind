@@ -21,7 +21,9 @@ class SignUpScreen extends StatefulWidget {
 }
 
 class _SignUpScreenState extends State<SignUpScreen> {
-  final authController = Get.find<AuthController>();
+  final AuthController authController = Get.isRegistered<AuthController>()
+      ? Get.find<AuthController>()
+      : Get.put(AuthController(), permanent: true);
 
   late final TextEditingController nameController;
   final TextEditingController emailController = TextEditingController();

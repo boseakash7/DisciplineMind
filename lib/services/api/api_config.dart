@@ -3,7 +3,7 @@ import 'package:get_storage/get_storage.dart';
 
 class ApiConfig {
   static const String _v2TestUrl = "https://api.disciplinedminds.in/api/v2test/";
-  static const String _phase5Url = "http://api.disciplinedminds.in/api/";
+  static const String _phase5Url = "https://api.disciplinedminds.in/api/";
   
   static String? activeSetupType;
 
@@ -19,6 +19,10 @@ class ApiConfig {
   }
 
   static String getBaseUrl(String endpoint) {
+    if (endpoint.contains('trading-apps') || endpoint.contains('dmt-')) {
+      return _phase5Url;
+    }
+
     // These APIs are core to the new flow and must ALWAYS use v2test
     const v2Endpoints = [
       'user/send-otp',
