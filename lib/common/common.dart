@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:get/get.dart';
@@ -7,7 +8,9 @@ import '../controller/alert_controller.dart';
 import '../controller/chat_controller.dart';
 import '../model/login_reponse_model.dart';
 import '../services/api/api_services.dart';
+import '../services/api/api_config.dart';
 import '../services/local_db.dart';
+import '../services/native_app_block_service.dart';
 import '../services/notification/notification_handler.dart';
 import '../ui/auth/phone_login_screen.dart';
 
@@ -104,19 +107,46 @@ class Common {
     }
   }
 
-  static void logout() async {
-    await NotificationHandler.unsubscribeFromTradeAlerts();
-    if (Get.isRegistered<ChatController>()) {
-      Get.find<ChatController>().reset();
-    }
-    if (Get.isRegistered<AlertController>()) {
-      Get.find<AlertController>().clear();
-    }
-    Get.deleteAll(force: true);
+  static Future<void> logout() async {
+    // Clear local auth state and navigate before waiting on Firebase or native
+    // cleanup. Those platform calls can stall when the device is offline.
+    try {
+      if (Get.isRegistered<ChatController>()) {
+        Get.find<ChatController>().reset();
+      }
+      if (Get.isRegistered<AlertController>()) {
+        Get.find<AlertController>().clear();
+      }
+    } catch (_) {}
+
     storage.clearLogin();
     userData.value = null;
     GetStorage().remove('user_id');
     ApiService.clearPersistedSessionCookie();
+    ApiConfig.activeSetupType = null;
+
+    try {
+      await Get.deleteAll(force: true);
+    } catch (_) {}
+
     Get.offAll(() => PhoneLoginScreen());
+
+    // Best-effort cleanup must never keep the user on the signed-in screen.
+    unawaited(
+      NotificationHandler.unsubscribeFromTradeAlerts()
+          .timeout(const Duration(seconds: 3))
+          .catchError((Object error) {
+            print('[Common] FCM topic cleanup timed out or failed: $error');
+          }),
+    );
+    unawaited(
+      NativeAppBlockService()
+          .stopBlockingService()
+          .timeout(const Duration(seconds: 3))
+          .catchError((Object error) {
+            print('[Common] Blocking service cleanup timed out or failed: $error');
+            return false;
+          }),
+    );
   }
 }

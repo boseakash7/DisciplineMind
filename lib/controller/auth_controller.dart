@@ -17,7 +17,6 @@ import '../common/device_utils.dart';
 import '../controller/chat_controller.dart';
 import '../model/login_reponse_model.dart';
 import '../model/otp_auth_models.dart';
-import '../services/api/api_config.dart';
 import '../services/api/api_reponse.dart';
 import '../services/api/api_services.dart';
 import '../services/local_db.dart';
@@ -252,18 +251,5 @@ class AuthController extends GetxController {
     }
   }
 
-  void logout() {
-    storage.clearLogin();
-    Common.userData.value = null;
-    GetStorage().remove('user_id');
-    ApiService.clearPersistedSessionCookie();
-    ApiConfig.activeSetupType = null;
-    try {
-      NativeAppBlockService().stopBlockingService();
-    } catch (_) {}
-    if (Get.isRegistered<ChatController>()) {
-      Get.delete<ChatController>(force: true);
-    }
-    Get.offAll(() => PhoneLoginScreen());
-  }
+  Future<void> logout() => Common.logout();
 }
