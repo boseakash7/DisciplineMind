@@ -35,9 +35,15 @@ final class ScreenTimeBridge: NSObject, FlutterPlugin {
     case "restoreRestrictionsAfterSkip":
       let selection = loadSelection()
       guard AuthorizationCenter.shared.authorizationStatus == .approved,
-            !selection.applicationTokens.isEmpty,
-            let currentApplications = store.shield.applications,
-            currentApplications != selection.applicationTokens else {
+            !selection.applicationTokens.isEmpty else {
+        result(false)
+        return
+      }
+      // Managed Settings can report a cleared, empty app set as nil when Skip
+      // removed the only selected app. Treat nil as empty so the saved
+      // selection is restored when Zeno returns to the foreground.
+      let currentApplications = store.shield.applications ?? []
+      guard currentApplications != selection.applicationTokens else {
         result(false)
         return
       }
