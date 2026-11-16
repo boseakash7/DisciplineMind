@@ -4,6 +4,7 @@ import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
 import 'package:discipline_mind/services/ios_screen_time.dart';
+import 'package:discipline_mind/services/mind_control_guard_consent.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_apps_service.dart';
 import 'package:discipline_mind/services/trading_block_bootstrap.dart';
@@ -94,6 +95,7 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
     setState(() => _isSaving = true);
     try {
       if (Platform.isIOS) {
+        if (!await MindControlGuardConsent.ensureAccepted()) return;
         final authorized = await IosScreenTime.isAuthorized();
         if (!authorized) {
           final granted = await IosScreenTime.requestPermission();

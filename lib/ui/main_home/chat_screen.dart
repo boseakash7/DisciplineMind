@@ -370,12 +370,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       try {
         final authorized = await IosScreenTime.isAuthorized();
         overlay = authorized || storage.read('ios_overlay_granted') == true;
-        usage = (storage.read('ios_usage_granted') == true) ||
-            (authorized && await IosScreenTime.hasSelectedApps());
+        usage = authorized && await IosScreenTime.hasSelectedApps();
       } catch (e) {
         debugPrint('[ScreenTime] $e');
         overlay = storage.read('ios_overlay_granted') == true;
-        usage = storage.read('ios_usage_granted') == true;
+        usage = false;
       }
       if (!mounted) return;
       setState(() {
@@ -602,27 +601,30 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         return;
       }
 
-      final storage = GetStorage();
-      await storage.write('ios_usage_granted', true);
-      setState(() {
-        _iosUsageGranted = true;
-      });
-
-      // Do NOT show app picker! The broker app is already selected during onboarding.
-      if (!await IosScreenTime.isAuthorized()) {
-        try {
-          await IosScreenTime.requestPermission();
-        } catch (_) {}
+      var authorized = await IosScreenTime.isAuthorized();
+      if (!authorized) {
+        authorized = await IosScreenTime.requestPermission();
+      }
+      if (!authorized) {
+        if (mounted) {
+          AppToast.showToast('iOS Screen Time authorization is required');
+        }
+        return;
+      }
+      if (!await IosScreenTime.ensureSelectedApps()) {
+        if (mounted) {
+          AppToast.showToast(
+            'Select your trading app once in the iOS app picker',
+          );
+        }
+        return;
       }
 
       await _checkPermissions();
       if (mounted) AppToast.showToast('Usage Access permission granted');
     } catch (e) {
-      final storage = GetStorage();
-      await storage.write('ios_usage_granted', true);
-      setState(() {
-        _iosUsageGranted = true;
-      });
+      debugPrint('[ScreenTime] app selection: $e');
+      await _checkPermissions();
     }
   }
 

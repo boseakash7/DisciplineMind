@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:discipline_mind/services/ios_screen_time.dart';
+import 'package:discipline_mind/services/mind_control_guard_consent.dart';
 import 'dart:math' as math;
 
 
@@ -386,8 +387,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         final storage = GetStorage();
         final authorized = await IosScreenTime.isAuthorized();
         final overlay = authorized || storage.read('ios_overlay_granted') == true;
-        final selected = (storage.read('ios_usage_granted') == true) ||
-            (authorized && await IosScreenTime.hasSelectedApps());
+        final selected = authorized && await IosScreenTime.hasSelectedApps();
         if (!mounted) return;
         setState(() { _hasOverlay = overlay; _hasUsage = selected; });
       } catch (e) {
@@ -395,7 +395,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         final storage = GetStorage();
         setState(() {
           _hasOverlay = storage.read('ios_overlay_granted') == true;
-          _hasUsage = storage.read('ios_usage_granted') == true;
+          _hasUsage = false;
         });
       }
       return;
@@ -496,21 +496,26 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       if (_permissionBusy) return;
       setState(() => _permissionBusy = true);
       try {
-        final storage = GetStorage();
-        await storage.write('ios_usage_granted', true);
-        // Do NOT show Apple's app picker. The broker selected in onboarding is used directly.
-        if (!await IosScreenTime.isAuthorized()) {
-          try {
-            await IosScreenTime.requestPermission();
-          } catch (_) {}
+        var authorized = await IosScreenTime.isAuthorized();
+        if (!authorized) {
+          authorized = await IosScreenTime.requestPermission();
+        }
+        if (!authorized) {
+          AppToast.showToast('iOS Screen Time authorization is required');
+          return;
+        }
+        final hasSelection = await IosScreenTime.ensureSelectedApps();
+        if (!hasSelection) {
+          AppToast.showToast(
+            'Select your trading app once in the iOS app picker',
+          );
+          return;
         }
         await _refreshPermissions();
-        if (mounted && currentPage == 6) nextPage();
+        if (mounted && currentPage == 6 && _hasUsage) nextPage();
       } catch (e) {
-        final storage = GetStorage();
-        await storage.write('ios_usage_granted', true);
+        debugPrint('[ScreenTime] app selection: $e');
         await _refreshPermissions();
-        if (mounted && currentPage == 6) nextPage();
       } finally {
         if (mounted) setState(() => _permissionBusy = false);
       }
@@ -4294,20 +4299,23 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
 
     if (Platform.isIOS) {
       try {
-        final storage = GetStorage();
-        final usageGranted = storage.read('ios_usage_granted') == true;
-        final overlayGranted = storage.read('ios_overlay_granted') == true;
-        if (!usageGranted && !await IosScreenTime.hasSelectedApps()) {
-          await storage.write('ios_usage_granted', true);
+        if (!await MindControlGuardConsent.ensureAccepted()) return;
+        if (!await IosScreenTime.isAuthorized()) {
+          AppToast.showToast('iOS Screen Time authorization is required');
+          return;
         }
-        if (!overlayGranted && !await IosScreenTime.isAuthorized()) {
-          await storage.write('ios_overlay_granted', true);
+        if (!await IosScreenTime.ensureSelectedApps()) {
+          AppToast.showToast('Select your trading app in the iOS app picker');
+          return;
         }
-        try {
-          await IosScreenTime.enableRestrictions();
-        } catch (_) {}
+        if (!await IosScreenTime.enableRestrictions()) {
+          AppToast.showToast('Could not enable the iOS trading app shield');
+          return;
+        }
       } catch (e) {
         debugPrint('[TradeProcess] enableRestrictions error: $e');
+        AppToast.showToast('Could not enable the iOS trading app shield');
+        return;
       }
     }
     if (!mounted) return;

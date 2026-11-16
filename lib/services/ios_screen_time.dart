@@ -33,6 +33,16 @@ class IosScreenTime {
       return false;
     }
   }
+
+  /// Reuse the saved Family Controls selection, showing Apple's picker only
+  /// once when no app tokens have been saved yet.
+  static Future<bool> ensureSelectedApps() async {
+    if (!await isAuthorized()) return false;
+    if (await hasSelectedApps()) return true;
+    final picked = await showAppPicker();
+    return picked && await hasSelectedApps();
+  }
+
   static Future<bool> blockSelectedApps() async {
     try {
       return await _channel.invokeMethod<bool>('enableRestrictions') ?? false;
@@ -44,6 +54,15 @@ class IosScreenTime {
   static Future<bool> enableRestrictions() async {
     try {
       return await _channel.invokeMethod<bool>('enableRestrictions') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> restoreRestrictionsAfterSkip() async {
+    try {
+      return await _channel.invokeMethod<bool>('restoreRestrictionsAfterSkip') ??
+          false;
     } catch (_) {
       return false;
     }

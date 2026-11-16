@@ -4,6 +4,7 @@ import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/constants/blocked_apps.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
 import 'package:discipline_mind/services/ios_screen_time.dart';
+import 'package:discipline_mind/services/mind_control_guard_consent.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_apps_service.dart';
 import 'package:get/get.dart';
@@ -51,6 +52,7 @@ String resolveBrokerPackageName(String? name) {
 /// Safe to call frequently (e.g. on resume, login, permission callbacks).
 Future<bool> checkAndStartTradingBlockIfPermitted({String? explicitUserId}) async {
   if (Platform.isIOS) {
+    if (!await MindControlGuardConsent.isAccepted()) return false;
     final isAuth = await IosScreenTime.isAuthorized();
     if (isAuth) {
       await IosScreenTime.enableRestrictions();
@@ -85,6 +87,7 @@ Future<bool> checkAndStartTradingBlockIfPermitted({String? explicitUserId}) asyn
 /// Same building blocks as GTT / alert flows.
 Future<void> applyAndroidTradingAppBlock({String? explicitUserId}) async {
   if (Platform.isIOS) {
+    if (!await MindControlGuardConsent.isAccepted()) return;
     await IosScreenTime.enableRestrictions();
     return;
   }

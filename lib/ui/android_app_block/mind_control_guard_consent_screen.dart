@@ -309,7 +309,6 @@ class _MindControlGuardConsentScreenState
             children: [
               _customCheckbox(
                 value: _agreeAll,
-                onChanged: (v) => setState(() => _agreeAll = v ?? false),
               ),
               const SizedBox(width: 10),
               const Expanded(
@@ -329,27 +328,21 @@ class _MindControlGuardConsentScreenState
     );
   }
 
-  Widget _customCheckbox({
-    required bool value,
-    required ValueChanged<bool?> onChanged,
-  }) {
-    return GestureDetector(
-      onTap: () => onChanged(!value),
-      child: Container(
-        width: 20,
-        height: 20,
-        decoration: BoxDecoration(
-          color: value ? _purple : Colors.white,
-          borderRadius: BorderRadius.circular(5),
-          border: Border.all(
-            color: value ? _purple : const Color(0xFFAAA7B5),
-            width: 1.4,
-          ),
+  Widget _customCheckbox({required bool value}) {
+    return Container(
+      width: 20,
+      height: 20,
+      decoration: BoxDecoration(
+        color: value ? _purple : Colors.white,
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(
+          color: value ? _purple : const Color(0xFFAAA7B5),
+          width: 1.4,
         ),
-        child: value
-            ? const Icon(Icons.check_rounded, color: Colors.white, size: 14)
-            : null,
       ),
+      child: value
+          ? const Icon(Icons.check_rounded, color: Colors.white, size: 14)
+          : null,
     );
   }
 
@@ -374,7 +367,11 @@ class _MindControlGuardConsentScreenState
             height: 48,
             child: Container(
               decoration: BoxDecoration(
-                gradient: _primaryGradient,
+                gradient: _agreeAll
+                    ? _primaryGradient
+                    : const LinearGradient(
+                        colors: [Color(0xFFB8B4C3), Color(0xFFB8B4C3)],
+                      ),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Material(
@@ -383,7 +380,14 @@ class _MindControlGuardConsentScreenState
                   borderRadius: BorderRadius.circular(10),
                   onTap: () {
                     if (!_agreeAll) {
-                      setState(() => _agreeAll = true);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Please check “I agree to all statements above” first',
+                          ),
+                        ),
+                      );
+                      return;
                     }
                     widget.onAgree();
                   },

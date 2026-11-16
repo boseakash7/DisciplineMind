@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:discipline_mind/services/ios_screen_time.dart';
+import 'package:discipline_mind/services/mind_control_guard_consent.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/services/api/api_reponse.dart';
 import 'package:discipline_mind/services/api/api_url.dart';
@@ -374,6 +375,7 @@ class AlertController extends GetxController {
   Future<bool> checkBlockAppPermissions() async {
     // ✅ iOS Permission Flow
     if (Platform.isIOS) {
+      if (!await MindControlGuardConsent.ensureAccepted()) return false;
       var authorized = await IosScreenTime.isAuthorized();
       if (!authorized) {
         authorized = await IosScreenTime.requestPermission();

@@ -29,21 +29,33 @@ final class ScreenTimeBridge: NSObject, FlutterPlugin {
     case "isAuthorized":
       result(AuthorizationCenter.shared.authorizationStatus == .approved)
     case "hasSelectedApps":
-      result(!loadSelection().applicationTokens.isEmpty || !loadSelection().categoryTokens.isEmpty)
+      result(!loadSelection().applicationTokens.isEmpty)
     case "showAppPicker":
       DispatchQueue.main.async { self.showPicker(result: result) }
+    case "restoreRestrictionsAfterSkip":
+      let selection = loadSelection()
+      guard AuthorizationCenter.shared.authorizationStatus == .approved,
+            !selection.applicationTokens.isEmpty,
+            let currentApplications = store.shield.applications,
+            currentApplications != selection.applicationTokens else {
+        result(false)
+        return
+      }
+      store.shield.applications = selection.applicationTokens
+      store.shield.applicationCategories = nil
+      result(true)
     case "enableRestrictions", "blockSelectedApps", "blockApp":
       guard AuthorizationCenter.shared.authorizationStatus == .approved else {
         result(false)
         return
       }
       let selection = loadSelection()
-      guard !selection.applicationTokens.isEmpty || !selection.categoryTokens.isEmpty else {
+      guard !selection.applicationTokens.isEmpty else {
         result(false)
         return
       }
-      store.shield.applications = selection.applicationTokens.isEmpty ? nil : selection.applicationTokens
-      store.shield.applicationCategories = selection.categoryTokens.isEmpty ? nil : .specific(selection.categoryTokens)
+      store.shield.applications = selection.applicationTokens
+      store.shield.applicationCategories = nil
       result(true)
     case "unblockAll", "unblockApp":
       store.clearAllSettings()
@@ -72,7 +84,7 @@ final class ScreenTimeBridge: NSObject, FlutterPlugin {
     let picker = ScreenTimePickerView(initial: loadSelection(), onSave: { [weak self] selection in
       guard let self = self else { return }
       if let data = try? PropertyListEncoder().encode(selection) { UserDefaults.standard.set(data, forKey: self.savedKey) }
-      self.finishPicker(!selection.applicationTokens.isEmpty || !selection.categoryTokens.isEmpty)
+      self.finishPicker(!selection.applicationTokens.isEmpty)
     }, onCancel: { [weak self] in self?.finishPicker(false) })
     let controller = UIHostingController(rootView: picker)
     pickerController = controller
@@ -100,7 +112,7 @@ private struct ScreenTimePickerView: View {
   var body: some View {
     NavigationView {
       FamilyActivityPicker(selection: $selection)
-        .navigationTitle("Select Apps")
+        .navigationTitle("Select Trading App")
         .toolbar {
           ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: onCancel) }
           ToolbarItem(placement: .confirmationAction) { Button("Done") { onSave(selection) } }

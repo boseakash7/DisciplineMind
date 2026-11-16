@@ -14,6 +14,7 @@ import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/api/api_services.dart';
 import 'package:discipline_mind/services/trading_apps_service.dart';
 import 'package:discipline_mind/services/trading_block_bootstrap.dart';
+import 'package:discipline_mind/services/ios_screen_time.dart';
 import 'package:discipline_mind/ui/onboarding/post_login_trading_block_screen.dart';
 import 'package:discipline_mind/ui/android_app_block/blocked_app_overlay_page.dart';
 import 'package:discipline_mind/ui/main_home/main_home.dart';
@@ -71,6 +72,10 @@ void _navigateToChatScreen() {
 }
 
 void _onAppResumed() async {
+  if (Platform.isIOS) {
+    await IosScreenTime.restoreRestrictionsAfterSkip();
+    return;
+  }
   if (!Platform.isAndroid) return;
   try {
     await _lifecycleChannel.invokeMethod<void>('hideBlockOverlay');

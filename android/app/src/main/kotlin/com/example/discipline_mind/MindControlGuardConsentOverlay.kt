@@ -51,9 +51,15 @@ object MindControlGuardConsentOverlay {
         val btnAgree = root.findViewById<TextView>(R.id.overlay_consent_btn_agree)
         val btnCancel = root.findViewById<TextView>(R.id.overlay_consent_btn_cancel)
 
+        fun updateAgreeButton() {
+            btnAgree.isEnabled = cbAll.isChecked
+            btnAgree.alpha = if (cbAll.isChecked) 1f else 0.5f
+        }
+        cbAll.setOnCheckedChangeListener { _, _ -> updateAgreeButton() }
+        updateAgreeButton()
+
         btnAgree.setOnClickListener {
-            cbAll.isChecked = true
-            onAgree()
+            if (cbAll.isChecked) onAgree()
         }
 
         btnCancel.setOnClickListener {

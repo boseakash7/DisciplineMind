@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:discipline_mind/services/ios_screen_time.dart';
+import 'package:discipline_mind/services/mind_control_guard_consent.dart';
 import 'package:discipline_mind/common/common.dart';
 import 'package:discipline_mind/constants/blocked_apps.dart';
 import 'package:discipline_mind/controller/alert_controller.dart';
@@ -1052,6 +1053,7 @@ class ChatController extends GetxController {
 
   Future<bool> _checkBlockAppPermissions() async {
     if (Platform.isIOS) {
+      if (!await MindControlGuardConsent.ensureAccepted()) return false;
       var authorized = await IosScreenTime.isAuthorized();
       if (!authorized) {
         authorized = await IosScreenTime.requestPermission();
@@ -1386,7 +1388,23 @@ class ChatController extends GetxController {
           AppToast.showToast('Mind Control Guard is Deactivated');
         }
       } else if (Platform.isIOS) {
-        await _blockService.unblockApp('');
+        if (!await MindControlGuardConsent.ensureAccepted()) return;
+        if (!await IosScreenTime.isAuthorized()) {
+          AppToast.showToast('iOS Screen Time authorization is unavailable');
+          return;
+        }
+        if (!await IosScreenTime.ensureSelectedApps()) {
+          AppToast.showToast(
+            'Select your trading app in the iOS app picker to show its shield',
+          );
+          return;
+        }
+        if (!await IosScreenTime.enableRestrictions()) {
+          AppToast.showToast(
+            'Could not apply Mind Control Guard to the selected apps',
+          );
+          return;
+        }
         final selectedPackages = _selectedBlockedPackages();
         var launched = false;
 
@@ -1467,7 +1485,7 @@ class ChatController extends GetxController {
         }
 
         if (launched) {
-          AppToast.showToast('Mind Control Guard is Deactivated');
+          AppToast.showToast('Mind Control Guard is Active');
         } else {
           AppToast.showToast('Selected trading app is not installed');
         }
