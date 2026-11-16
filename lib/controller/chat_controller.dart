@@ -1419,15 +1419,16 @@ class ChatController extends GetxController {
           for (final scheme in schemes) {
             final uri = Uri.parse(scheme);
             try {
-              if (await canLaunchUrl(uri)) {
-                final ok = await launchUrl(
-                  uri,
-                  mode: LaunchMode.externalApplication,
-                );
-                if (ok) {
-                  launched = true;
-                  break;
-                }
+              // Open the custom URL directly. `canLaunchUrl` uses iOS's
+              // canOpenURL query API, which is limited by LSApplicationQueriesSchemes
+              // and can report false for installed apps on newer iOS versions.
+              final ok = await launchUrl(
+                uri,
+                mode: LaunchMode.externalApplication,
+              );
+              if (ok) {
+                launched = true;
+                break;
               }
             } catch (_) {}
           }
