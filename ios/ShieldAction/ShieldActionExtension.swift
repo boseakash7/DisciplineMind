@@ -41,7 +41,9 @@ final class ShieldActionExtension: ShieldActionDelegate {
       } else {
         store.shield.applicationCategories = nil
       }
-      completionHandler(.defer)
+      // `.defer` redraws the shield and delays the decision. Since Skip has
+      // already removed this app from the shield, let iOS continue into it.
+      completionHandler(.none)
     default:
       completionHandler(.none)
     }
