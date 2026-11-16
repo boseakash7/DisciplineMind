@@ -1406,9 +1406,14 @@ class ChatController extends GetxController {
           return;
         }
         final selectedPackages = _selectedBlockedPackages();
+        if (selectedPackages.isEmpty) {
+          AppToast.showToast('Select your trading app in Zeno AI first');
+          return;
+        }
         var launched = false;
 
-        // 1. First attempt: Launch the selected broker app schemes
+        // Only launch the broker selected in Zeno. iOS shields only protect
+        // the applications selected in Apple's Family Controls picker.
         for (final package in selectedPackages) {
           final schemes = iosTradingAppSchemes[package] ?? [];
           for (final scheme in schemes) {
@@ -1429,66 +1434,33 @@ class ChatController extends GetxController {
           if (launched) break;
         }
 
-        // 2. Direct launch attempt for selected broker without canLaunchUrl pre-check
+        // If the selected broker isn't available, its store listing is useful,
+        // but opening the store must never be reported as an active guard.
         if (!launched) {
-          for (final package in selectedPackages) {
-            final schemes = iosTradingAppSchemes[package] ?? [];
-            for (final scheme in schemes) {
-              try {
-                final ok = await launchUrl(
-                  Uri.parse(scheme),
-                  mode: LaunchMode.externalApplication,
-                );
-                if (ok) {
-                  launched = true;
-                  break;
-                }
-              } catch (_) {}
-            }
-            if (launched) break;
+          final pkg = selectedPackages.first;
+          final appStoreUrl = iosAppStoreUrls[pkg];
+          if (appStoreUrl == null) {
+            AppToast.showToast(
+              'Could not open the selected trading app. Check that it is installed and selected in Apple Screen Time.',
+            );
+            return;
           }
-        }
-
-        // 3. Fallback attempt: Check if user has ANY other supported trading app installed on iPhone
-        if (!launched) {
-          for (final entry in iosTradingAppSchemes.entries) {
-            if (selectedPackages.contains(entry.key)) continue;
-            for (final scheme in entry.value) {
-              try {
-                final uri = Uri.parse(scheme);
-                if (await canLaunchUrl(uri)) {
-                  final ok = await launchUrl(
-                    uri,
-                    mode: LaunchMode.externalApplication,
-                  );
-                  if (ok) {
-                    launched = true;
-                    break;
-                  }
-                }
-              } catch (_) {}
-            }
-            if (launched) break;
-          }
-        }
-
-        // 4. App Store fallback: If the app is not installed on this iPhone, open its App Store page
-        if (!launched) {
-          final pkg = selectedPackages.isNotEmpty ? selectedPackages.first : 'com.zerodha.kite3';
-          final appStoreUrl = iosAppStoreUrls[pkg] ?? 'https://apps.apple.com/search?term=trading';
+          var storeOpened = false;
           try {
-            launched = await launchUrl(
+            storeOpened = await launchUrl(
               Uri.parse(appStoreUrl),
               mode: LaunchMode.externalApplication,
             );
           } catch (_) {}
+          AppToast.showToast(
+            storeOpened
+                ? 'The selected trading app did not open. Its App Store page was opened.'
+                : 'Could not open the selected trading app. Check that it is installed and selected in Apple Screen Time.',
+          );
+          return;
         }
 
-        if (launched) {
-          AppToast.showToast('Mind Control Guard is Active');
-        } else {
-          AppToast.showToast('Selected trading app is not installed');
-        }
+        AppToast.showToast('Mind Control Guard is Active');
       }
     } catch (e) {
       print('[ChatController] openTradingApp failed: $e');
