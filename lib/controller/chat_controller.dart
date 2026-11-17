@@ -734,6 +734,8 @@ class ChatController extends GetxController {
           formattedSymbol: x.formattedSymbol,
           userLivePrice: x.userLivePrice,
           userLivePriceFetchedAt: x.userLivePriceFetchedAt,
+          isWatchlistFlow: x.isWatchlistFlow,
+          watchlistButtonLabel: x.watchlistButtonLabel,
           messageId: x.messageId,
           isUnread: x.isUnread,
           actionTaken: actionTaken,
@@ -773,6 +775,7 @@ class ChatController extends GetxController {
           targetHitPrice: x.targetHitPrice,
           formattedSymbol: x.formattedSymbol,
           tradeData: x.tradeData,
+          isWatchlistFlow: x.isWatchlistFlow,
           messageId: x.messageId,
           isUnread: x.isUnread,
           actionTaken: actionTaken,
@@ -1515,6 +1518,26 @@ class ChatController extends GetxController {
     }
   }
 
+  /// Apply the GTT for a watchlist-flow trade.
+  ///
+  /// Deliberately skips the "You have selected Apply GTT" confirmation popup:
+  /// the user already confirmed on the YES button, and the levels come
+  /// straight from the trade payload.
+  Future<bool> applyWatchlistGtt(NewTradeOpportunityMessage trade) async {
+    final gttPrice = getDefaultGttPrice(trade.entryRange);
+    if (gttPrice.trim().isEmpty) {
+      AppToast.showToast('GTT price is not available for this trade');
+      return false;
+    }
+    final useExtendedFields = shouldUseExtendedGttInputs();
+    return createGttAlert(
+      trade,
+      gttPrice,
+      stopLoss: useExtendedFields ? trade.stopLoss : null,
+      takeProfit: useExtendedFields ? trade.frr : null,
+    );
+  }
+
   /// Submit GTT value for a TradeSignalMessage.
   Future<bool> submitTradeSignalGtt({
     required TradeSignalMessage msg,
@@ -1965,6 +1988,7 @@ class ChatController extends GetxController {
     if (msg.tradeId.isEmpty) {
       AppToast.showToast('Missing trade id');
       return;
+      
     }
     try {
       final api = Get.isRegistered<ApiService>()

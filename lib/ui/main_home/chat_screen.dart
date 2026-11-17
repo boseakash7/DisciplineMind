@@ -69,6 +69,28 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final Set<String> _animatedResponseKeys = <String>{};
   final Set<String> _completedResponseKeys = <String>{};
   final Set<String> _autoLivePriceFetchKeys = <String>{};
+
+  /// Button label once the trade has been added to the watchlist
+  /// (`action_taken` is set).
+  static const String _watchlistAddedLabel = 'ADDED TO WATCHLIST';
+
+  /// Instruction shown above the button before the user answers.
+  static const String _watchlistPrompt =
+      'I have copied the Trade, you just Add this Trade to your Watchlist.';
+
+  /// Instruction shown after the user answers NO.
+  static const String _watchlistDeclinedPrompt =
+      'I have enabled ADD TO WATCHLIST button.\n\n'
+      'Follow the suggested steps to experience the real Power of Mind '
+      'Control Trading.';
+
+  /// Watchlist-flow trades whose confirmation panel is currently open.
+  /// Collapsing is local-only: NO just returns to the single button.
+  final Set<String> _expandedWatchlistKeys = <String>{};
+
+  /// Watchlist-flow trades where the user answered NO at least once. Only
+  /// changes the instruction text above the button; nothing is sent anywhere.
+  final Set<String> _declinedWatchlistKeys = <String>{};
   Timer? _jumpToLatestTimer;
   Timer? _scrollStabilizationTimer;
   Timer? _firstNewMessageTimer;
@@ -2508,6 +2530,216 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// Whole watchlist-flow trade message: the usual trade card plus the
+  /// watchlist prompt, in a single bubble under a single timestamp.
+  ///
+  /// Step 1 - guard banner, instruction and an active ADD TO WATCHLIST button.
+  /// Step 2 - after that button is used it greys out and the
+  ///          "Have you added this Trade to your Watchlist ?" YES / NO row
+  ///          appears underneath.
+  /// YES applies the GTT with no confirmation popup; NO returns to step 1.
+  ///
+  /// Reached only when [NewTradeOpportunityMessage.isWatchlistFlow] is set,
+  /// so trades without the flag keep the normal flow untouched.
+  Widget _buildAddToWatchlist(
+    BuildContext context,
+    NewTradeOpportunityMessage msg,
+    ChatController controller,
+  ) {
+    final isDark = _isDark(context);
+    final key = _watchlistKey(msg);
+    // action_taken from the backend, or a YES tapped in this session.
+    final isAdded = _isActionTaken(msg);
+    final isDone = !_showButtons(msg);
+    final askingConfirmation = !isDone && _expandedWatchlistKeys.contains(key);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Unchanged trade card.
+          _buildTradeOpportunityCard(
+            context,
+            msg,
+            showInvalidOverlay: controller.isTradeExpired(msg),
+            hideMarketPrice: false,
+          ),
+          const SizedBox(height: 16),
+          _watchlistGuardBanner(isDark),
+          const SizedBox(height: 12),
+          Text(
+            _declinedWatchlistKeys.contains(key)
+                ? _watchlistDeclinedPrompt
+                : _watchlistPrompt,
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.4,
+              color: _headlineText(isDark),
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Active until it has been used, then greyed out while the
+          // confirmation question is on screen, and permanently once the
+          // trade has been added.
+          //
+          // The label tracks action_taken only. An expired-but-unanswered
+          // trade is also disabled, and must not claim it was added.
+          _tradePromptPrimaryButton(
+            label: isAdded
+                ? _watchlistAddedLabel
+                : msg.watchlistButtonLabel,
+            icon: isAdded
+                ? Icons.check_circle_outline_rounded
+                : Icons.open_in_new_rounded,
+            isCompleted: isAdded,
+            enabled: !isDone && !askingConfirmation,
+            onTap: () => _openWatchlistApp(msg, controller),
+          ),
+
+          if (askingConfirmation) ...[
+            const SizedBox(height: 18),
+            Text(
+              'Have you added this Trade to your Watchlist ?',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                height: 1.4,
+                color: _headlineText(isDark),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _watchlistChoiceButton(
+                    label: 'YES',
+                    onTap: () => _confirmWatchlistAdded(msg, controller),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _watchlistChoiceButton(
+                    label: 'NO',
+                    onTap: () => _declineWatchlistAdd(msg),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Unlocked-padlock banner above the watchlist instruction.
+  Widget _watchlistGuardBanner(bool isDark) {
+    final accent = isDark ? AppColors.primaryViolet : AppColors.primary;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Icon(Icons.lock_open_rounded, size: 20, color: accent),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            'Mind Control Guard is De-Activated.',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: accent,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Copies the symbol, opens the broker app, then asks for confirmation.
+  Future<void> _openWatchlistApp(
+    NewTradeOpportunityMessage msg,
+    ChatController controller,
+  ) async {
+    setState(() => _expandedWatchlistKeys.add(_watchlistKey(msg)));
+    _markTradingAppOpened(msg);
+    await _openTradingApp(msg, controller);
+  }
+
+  /// Stable identity for a watchlist row, so the panel stays open across the
+  /// controller's periodic message refreshes.
+  String _watchlistKey(NewTradeOpportunityMessage msg) {
+    final messageId = msg.messageId.trim();
+    if (messageId.isNotEmpty) return 'message:$messageId';
+    final tradeId = msg.tradeId.trim();
+    return tradeId.isNotEmpty ? 'trade:$tradeId' : 'watchlist';
+  }
+
+  /// YES: applies the GTT straight away, with no confirmation popup.
+  Future<void> _confirmWatchlistAdded(
+    NewTradeOpportunityMessage msg,
+    ChatController controller,
+  ) async {
+    final applied = await controller.applyWatchlistGtt(msg);
+    if (!mounted) return;
+    if (!applied) return;
+
+    final messageId = msg.messageId.trim();
+    final tradeId = msg.tradeId.trim();
+    setState(() {
+      _expandedWatchlistKeys.remove(_watchlistKey(msg));
+      if (messageId.isNotEmpty) _actionTakenMessageIds.add(messageId);
+      if (tradeId.isNotEmpty) _actionTakenTradeIds.add(tradeId);
+    });
+  }
+
+  /// NO: re-enables the button and swaps the instruction above it.
+  ///
+  /// Purely local — nothing is sent to the backend.
+  void _declineWatchlistAdd(NewTradeOpportunityMessage msg) {
+    final key = _watchlistKey(msg);
+    setState(() {
+      _expandedWatchlistKeys.remove(key);
+      _declinedWatchlistKeys.add(key);
+    });
+  }
+
+  Widget _watchlistChoiceButton({
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    final isDark = _isDark(context);
+    const primaryColor = Color(0xFF2B4BF2);
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () {
+          if (_enforceMindControlOnClick()) return;
+          onTap();
+        },
+        child: Container(
+          height: 44,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E222A) : Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: primaryColor, width: 1.8),
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: primaryColor,
+              fontWeight: FontWeight.w800,
+              fontSize: 14,
+              letterSpacing: 0.6,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildAiWaiting(BuildContext context, AiWaitingMessage msg) {
     return AiWaitingStatusBubble(
       key: ValueKey('ai_waiting_${msg.messageId}_${msg.text}'),
@@ -4452,6 +4684,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ChatController controller,
   ) {
     final isDark = _isDark(context);
+    if (msg.isWatchlistFlow) {
+      return _buildAddToWatchlist(context, msg, controller);
+    }
     if (_isEditTrade(msg)) {
       return _buildTradeEditCombinedMessage(context, msg, controller);
     }
@@ -6117,6 +6352,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ChatController controller,
   ) {
     final isDark = _isDark(context);
+
+    // Watchlist flow replaces the three-button GTT-hit flow with a single
+    // button that submits the trade directly. Every other alert, and any GTT
+    // hit without the flag, keeps the original behaviour below.
+    if (msg.isWatchlistFlow && msg.isGttHit) {
+      return _buildWatchlistEntryHit(context, msg, controller);
+    }
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
@@ -6154,7 +6397,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               final isZenoAi = setupType == 'zeno_ai_signals';
 
               if (msg.buttonType == 'trade_executed' || msg.isSlHit) {
-                _showTargetHitConfirmDialog(context, msg, controller);
+                // Watchlist flow confirms target and SL hits straight from the
+                // payload price, with no "at what price" popup. Every
+                // non-watchlist alert still asks.
+                if (msg.isWatchlistFlow) {
+                  _acknowledgeHitWithoutPopup(msg, controller);
+                } else {
+                  _showTargetHitConfirmDialog(context, msg, controller);
+                }
               } else if (msg.isGttHit) {
                 if (isZenoAi && msg.tradeData != null) {
                   _showTradeParamsPopup(context, msg.tradeData!, controller);
@@ -6182,6 +6432,101 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ],
       ),
     );
+  }
+
+  /// Confirms a target or SL hit using the price already in the payload,
+  /// skipping the confirmation popup.
+  ///
+  /// Submits exactly the value the popup would have prefilled — [targetHitPrice]
+  /// is already resolved per hit type — so the backend sees the same request
+  /// either way.
+  Future<void> _acknowledgeHitWithoutPopup(
+    AlertHitWithButtonMessage msg,
+    ChatController controller,
+  ) async {
+    final rawPrice = msg.targetHitPrice.trim();
+    if (rawPrice.isEmpty) {
+      // No price to submit, so fall back to asking rather than sending a
+      // request the controller would reject.
+      _showTargetHitConfirmDialog(context, msg, controller);
+      return;
+    }
+    await controller.acknowledgeTradeExecuted(
+      msg,
+      hitPrice: _formatTradeCardPrice(rawPrice),
+    );
+  }
+
+  /// Watchlist-flow GTT hit: one button, no popup.
+  ///
+  /// Reached only when [AlertHitWithButtonMessage.isWatchlistFlow] is set on a
+  /// GTT hit, so the normal flow is untouched.
+  Widget _buildWatchlistEntryHit(
+    BuildContext context,
+    AlertHitWithButtonMessage msg,
+    ChatController controller,
+  ) {
+    final isDark = _isDark(context);
+    final isDone = !_showButtons(msg);
+    final hitPrice = msg.targetHitPrice.trim();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Same banner the watchlist trade message uses.
+          _watchlistGuardBanner(isDark),
+          const SizedBox(height: 12),
+          _buildRichMessageContent(msg.text, isDark),
+          const SizedBox(height: 14),
+          _tradePromptPrimaryButton(
+            label: hitPrice.isEmpty
+                ? 'ENTRY LEVEL IS HIT'
+                : 'ENTRY LEVEL IS HIT AT $hitPrice',
+            icon: isDone
+                ? Icons.check_circle_outline_rounded
+                : Icons.gps_fixed_rounded,
+            isCompleted: isDone,
+            // No "Open Trading APP" step here, so the button must not wait on
+            // one the way the standard GTT-hit button does.
+            enabled: !isDone,
+            onTap: () => _submitWatchlistEntryHit(context, msg, controller),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Submits the trade using exactly the values that would have prefilled the
+  /// parameters popup, without showing it.
+  Future<void> _submitWatchlistEntryHit(
+    BuildContext context,
+    AlertHitWithButtonMessage msg,
+    ChatController controller,
+  ) async {
+    final trade = msg.tradeData;
+    if (trade == null) {
+      // No trade payload to submit. Fall back to the existing confirmation
+      // dialog rather than leaving the button doing nothing.
+      _showTargetHitConfirmDialog(context, msg, controller);
+      return;
+    }
+
+    final submitted = await controller.submitTradeExecuted(
+      msg: trade,
+      entryPrice: trade.entryRange,
+      stopLoss: trade.stopLoss,
+      takeProfit: trade.frr,
+    );
+    if (!mounted || !submitted) return;
+
+    final messageId = msg.messageId.trim();
+    final tradeId = trade.tradeId.trim();
+    setState(() {
+      if (messageId.isNotEmpty) _actionTakenMessageIds.add(messageId);
+      if (tradeId.isNotEmpty) _actionTakenTradeIds.add(tradeId);
+    });
   }
 
   Widget _buildTradeExecuted(

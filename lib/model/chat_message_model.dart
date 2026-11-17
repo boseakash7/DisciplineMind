@@ -21,6 +21,7 @@ abstract class ChatMessage {
   final bool isFromUser;
   final String messageId;
   final bool isUnread;
+  
   final bool sendFailed;
 
   /// Backend control key: show action buttons only when this is null.
@@ -166,6 +167,17 @@ class NewTradeOpportunityMessage extends ChatMessage {
   /// Epoch/ISO timestamp for [userLivePrice].
   final String userLivePriceFetchedAt;
 
+  /// Outer API `is_watchlist_flow`.
+  ///
+  /// When true this trade shows the "add to watchlist" prompt instead of the
+  /// normal execution prompt. The prompt is part of this same message, not a
+  /// second bubble, so the card and its buttons share one timestamp and the
+  /// buttons get the full bubble width.
+  final bool isWatchlistFlow;
+
+  /// Label for the watchlist button.
+  final String watchlistButtonLabel;
+
   /// Live price when available, otherwise the original trade current price.
   String get currentMarketPrice =>
       userLivePrice.trim().isNotEmpty ? userLivePrice : rtt;
@@ -197,6 +209,8 @@ class NewTradeOpportunityMessage extends ChatMessage {
     this.formattedSymbol = '',
     this.userLivePrice = '',
     this.userLivePriceFetchedAt = '',
+    this.isWatchlistFlow = false,
+    this.watchlistButtonLabel = 'ADD TO WATCHLIST',
     super.messageId,
     super.isUnread,
     super.actionTaken,
@@ -413,6 +427,12 @@ class AlertHitWithButtonMessage extends ChatMessage {
   final String formattedSymbol;
   final NewTradeOpportunityMessage? tradeData;
 
+  /// Outer API `is_watchlist_flow`.
+  ///
+  /// When true a GTT hit shows a single "entry level is hit" button that
+  /// submits the trade directly, with no parameters popup.
+  final bool isWatchlistFlow;
+
   const AlertHitWithButtonMessage({
     required this.text,
     this.buttonLabel = 'Trade Executed',
@@ -425,6 +445,7 @@ class AlertHitWithButtonMessage extends ChatMessage {
     this.targetHitPrice = '',
     this.formattedSymbol = '',
     this.tradeData,
+    this.isWatchlistFlow = false,
     super.messageId,
     super.isUnread,
     super.actionTaken,
@@ -487,6 +508,11 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
   final outerTimestamp = (json['timestamp'] ?? '').toString();
   final slChanged = _parseBoolFlag(json['sl_changed']);
   final tpChanged = _parseBoolFlag(json['tp_changed']);
+
+  /// Outer `is_watchlist_flow`. When true a normal trade message renders the
+  /// watchlist prompt instead of the usual execution prompt. When false or
+  /// absent, nothing about the trade flow changes.
+  final isWatchlistFlow = _parseBoolFlag(json['is_watchlist_flow']);
   final payload = json['payload'];
   final payloadMap = payload is Map<String, dynamic>
       ? payload
@@ -867,6 +893,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         targetHitPrice: _targetHitPriceFromPayload(p, isSlHit: isSlHit),
         formattedSymbol: (p['formatted_symbol'] ?? '').toString().trim(),
         tradeData: tradeData,
+        isWatchlistFlow: isWatchlistFlow,
         messageId: messageId,
         isUnread: isUnread,
         actionTaken: actionTaken,
@@ -896,6 +923,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
     final analystFromPayload = (p['analyst_info'] ?? p['analystInfo'] ?? '')
         .toString()
         .trim();
+
     final apiMessage = message.trim();
 
     final parsed = <ChatMessage>[];
@@ -924,12 +952,18 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       formattedSymbol: formattedSymbol.trim(),
       userLivePrice: livePrice.price,
       userLivePriceFetchedAt: livePrice.fetchedAt,
+      isWatchlistFlow: isWatchlistFlow,
       messageId: messageId,
       isUnread: isUnread,
       actionTaken: actionTaken,
       timestamp: outerTimestamp,
     );
     parsed.add(tradeMessage);
+
+    /// The watchlist prompt is rendered inside this same message, so no
+    /// execution prompt is appended and no second bubble is created.
+    if (isWatchlistFlow) return parsed;
+
     if (_isTradePromptAction(action)) {
       parsed.add(
         TradeExecutionPromptMessage(
