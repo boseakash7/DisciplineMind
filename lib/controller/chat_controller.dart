@@ -1518,6 +1518,53 @@ class ChatController extends GetxController {
     }
   }
 
+  /// Trades whose levels the backend applied itself because the user did not
+  /// act after a GTT hit (push `type: watchlist_auto_levels`).
+  ///
+  /// Read only by the watchlist-flow "entry level is hit" button. No other
+  /// message type consults this, so nothing else can be disabled by it.
+  final watchlistAutoAppliedTradeIds = <String>{}.obs;
+
+  /// Handles the `watchlist_auto_levels` push.
+  ///
+  /// [tradeId] comes from the payload when present. When it is absent the
+  /// still-actionable watchlist GTT hits are used instead — the app permits
+  /// only one pending alert at a time, so that resolves to the same trade.
+  void markWatchlistLevelsAutoApplied({String? tradeId}) {
+    final explicit = (tradeId ?? '').trim();
+    final resolved = <String>{};
+
+    if (explicit.isNotEmpty) {
+      resolved.add(explicit);
+    } else {
+      for (final message in messages) {
+        if (message is AlertHitWithButtonMessage &&
+            message.isWatchlistFlow &&
+            message.isGttHit &&
+            !isActionTakenFor(message)) {
+          final id = message.tradeId.trim();
+          if (id.isNotEmpty) resolved.add(id);
+        }
+      }
+    }
+
+    if (resolved.isEmpty) {
+      debugPrint(
+        '[ChatController] watchlist_auto_levels ignored: no trade to apply it to',
+      );
+      return;
+    }
+    watchlistAutoAppliedTradeIds.addAll(resolved);
+  }
+
+  /// True when the backend already applied the levels for [msg]'s trade.
+  bool isWatchlistLevelsAutoApplied(AlertHitWithButtonMessage msg) {
+    if (!msg.isWatchlistFlow) return false;
+    final tradeId = msg.tradeId.trim();
+    if (tradeId.isEmpty) return false;
+    return watchlistAutoAppliedTradeIds.contains(tradeId);
+  }
+
   /// Apply the GTT for a watchlist-flow trade.
   ///
   /// Deliberately skips the "You have selected Apply GTT" confirmation popup:

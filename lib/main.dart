@@ -98,7 +98,34 @@ void _refreshUserAlertsOnNotification({int attempt = 0}) {
 
 void _showImmediateNotificationMessage(Map<String, dynamic> data) {
   _refreshMctPlanOnNotification(data);
+  _markWatchlistAutoLevelsOnNotification(data);
   _showImmediateNotificationMessageWithRetry(data);
+}
+
+/// Push `type: watchlist_auto_levels` — the backend applied the trade levels
+/// because the user did not act after the GTT hit.
+///
+/// Disables only the watchlist-flow "entry level is hit" button; no other
+/// message type reads this state.
+void _markWatchlistAutoLevelsOnNotification(Map<String, dynamic> data) {
+  final type =
+      (data['type'] ??
+              data['notification_type'] ??
+              data['message_type'] ??
+              data['event'] ??
+              data['category'] ??
+              '')
+          .toString()
+          .trim()
+          .toLowerCase();
+  if (type != 'watchlist_auto_levels') return;
+
+  final chatController = Get.isRegistered<ChatController>()
+      ? Get.find<ChatController>()
+      : Get.put(ChatController(), permanent: true);
+  chatController.markWatchlistLevelsAutoApplied(
+    tradeId: (data['trade_id'] ?? data['tradeId'] ?? '').toString(),
+  );
 }
 
 void _refreshMctPlanOnNotification(Map<String, dynamic> data) {

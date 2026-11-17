@@ -6467,7 +6467,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ChatController controller,
   ) {
     final isDark = _isDark(context);
-    final isDone = !_showButtons(msg);
+    // The backend applied the levels itself after the user let the GTT hit
+    // sit unanswered (push `watchlist_auto_levels`). Nothing left to confirm.
+    final autoApplied = controller.isWatchlistLevelsAutoApplied(msg);
+    final isDone = autoApplied || !_showButtons(msg);
     final hitPrice = msg.targetHitPrice.trim();
 
     return Padding(
