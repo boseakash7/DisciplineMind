@@ -459,8 +459,12 @@ class AlertController extends GetxController {
           }
           AppToast.showToast("Mind Control Guard is Deactivated");
         } else if (Platform.isIOS) {
-          await _blockService.unblockApp('');
-          AppToast.showToast("Mind Control Guard is Deactivated");
+          // Deleting an alert must not permanently switch off the saved
+          // Screen Time guard for subsequent direct broker launches.
+          final allowed = await IosScreenTime.allowSelectedAppsTemporarily();
+          AppToast.showToast(allowed
+              ? 'Trading app access allowed temporarily'
+              : 'Mind Control Guard remains active');
         }
         final uid = Common.userData.value?.payload?.id;
         if (uid != null && uid.isNotEmpty) {

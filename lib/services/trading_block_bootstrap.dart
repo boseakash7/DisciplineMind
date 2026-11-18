@@ -52,11 +52,15 @@ String resolveBrokerPackageName(String? name) {
 /// Safe to call frequently (e.g. on resume, login, permission callbacks).
 Future<bool> checkAndStartTradingBlockIfPermitted({String? explicitUserId}) async {
   if (Platform.isIOS) {
+    final userId = explicitUserId ??
+        Common.userData.value?.payload?.id?.toString() ??
+        GetStorage().read<String>('user_id');
+    if (userId == null || userId.isEmpty) return false;
     if (!await MindControlGuardConsent.isAccepted()) return false;
     final isAuth = await IosScreenTime.isAuthorized();
     if (isAuth) {
-      await IosScreenTime.enableRestrictions();
-      return true;
+      await IosScreenTime.syncGuardState(userId);
+      return await IosScreenTime.enableRestrictions();
     }
     return false;
   }

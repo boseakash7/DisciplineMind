@@ -65,8 +65,7 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
     final userId = _userId;
     if (userId == null) return;
     final saved = _prefs.getSelectedPackage(userId: userId);
-    if (saved != null &&
-        _tradingApps.apps.any((a) => a.packageName == saved)) {
+    if (saved != null && _tradingApps.apps.any((a) => a.packageName == saved)) {
       setState(() => _selectedPackage = saved);
     } else if (_selectedPackage != null &&
         _tradingApps.apps.every((a) => a.packageName != _selectedPackage)) {
@@ -104,13 +103,18 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
             return;
           }
         }
-        final hasApps = await IosScreenTime.hasSelectedApps();
-        if (!hasApps) {
-          final picked = await IosScreenTime.showAppPicker();
-          if (!picked) {
-            AppToast.showToast('Please select apps in Screen Time');
-            return;
-          }
+        // Apple's opaque tokens cannot be matched to our broker package IDs.
+        // Confirm the native selection whenever saving a broker change.
+        if (!await IosScreenTime.showAppPicker() ||
+            !await IosScreenTime.hasSelectedApps()) {
+          AppToast.showToast('Select the same trading app in the Apple picker');
+          return;
+        }
+        if (!await IosScreenTime.enableRestrictions()) {
+          AppToast.showToast(
+            'Could not enable Mind Control Guard. Please retry.',
+          );
+          return;
         }
       }
 
@@ -118,7 +122,8 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
       final nextPackage = _selectedPackage!;
 
       // If user switched broker app, immediately remove old app from block list.
-      if (previousPackage != null &&
+      if (Platform.isAndroid &&
+          previousPackage != null &&
           previousPackage.isNotEmpty &&
           previousPackage != nextPackage) {
         await _blockService.unblockApp(previousPackage);
@@ -129,7 +134,7 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
         userId: userId,
         packageName: nextPackage,
       );
-      await applyAndroidTradingAppBlock();
+      if (Platform.isAndroid) await applyAndroidTradingAppBlock();
       if (widget.isFirstSetup) {
         Get.offAll(() => const MainHomeScreen(initialIndex: 2));
       } else {
@@ -147,7 +152,9 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
     final key = packageName.toLowerCase();
     final name = appName.toLowerCase();
 
-    if (key.contains('zerodha') || name.contains('zerodha') || name.contains('kite')) {
+    if (key.contains('zerodha') ||
+        name.contains('zerodha') ||
+        name.contains('kite')) {
       return (color: const Color(0xFFF6461A), asset: 'assets/ZerodhaKite.png');
     }
     if (key.contains('upstox') || name.contains('upstox')) {
@@ -179,12 +186,16 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    final scaffoldBg = isDark ? const Color(0xFF000000) : const Color(0xFFF5F6FA);
+    final scaffoldBg = isDark
+        ? const Color(0xFF000000)
+        : const Color(0xFFF5F6FA);
     final cardBg = isDark ? const Color(0xFF121212) : Colors.white;
     final unselectedBorder = isDark ? Colors.white : Colors.grey.shade300;
     final titleColor = isDark ? Colors.white : Colors.black87;
     final subtitleColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
-    final packageTextColor = isDark ? Colors.grey.shade500 : Colors.grey.shade600;
+    final packageTextColor = isDark
+        ? Colors.grey.shade500
+        : Colors.grey.shade600;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle(
@@ -192,8 +203,9 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
         statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
         statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
         systemNavigationBarColor: scaffoldBg,
-        systemNavigationBarIconBrightness:
-            isDark ? Brightness.light : Brightness.dark,
+        systemNavigationBarIconBrightness: isDark
+            ? Brightness.light
+            : Brightness.dark,
         systemNavigationBarDividerColor: Colors.transparent,
       ),
       child: WillPopScope(
@@ -232,7 +244,9 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
                   // Subtitle
                   Center(
                     child: Text(
-                      'Choose one broker app to lock. you can\nchange it later in settings',
+                      Platform.isIOS
+                          ? 'Choose your broker here, then select that same app in Apple’s Screen Time picker.'
+                          : 'Choose one broker app to protect. You can change it later in settings.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 14,
@@ -292,7 +306,9 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
                                 color: cardBg,
                                 borderRadius: BorderRadius.circular(14),
                                 border: Border.all(
-                                  color: selected ? brand.color : unselectedBorder,
+                                  color: selected
+                                      ? brand.color
+                                      : unselectedBorder,
                                   width: selected ? 1.4 : 1,
                                 ),
                               ),
@@ -347,7 +363,8 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
                   const SizedBox(height: 8),
                   Center(
                     child: SizedBox(
-                      width: MediaQuery.sizeOf(context).width*.8,height: 45,
+                      width: MediaQuery.sizeOf(context).width * .8,
+                      height: 45,
                       child: FilledButton(
                         onPressed: _isSaving ? null : _onSave,
                         style: FilledButton.styleFrom(

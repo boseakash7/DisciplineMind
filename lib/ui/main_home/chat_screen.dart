@@ -658,7 +658,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _checkPermissions();
-      if (widget.isActive) _syncOnTabFocus();
+      if (Platform.isIOS) {
+        IosScreenTime.isGuardReturnForResume().then((fromGuard) {
+          if (mounted && widget.isActive && !fromGuard) _syncOnTabFocus();
+        });
+      } else if (widget.isActive) {
+        _syncOnTabFocus();
+      }
     }
   }
 

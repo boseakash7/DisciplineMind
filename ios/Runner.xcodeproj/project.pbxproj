@@ -3,14 +3,20 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 60;
+	objectVersion = 70;
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B71234567890ABCDEF000003 /* AppUsageTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B71234567890ABCDEF000001; };
+		B71234567890ABCDEF000002 /* AppUsageTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B71234567890ABCDEF000001; };
+		A1B2C3D4E5F6012345678901 /* GuardOpenReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6012345678902 /* GuardOpenReporter.swift */; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
+		1E7C6DC530AC78BF00E81287 /* ManagedSettings.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1E7C6DC430AC78BF00E81287 /* ManagedSettings.framework */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		333294C68D55B055C355E8FA /* ShieldConfiguration.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = B9E8D0A55B81809CE2ED237E /* ShieldConfiguration.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
+		3B98A5C05120E539B9E59D4F /* MarketGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 532E2FA33F0D3BB547ACCDEC /* MarketGuard.swift */; };
+		7174F0975285212A3C0CA880 /* brain.png in Resources */ = {isa = PBXBuildFile; fileRef = 88FC7D789DD4A2A16ACA9B15 /* brain.png */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 		9207FBCC3340F847E607187A /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 89A6C2C2056D2EFDA8CAB139 /* Foundation.framework */; };
@@ -19,14 +25,26 @@
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		A123456789ABCDEF12345678 /* ScreenTimeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A123456789ABCDEF12345679 /* ScreenTimeBridge.swift */; };
+		A6E24ADD02A2B6684734B04E /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 872E77C2E495DE1081E6D98E /* Foundation.framework */; };
+		AC3331103DE7F1A24F26569F /* MarketGuardMonitor.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 7916AD60032FBE6D70B658F8 /* MarketGuardMonitor.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		AD10821A80C04C3DA451AB01 /* MarketGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 532E2FA33F0D3BB547ACCDEC /* MarketGuard.swift */; };
 		C9501AB8FF2D41930663629B /* ShieldConfigurationExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = E881B488B39A1E73C05CB54A /* ShieldConfigurationExtension.swift */; };
 		CA9ABAB3C6E8F5793B8CD375 /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 444A087EAE2173A6C6DE3EF9 /* Pods_Runner.framework */; };
 		CFCF7F4E48E997C7420C49D5 /* ShieldAction.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 4E9305C0339A3DF120769B98 /* ShieldAction.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		CFD8BF2A6C6C9E0D29028EE1 /* MarketGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 532E2FA33F0D3BB547ACCDEC /* MarketGuard.swift */; };
 		DF47734A3EE2D07BDD3FDF3B /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 89A6C2C2056D2EFDA8CAB139 /* Foundation.framework */; };
+		DF6FF16B067034975E58B8A4 /* MarketGuardMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92B28FBF63E7C2D4E5690B8D /* MarketGuardMonitor.swift */; };
 		E535B07A2AF14A12DB017349 /* ShieldActionExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = C987AC7A46A46C82EB95DF5F /* ShieldActionExtension.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		15958C49FB7F47418F7F9F88 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 97C146E61CF9000F007C117D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 01480DC697C32B8A9FC7C8C3;
+			remoteInfo = MarketGuardMonitor;
+		};
 		331C8085294A63A400263BE5 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 97C146E61CF9000F007C117D /* Project object */;
@@ -59,6 +77,7 @@
 			files = (
 				333294C68D55B055C355E8FA /* ShieldConfiguration.appex in Embed App Extensions */,
 				CFCF7F4E48E997C7420C49D5 /* ShieldAction.appex in Embed App Extensions */,
+				AC3331103DE7F1A24F26569F /* MarketGuardMonitor.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -76,9 +95,13 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		B71234567890ABCDEF000001 /* AppUsageTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUsageTracker.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6012345678902 /* GuardOpenReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuardOpenReporter.swift; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
 		1AB28E2CC4DCFDB1A41B3B22 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		1E7C6DC330AC78BF00E81287 /* Zeno AI.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Zeno AI.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		1E7C6DC430AC78BF00E81287 /* ManagedSettings.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ManagedSettings.framework; path = System/Library/Frameworks/ManagedSettings.framework; sourceTree = SDKROOT; };
 		2006ABD144A10A6CC793BA02 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -87,13 +110,18 @@
 		4CEB5E9D1341D3B20C0B62FF /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 		4E9305C0339A3DF120769B98 /* ShieldAction.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShieldAction.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		4F79E88D133D2F62ED05493A /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
+		532E2FA33F0D3BB547ACCDEC /* MarketGuard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MarketGuard.swift; sourceTree = "<group>"; };
 		71837291A20ED8CD33A3ED8F /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
 		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = FlutterGeneratedPluginSwiftPackage; path = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage; sourceTree = "<group>"; };
+		7916AD60032FBE6D70B658F8 /* MarketGuardMonitor.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MarketGuardMonitor.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		7AD1E5948B63C3894F5A1941 /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
+		872E77C2E495DE1081E6D98E /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		88FC7D789DD4A2A16ACA9B15 /* brain.png */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = image.png; name = brain.png; path = ../assets/brain.png; sourceTree = "<group>"; };
 		89A6C2C2056D2EFDA8CAB139 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		92B28FBF63E7C2D4E5690B8D /* MarketGuardMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MarketGuardMonitor.swift; sourceTree = "<group>"; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = Flutter/Debug.xcconfig; sourceTree = "<group>"; };
 		9740EEB31CF90195004384FC /* Generated.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Generated.xcconfig; path = Flutter/Generated.xcconfig; sourceTree = "<group>"; };
 		97C146EE1CF9000F007C117D /* Runner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Runner.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -109,12 +137,53 @@
 		E881B488B39A1E73C05CB54A /* ShieldConfigurationExtension.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShieldConfigurationExtension.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		1E7C6DD130AC78BF00E81287 /* Exceptions for "Zeno AI" folder in "Zeno AI" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 1E7C6DC230AC78BF00E81287 /* Zeno AI */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		1E7C6DC630AC78BF00E81287 /* Zeno AI */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				1E7C6DD130AC78BF00E81287 /* Exceptions for "Zeno AI" folder in "Zeno AI" target */,
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = "Zeno AI";
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
 /* Begin PBXFrameworksBuildPhase section */
+		1E7C6DC030AC78BF00E81287 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1E7C6DC530AC78BF00E81287 /* ManagedSettings.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		2F4E75DE18610DB806D94FFA /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				9207FBCC3340F847E607187A /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4425828BA654B7C87A6937F9 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A6E24ADD02A2B6684734B04E /* Foundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -159,6 +228,14 @@
 			path = Pods;
 			sourceTree = "<group>";
 		};
+		1D51010CA66307B617E5E7FE /* MarketGuardMonitor */ = {
+			isa = PBXGroup;
+			children = (
+				92B28FBF63E7C2D4E5690B8D /* MarketGuardMonitor.swift */,
+			);
+			path = MarketGuardMonitor;
+			sourceTree = "<group>";
+		};
 		331C8082294A63A400263BE5 /* RunnerTests */ = {
 			isa = PBXGroup;
 			children = (
@@ -172,7 +249,6 @@
 			children = (
 				C987AC7A46A46C82EB95DF5F /* ShieldActionExtension.swift */,
 			);
-			name = ShieldAction;
 			path = ShieldAction;
 			sourceTree = "<group>";
 		};
@@ -182,6 +258,7 @@
 				444A087EAE2173A6C6DE3EF9 /* Pods_Runner.framework */,
 				1AB28E2CC4DCFDB1A41B3B22 /* Pods_RunnerTests.framework */,
 				C4E9652F8E190E8F57C5FBB8 /* iOS */,
+				1E7C6DC430AC78BF00E81287 /* ManagedSettings.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -190,8 +267,8 @@
 			isa = PBXGroup;
 			children = (
 				E881B488B39A1E73C05CB54A /* ShieldConfigurationExtension.swift */,
+				A1B2C3D4E5F6012345678902 /* GuardOpenReporter.swift */,
 			);
-			name = ShieldConfiguration;
 			path = ShieldConfiguration;
 			sourceTree = "<group>";
 		};
@@ -212,12 +289,15 @@
 			children = (
 				9740EEB11CF90186004384FC /* Flutter */,
 				97C146F01CF9000F007C117D /* Runner */,
+				1E7C6DC630AC78BF00E81287 /* Zeno AI */,
 				97C146EF1CF9000F007C117D /* Products */,
 				331C8082294A63A400263BE5 /* RunnerTests */,
 				1CD3BE53B75F53029C3D7171 /* Pods */,
 				740961DDDF918D9CDF76ED56 /* Frameworks */,
 				8D251EAB1815ECB6921361C3 /* ShieldConfiguration */,
 				4D8047D208AE17DE37E10292 /* ShieldAction */,
+				1D51010CA66307B617E5E7FE /* MarketGuardMonitor */,
+				88FC7D789DD4A2A16ACA9B15 /* brain.png */,
 			);
 			sourceTree = "<group>";
 		};
@@ -228,6 +308,8 @@
 				331C8081294A63A400263BE5 /* RunnerTests.xctest */,
 				B9E8D0A55B81809CE2ED237E /* ShieldConfiguration.appex */,
 				4E9305C0339A3DF120769B98 /* ShieldAction.appex */,
+				7916AD60032FBE6D70B658F8 /* MarketGuardMonitor.appex */,
+				1E7C6DC330AC78BF00E81287 /* Zeno AI.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -245,6 +327,8 @@
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				A123456789ABCDEF12345679 /* ScreenTimeBridge.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
+				532E2FA33F0D3BB547ACCDEC /* MarketGuard.swift */,
+				B71234567890ABCDEF000001 /* AppUsageTracker.swift */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -253,6 +337,7 @@
 			isa = PBXGroup;
 			children = (
 				89A6C2C2056D2EFDA8CAB139 /* Foundation.framework */,
+				872E77C2E495DE1081E6D98E /* Foundation.framework */,
 			);
 			name = iOS;
 			sourceTree = "<group>";
@@ -260,6 +345,43 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		01480DC697C32B8A9FC7C8C3 /* MarketGuardMonitor */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D8B36C31AB1E8545A001889D /* Build configuration list for PBXNativeTarget "MarketGuardMonitor" */;
+			buildPhases = (
+				6691190DC98C7D7BBD41F165 /* Sources */,
+				4425828BA654B7C87A6937F9 /* Frameworks */,
+				6E33E83EC673464BF0FE61E4 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MarketGuardMonitor;
+			productName = MarketGuardMonitor;
+			productReference = 7916AD60032FBE6D70B658F8 /* MarketGuardMonitor.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		1E7C6DC230AC78BF00E81287 /* Zeno AI */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1E7C6DD230AC78BF00E81287 /* Build configuration list for PBXNativeTarget "Zeno AI" */;
+			buildPhases = (
+				1E7C6DBF30AC78BF00E81287 /* Sources */,
+				1E7C6DC030AC78BF00E81287 /* Frameworks */,
+				1E7C6DC130AC78BF00E81287 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				1E7C6DC630AC78BF00E81287 /* Zeno AI */,
+			);
+			name = "Zeno AI";
+			productName = "Zeno AI";
+			productReference = 1E7C6DC330AC78BF00E81287 /* Zeno AI.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		331C8080294A63A400263BE5 /* RunnerTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 331C8087294A63A400263BE5 /* Build configuration list for PBXNativeTarget "RunnerTests" */;
@@ -315,6 +437,7 @@
 			dependencies = (
 				0BC23D00E3952600EF7672B5 /* PBXTargetDependency */,
 				CDA45B7F5FCFDF46A37D2A06 /* PBXTargetDependency */,
+				4F964EC4E7206C4FA6428DEA /* PBXTargetDependency */,
 			);
 			name = Runner;
 			packageProductDependencies = (
@@ -348,9 +471,13 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
+				LastSwiftUpdateCheck = 2660;
 				LastUpgradeCheck = 1510;
 				ORGANIZATIONNAME = "";
 				TargetAttributes = {
+					1E7C6DC230AC78BF00E81287 = {
+						CreatedOnToolsVersion = 26.6;
+					};
 					331C8080294A63A400263BE5 = {
 						CreatedOnToolsVersion = 14.0;
 						TestTargetID = 97C146ED1CF9000F007C117D;
@@ -381,11 +508,20 @@
 				331C8080294A63A400263BE5 /* RunnerTests */,
 				C872F9B0134C8FF586EB3D2C /* ShieldConfiguration */,
 				8CD6CB83039A548F52ACCC49 /* ShieldAction */,
+				01480DC697C32B8A9FC7C8C3 /* MarketGuardMonitor */,
+				1E7C6DC230AC78BF00E81287 /* Zeno AI */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		1E7C6DC130AC78BF00E81287 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		331C807F294A63A400263BE5 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -400,10 +536,18 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		6E33E83EC673464BF0FE61E4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		9758CA990A465E1DEEF570C2 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7174F0975285212A3C0CA880 /* brain.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -516,6 +660,13 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		1E7C6DBF30AC78BF00E81287 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		331C807D294A63A400263BE5 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -529,6 +680,17 @@
 			buildActionMask = 2147483647;
 			files = (
 				E535B07A2AF14A12DB017349 /* ShieldActionExtension.swift in Sources */,
+				AD10821A80C04C3DA451AB01 /* MarketGuard.swift in Sources */,
+				B71234567890ABCDEF000002 /* AppUsageTracker.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6691190DC98C7D7BBD41F165 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DF6FF16B067034975E58B8A4 /* MarketGuardMonitor.swift in Sources */,
+				3B98A5C05120E539B9E59D4F /* MarketGuard.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -539,6 +701,8 @@
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				A123456789ABCDEF12345678 /* ScreenTimeBridge.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
+				CFD8BF2A6C6C9E0D29028EE1 /* MarketGuard.swift in Sources */,
+				B71234567890ABCDEF000003 /* AppUsageTracker.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -547,6 +711,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C9501AB8FF2D41930663629B /* ShieldConfigurationExtension.swift in Sources */,
+				A1B2C3D4E5F6012345678901 /* GuardOpenReporter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -563,6 +728,12 @@
 			isa = PBXTargetDependency;
 			target = 97C146ED1CF9000F007C117D /* Runner */;
 			targetProxy = 331C8085294A63A400263BE5 /* PBXContainerItemProxy */;
+		};
+		4F964EC4E7206C4FA6428DEA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = MarketGuardMonitor;
+			target = 01480DC697C32B8A9FC7C8C3 /* MarketGuardMonitor */;
+			targetProxy = 15958C49FB7F47418F7F9F88 /* PBXContainerItemProxy */;
 		};
 		CDA45B7F5FCFDF46A37D2A06 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -634,6 +805,132 @@
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
+		};
+		1E7C6DCE30AC78BF00E81287 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CODE_SIGN_ENTITLEMENTS = "Zeno AI/Zeno_AI.entitlements";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TT68B6GR2Q;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Zeno AI/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Zeno AI";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.discipline.mind;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		1E7C6DCF30AC78BF00E81287 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CODE_SIGN_ENTITLEMENTS = "Zeno AI/Zeno_AI.entitlements";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TT68B6GR2Q;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Zeno AI/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Zeno AI";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.discipline.mind;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		1E7C6DD030AC78BF00E81287 /* Profile */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CODE_SIGN_ENTITLEMENTS = "Zeno AI/Zeno_AI.entitlements";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TT68B6GR2Q;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Zeno AI/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Zeno AI";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.discipline.mind;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Profile;
 		};
 		21AFB90260FEC8B3EB6B217C /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -736,12 +1033,31 @@
 			};
 			name = Profile;
 		};
+		249652202DA3C0D0170DE0B9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = MarketGuardMonitor/MarketGuardMonitor.entitlements;
+				CURRENT_PROJECT_VERSION = 14;
+				DEVELOPMENT_TEAM = TT68B6GR2Q;
+				INFOPLIST_FILE = MarketGuardMonitor/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.0.8;
+				PRODUCT_BUNDLE_IDENTIFIER = com.discipline.mind.MarketGuardMonitor;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
 		331C8088294A63A400263BE5 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 7AD1E5948B63C3894F5A1941 /* Pods-RunnerTests.debug.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = TT68B6GR2Q;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
@@ -760,6 +1076,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = TT68B6GR2Q;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
@@ -776,6 +1093,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = TT68B6GR2Q;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
@@ -974,6 +1292,25 @@
 			};
 			name = Profile;
 		};
+		BE8381F1DAF9A40ABC2021E5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = MarketGuardMonitor/MarketGuardMonitor.entitlements;
+				CURRENT_PROJECT_VERSION = 14;
+				DEVELOPMENT_TEAM = TT68B6GR2Q;
+				INFOPLIST_FILE = MarketGuardMonitor/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.0.8;
+				PRODUCT_BUNDLE_IDENTIFIER = com.discipline.mind.MarketGuardMonitor;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		C889281CC8DCC7085E3D5C49 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
@@ -1017,9 +1354,38 @@
 			};
 			name = Profile;
 		};
+		F9D7C755C37B95904B4BE64E /* Profile */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = MarketGuardMonitor/MarketGuardMonitor.entitlements;
+				CURRENT_PROJECT_VERSION = 14;
+				DEVELOPMENT_TEAM = TT68B6GR2Q;
+				INFOPLIST_FILE = MarketGuardMonitor/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.0.8;
+				PRODUCT_BUNDLE_IDENTIFIER = com.discipline.mind.MarketGuardMonitor;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Profile;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		1E7C6DD230AC78BF00E81287 /* Build configuration list for PBXNativeTarget "Zeno AI" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1E7C6DCE30AC78BF00E81287 /* Debug */,
+				1E7C6DCF30AC78BF00E81287 /* Release */,
+				1E7C6DD030AC78BF00E81287 /* Profile */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		331C8087294A63A400263BE5 /* Build configuration list for PBXNativeTarget "RunnerTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1066,6 +1432,16 @@
 				97C147061CF9000F007C117D /* Debug */,
 				97C147071CF9000F007C117D /* Release */,
 				249021D4217E4FDB00AE95B9 /* Profile */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D8B36C31AB1E8545A001889D /* Build configuration list for PBXNativeTarget "MarketGuardMonitor" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BE8381F1DAF9A40ABC2021E5 /* Release */,
+				249652202DA3C0D0170DE0B9 /* Debug */,
+				F9D7C755C37B95904B4BE64E /* Profile */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

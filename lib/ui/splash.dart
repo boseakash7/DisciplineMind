@@ -1,7 +1,6 @@
 // import 'dart:io';
 
 // import 'package:block_app/block_app.dart';
-// import 'package:discipline_mind/ui/ios/ios_splash_handler.dart';
 // import 'package:discipline_mind/ui/android_app_block/permisson_get_page.dart';
 // import 'package:flutter/material.dart';
 

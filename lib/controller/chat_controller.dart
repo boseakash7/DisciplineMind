@@ -59,7 +59,8 @@ class ChatController extends GetxController {
   }
 
   List<String> _selectedBlockedPackages() {
-    final userId = _resolvedUserId ??
+    final userId =
+        _resolvedUserId ??
         Common.userData.value?.payload?.id?.toString() ??
         GetStorage().read<String>('user_id');
 
@@ -160,7 +161,9 @@ class ChatController extends GetxController {
   /// Ensures there is AT MOST ONE AI waiting message in the list (the latest/newest one).
   /// Any older AI messages are dropped so only the last active AI message is displayed.
   List<ChatMessage> _keepOnlyLatestAiMessage(List<ChatMessage> list) {
-    final lastAiIndex = list.lastIndexWhere((m) => m.type == ChatMessageType.aiWaiting);
+    final lastAiIndex = list.lastIndexWhere(
+      (m) => m.type == ChatMessageType.aiWaiting,
+    );
     if (lastAiIndex == -1) return list;
 
     final result = <ChatMessage>[];
@@ -189,13 +192,16 @@ class ChatController extends GetxController {
     if (mId.isNotEmpty && _takenActionMessageIds.contains(mId)) return true;
     final tId = msg is NewTradeOpportunityMessage
         ? msg.tradeId.trim()
-        : (msg is TradeExecutionPromptMessage ? msg.tradeData.tradeId.trim() : '');
+        : (msg is TradeExecutionPromptMessage
+              ? msg.tradeData.tradeId.trim()
+              : '');
     if (tId.isNotEmpty && _takenActionTradeIds.contains(tId)) return true;
     return false;
   }
 
   List<ChatMessage> _applyLocallyTakenActions(List<ChatMessage> list) {
-    if (_takenActionMessageIds.isEmpty && _takenActionTradeIds.isEmpty) return list;
+    if (_takenActionMessageIds.isEmpty && _takenActionTradeIds.isEmpty)
+      return list;
     final result = list.toList();
     for (int i = 0; i < result.length; i++) {
       final m = result[i];
@@ -203,7 +209,9 @@ class ChatController extends GetxController {
         final mId = m.messageId.trim();
         final tId = m is NewTradeOpportunityMessage
             ? m.tradeId.trim()
-            : (m is TradeExecutionPromptMessage ? m.tradeData.tradeId.trim() : '');
+            : (m is TradeExecutionPromptMessage
+                  ? m.tradeData.tradeId.trim()
+                  : '');
         if ((mId.isNotEmpty && _takenActionMessageIds.contains(mId)) ||
             (tId.isNotEmpty && _takenActionTradeIds.contains(tId))) {
           result[i] = _withActionTaken(m, 1);
@@ -224,7 +232,9 @@ class ChatController extends GetxController {
         parsed.addAll(chatMessagesFromJson(item));
       }
     }
-    final deduped = _keepOnlyLatestAiMessage(_dedupeRedundantDeleteTradeButtons(parsed));
+    final deduped = _keepOnlyLatestAiMessage(
+      _dedupeRedundantDeleteTradeButtons(parsed),
+    );
     return _applyLocallyTakenActions(deduped);
   }
 
@@ -249,7 +259,9 @@ class ChatController extends GetxController {
       combined = [...filteredIncoming, ...base];
     } else {
       // If new messages contain an AI message, immediately purge older AI messages from base
-      final incomingHasAi = filteredIncoming.any((m) => m.type == ChatMessageType.aiWaiting);
+      final incomingHasAi = filteredIncoming.any(
+        (m) => m.type == ChatMessageType.aiWaiting,
+      );
       final adjustedBase = incomingHasAi
           ? base.where((m) => m.type != ChatMessageType.aiWaiting).toList()
           : base;
@@ -446,7 +458,8 @@ class ChatController extends GetxController {
     final sessionVersion = _sessionVersion;
     final loadVersion = ++_loadVersion;
     bool isCurrentLoad() =>
-        _isCurrentSession(userId, sessionVersion) && _loadVersion == loadVersion;
+        _isCurrentSession(userId, sessionVersion) &&
+        _loadVersion == loadVersion;
 
     if (!silent) {
       if (refresh) {
@@ -671,33 +684,21 @@ class ChatController extends GetxController {
     final query = text.trim();
     if (query.isEmpty) return;
 
-    addMessage(
-      SimpleTextMessage(
-        text: query,
-        isFromUser: true,
-      ),
-    );
+    addMessage(SimpleTextMessage(text: query, isFromUser: true));
 
     final waitingMsgId = 'ai_waiting_${DateTime.now().millisecondsSinceEpoch}';
-    addMessage(
-      AiWaitingMessage(
-        text: 'Analyzing...',
-        messageId: waitingMsgId,
-      ),
-    );
+    addMessage(AiWaitingMessage(text: 'Analyzing...', messageId: waitingMsgId));
 
     try {
-      final userId = Common.userData.value?.payload?.id?.toString() ??
+      final userId =
+          Common.userData.value?.payload?.id?.toString() ??
           GetStorage().read<String>('user_id') ??
           '123';
 
-      final response = await ApiService().postJson(
-        _llmAskUrl(),
-        {
-          'user_id': userId,
-          'user_query': query,
-        },
-      );
+      final response = await ApiService().postJson(_llmAskUrl(), {
+        'user_id': userId,
+        'user_query': query,
+      });
 
       messages.removeWhere((m) => m.messageId == waitingMsgId);
 
@@ -707,12 +708,7 @@ class ChatController extends GetxController {
             payload['response_markdown'] != null) {
           final replyText = payload['response_markdown'].toString();
           if (replyText.isNotEmpty) {
-            addMessage(
-              SimpleTextMessage(
-                text: replyText,
-                isFromUser: false,
-              ),
-            );
+            addMessage(SimpleTextMessage(text: replyText, isFromUser: false));
             return;
           }
         }
@@ -720,12 +716,7 @@ class ChatController extends GetxController {
 
       final errorMsg =
           response.errorMessage ?? 'Unable to get response from AI.';
-      addMessage(
-        SimpleTextMessage(
-          text: errorMsg,
-          isFromUser: false,
-        ),
-      );
+      addMessage(SimpleTextMessage(text: errorMsg, isFromUser: false));
     } catch (e) {
       messages.removeWhere((m) => m.messageId == waitingMsgId);
       addMessage(
@@ -911,7 +902,9 @@ class ChatController extends GetxController {
           ? msg.signalId
           : (msg.messageId.isNotEmpty ? msg.messageId : '7');
       final currentPriceClean = msg.currentPrice.replaceAll(',', '').trim();
-      final symbol = msg.tradingsymbol.isNotEmpty ? msg.tradingsymbol : msg.instrument;
+      final symbol = msg.tradingsymbol.isNotEmpty
+          ? msg.tradingsymbol
+          : msg.instrument;
       final instrument = msg.exchange.isNotEmpty
           ? '${msg.exchange}:$symbol'
           : symbol;
@@ -922,9 +915,12 @@ class ChatController extends GetxController {
         'user_id': userId,
         'trade_id': tradeId,
         'gtt_price': gttPrice.trim(),
-        'current_price': currentPriceClean.isNotEmpty ? currentPriceClean : '0.00',
+        'current_price': currentPriceClean.isNotEmpty
+            ? currentPriceClean
+            : '0.00',
         if (instrument.isNotEmpty) 'instrument': instrument,
-        if (msg.processId.isNotEmpty) 'v2test_trading_process_id': msg.processId,
+        if (msg.processId.isNotEmpty)
+          'v2test_trading_process_id': msg.processId,
       };
       final response = await api.postFormData(ApiUrl.gttAlertCreate, fields);
       if (response.isSuccess) {
@@ -981,7 +977,9 @@ class ChatController extends GetxController {
           ? msg.signalId
           : (msg.messageId.isNotEmpty ? msg.messageId : '7');
       final currentPriceClean = msg.currentPrice.replaceAll(',', '').trim();
-      final symbol = msg.tradingsymbol.isNotEmpty ? msg.tradingsymbol : msg.instrument;
+      final symbol = msg.tradingsymbol.isNotEmpty
+          ? msg.tradingsymbol
+          : msg.instrument;
       final instrument = msg.exchange.isNotEmpty
           ? '${msg.exchange}:$symbol'
           : symbol;
@@ -991,7 +989,9 @@ class ChatController extends GetxController {
       final fields = <String, String>{
         'user_id': userId,
         'trade_id': tradeId,
-        'current_price': currentPriceClean.isNotEmpty ? currentPriceClean : '0.00',
+        'current_price': currentPriceClean.isNotEmpty
+            ? currentPriceClean
+            : '0.00',
         'upper_price': upperPrice.trim(),
         'lower_price': lowerPrice.trim(),
         if (instrument.isNotEmpty) 'instrument': instrument,
@@ -1004,9 +1004,7 @@ class ChatController extends GetxController {
         loadMessages(refresh: true);
         return true;
       } else {
-        AppToast.showToast(
-          response.errorMessage ?? 'Failed to create alert',
-        );
+        AppToast.showToast(response.errorMessage ?? 'Failed to create alert');
         return false;
       }
     } catch (e, stack) {
@@ -1031,11 +1029,19 @@ class ChatController extends GetxController {
         match = true;
       }
       if (!match && cleanTradeId.isNotEmpty) {
-        if (m is NewTradeOpportunityMessage && m.tradeId.trim() == cleanTradeId) match = true;
-        if (m is TradeExecutionPromptMessage && m.tradeData.tradeId.trim() == cleanTradeId) match = true;
-        if (m is AlertHitWithButtonMessage && m.tradeId.trim() == cleanTradeId) match = true;
-        if (m is SimpleTextMessage && m.tradeId.trim() == cleanTradeId) match = true;
-        if (m is TradeSignalMessage && (m.signalId.trim() == cleanTradeId || m.messageId.trim() == cleanTradeId)) match = true;
+        if (m is NewTradeOpportunityMessage && m.tradeId.trim() == cleanTradeId)
+          match = true;
+        if (m is TradeExecutionPromptMessage &&
+            m.tradeData.tradeId.trim() == cleanTradeId)
+          match = true;
+        if (m is AlertHitWithButtonMessage && m.tradeId.trim() == cleanTradeId)
+          match = true;
+        if (m is SimpleTextMessage && m.tradeId.trim() == cleanTradeId)
+          match = true;
+        if (m is TradeSignalMessage &&
+            (m.signalId.trim() == cleanTradeId ||
+                m.messageId.trim() == cleanTradeId))
+          match = true;
       }
       if (match) {
         messages[i] = _withActionTaken(m, 1);
@@ -1356,8 +1362,12 @@ class ChatController extends GetxController {
     return false;
   }
 
-  /// Unblock trading apps and open the first selected broker app (Android).
+  bool _openingTradingApp = false;
+
+  /// Launch the selected iOS broker with its native Screen Time shield active.
   Future<void> openTradingApp() async {
+    if (_openingTradingApp) return;
+    _openingTradingApp = true;
     try {
       if (Platform.isAndroid) {
         final selectedPackages = _selectedBlockedPackages();
@@ -1389,8 +1399,14 @@ class ChatController extends GetxController {
         }
       } else if (Platform.isIOS) {
         if (!await MindControlGuardConsent.ensureAccepted()) return;
-        if (!await IosScreenTime.isAuthorized()) {
-          AppToast.showToast('iOS Screen Time authorization is unavailable');
+        var authorized = await IosScreenTime.isAuthorized();
+        if (!authorized) {
+          authorized = await IosScreenTime.requestPermission();
+        }
+        if (!authorized) {
+          AppToast.showToast(
+            'Allow Screen Time access to enable Mind Control Guard',
+          );
           return;
         }
         if (!await IosScreenTime.ensureSelectedApps()) {
@@ -1409,6 +1425,12 @@ class ChatController extends GetxController {
         if (selectedPackages.isEmpty) {
           AppToast.showToast('Select your trading app in Zeno AI first');
           return;
+        }
+        // Do not grant temporary access or show Zeno's Flutter guard here.
+        // The broker must launch shielded; only its native SKIP grants access.
+        final guardUserId = _resolvedUserId;
+        if (guardUserId != null) {
+          await IosScreenTime.syncGuardState(guardUserId);
         }
         var launched = false;
 
@@ -1438,6 +1460,7 @@ class ChatController extends GetxController {
         // If the selected broker isn't available, its store listing is useful,
         // but opening the store must never be reported as an active guard.
         if (!launched) {
+          await IosScreenTime.enableRestrictions();
           final pkg = selectedPackages.first;
           final appStoreUrl = iosAppStoreUrls[pkg];
           if (appStoreUrl == null) {
@@ -1460,11 +1483,12 @@ class ChatController extends GetxController {
           );
           return;
         }
-
-        AppToast.showToast('Mind Control Guard is Active');
       }
     } catch (e) {
-      print('[ChatController] openTradingApp failed: $e');
+      if (Platform.isIOS) await IosScreenTime.enableRestrictions();
+      debugPrint('[ChatController] openTradingApp failed: $e');
+    } finally {
+      _openingTradingApp = false;
     }
   }
 
@@ -1480,8 +1504,12 @@ class ChatController extends GetxController {
         await _blockService.stopBlockingService();
         AppToast.showToast('Mind Control Guard is Deactivated');
       } else if (Platform.isIOS) {
-        await _blockService.unblockApp('');
-        AppToast.showToast('Mind Control Guard is Deactivated');
+        // A completed trade may allow broker access, but must not disable
+        // protection for later launches from the iPhone Home Screen.
+        final allowed = await IosScreenTime.allowSelectedAppsTemporarily();
+        AppToast.showToast(allowed
+            ? 'Trading app access allowed temporarily'
+            : 'Mind Control Guard remains active');
       }
     } catch (e) {
       print('[ChatController] onTradeExecuted failed: $e');

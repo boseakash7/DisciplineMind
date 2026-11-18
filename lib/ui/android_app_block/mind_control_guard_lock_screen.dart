@@ -29,7 +29,6 @@ class MindControlGuardLockScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.paddingOf(context).bottom;
     return ColoredBox(
       color: Colors.white,
       child: Stack(
@@ -46,7 +45,7 @@ class MindControlGuardLockScreen extends StatelessWidget {
               children: [
                 Expanded(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
                     child: Column(
                       children: [
                         const SizedBox(height: 8),
@@ -56,8 +55,8 @@ class MindControlGuardLockScreen extends StatelessWidget {
                           style: TextStyle(
                             color: _navy,
                             fontSize: 22,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.8,
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: 0.2,
                             height: 1.15,
                           ),
                         ),
@@ -87,7 +86,7 @@ class MindControlGuardLockScreen extends StatelessWidget {
                   ),
                 ),
                 Padding(
-                  padding: EdgeInsets.fromLTRB(20, 10, 20, 14 + bottomInset),
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
                   child: Row(
                     children: [
                       Expanded(
@@ -112,8 +111,8 @@ class MindControlGuardLockScreen extends StatelessWidget {
 
   Widget _brainBadge() {
     return Container(
-      width: 140,
-      height: 140,
+      width: 132,
+      height: 132,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: Colors.white,
@@ -122,7 +121,7 @@ class MindControlGuardLockScreen extends StatelessWidget {
           width: 2,
         ),
       ),
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(32),
       child: ClipOval(
         child: Image.asset(
           _brainAsset,
@@ -206,7 +205,7 @@ class MindControlGuardLockScreen extends StatelessWidget {
           style: const TextStyle(
             color: _purple,
             fontSize: 18,
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w600,
           ),
         ),
         const SizedBox(height: 2),
@@ -367,7 +366,7 @@ class MindControlGuardLockScreen extends StatelessWidget {
         onTap: onWillControl,
         borderRadius: BorderRadius.circular(16),
         child: Ink(
-          height: 62,
+          height: 58,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             gradient: const LinearGradient(colors: [_blue, _purpleBright]),
@@ -379,7 +378,11 @@ class MindControlGuardLockScreen extends StatelessWidget {
               ),
             ],
           ),
-          child: const Row(
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(Icons.shield_outlined, color: Colors.white, size: 20),
@@ -394,6 +397,8 @@ class MindControlGuardLockScreen extends StatelessWidget {
                 ),
               ),
             ],
+              ),
+            ),
           ),
         ),
       ),
@@ -407,7 +412,7 @@ class MindControlGuardLockScreen extends StatelessWidget {
         onTap: onSkip,
         borderRadius: BorderRadius.circular(16),
         child: Ink(
-          height: 62,
+          height: 58,
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),

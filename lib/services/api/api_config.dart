@@ -33,7 +33,8 @@ class ApiConfig {
       'process/fetch',
       'process/edit',
       'user/mind-control-active',
-      'config/keys'
+      'config/keys',
+      'app/state',
     ];
 
     final isV2 = v2Endpoints.any((e) => endpoint.contains(e));

@@ -28,49 +28,45 @@ class Common {
   static String fcmToken = "";
   LoginResponseModel? get currentUser => userData.value;
 
-  /// Fetch APNs and FCM tokens and automatically sync to server if user is logged in
+  static Future<String?>? _tokenRequest;
+  static DateTime? _nextTokenAttempt;
+
+  /// Share registration across startup, login and screen refreshes.
   static Future<String?> getFcmToken() async {
+    final token = await (_tokenRequest ??= _fetchFcmToken());
+    _tokenRequest = null;
+    if (token != null) {
+      await syncFcmTokenToServer(token);
+      await NotificationHandler.subscribeToTradeAlerts();
+    }
+    return token;
+  }
+
+  static Future<String?> _fetchFcmToken() async {
+    if (fcmToken.isNotEmpty) return fcmToken;
+    if (_nextTokenAttempt != null &&
+        DateTime.now().isBefore(_nextTokenAttempt!)) {
+      return null;
+    }
     try {
       if (Platform.isIOS) {
-        String? apns = await FirebaseMessaging.instance.getAPNSToken();
-        if (apns == null) {
-          print("⏳ [Common] Waiting for iOS APNs token...");
-          for (var i = 0; i < 15; i++) {
-            await Future.delayed(const Duration(milliseconds: 800));
-            apns = await FirebaseMessaging.instance.getAPNSToken();
-            if (apns != null && apns.isNotEmpty) break;
-          }
-        }
-        if (apns != null && apns.isNotEmpty) {
-          apnsToken = apns;
-          final storage = GetStorage();
-          await storage.write('ios_apns_token', apns);
-          print("========================================");
-          print("🔥 [Common] iOS APNs Token: $apns");
-          print("========================================");
-        } else {
-          print("⚠️ [Common] APNs Token is not yet available; deferring FCM fetch to onTokenRefresh.");
-          return null;
-        }
+        final apns = await NotificationHandler.requestAndGetApnsToken();
+        if (apns == null || apns.isEmpty) return null;
+        apnsToken = apns;
+        await GetStorage().write('ios_apns_token', apns);
       }
-
-      String? token = await FirebaseMessaging.instance.getToken().timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => null,
-      );
-
-      if (token != null && token.isNotEmpty) {
-        fcmToken = token;
-        final storage = GetStorage();
-        await storage.write('fcm_token', token);
-        print("🔥 [Common] FCM Token: $token");
-        await syncFcmTokenToServer(token);
-        return token;
-      }
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token == null || token.isEmpty) return null;
+      fcmToken = token;
+      await GetStorage().write('fcm_token', token);
+      return token;
     } catch (e) {
-      print("getFcmToken error: $e");
+      print('[FCM] Registration unavailable; retry deferred: $e');
+      return null;
+    } finally {
+      // Do not hammer registration when Firebase returns a server error.
+      _nextTokenAttempt = DateTime.now().add(const Duration(minutes: 1));
     }
-    return null;
   }
 
   static bool _fcmSyncInFlight = false;
@@ -80,7 +76,8 @@ class Common {
   static Future<void> syncFcmTokenToServer([String? tokenToSync]) async {
     final token = tokenToSync ?? fcmToken;
     if (token.isEmpty) return;
-    final userId = Common.userData.value?.payload?.id?.toString() ??
+    final userId =
+        Common.userData.value?.payload?.id?.toString() ??
         GetStorage().read<String>('user_id');
     if (userId == null || userId.isEmpty) return;
     if (_fcmSyncInFlight || _lastSyncedToken == token) return;
@@ -98,7 +95,9 @@ class Common {
       if (res.isSuccess) {
         _lastSyncedToken = token;
       }
-      print("✅ [Common] Synced FCM token to server for user $userId (isSuccess: ${res.isSuccess})");
+      print(
+        "✅ [Common] Synced FCM token to server for user $userId (isSuccess: ${res.isSuccess})",
+      );
       await NotificationHandler.subscribeToTradeAlerts();
     } catch (e) {
       print("❌ [Common] Failed to sync FCM token to server: $e");
@@ -144,7 +143,9 @@ class Common {
           .stopBlockingService()
           .timeout(const Duration(seconds: 3))
           .catchError((Object error) {
-            print('[Common] Blocking service cleanup timed out or failed: $error');
+            print(
+              '[Common] Blocking service cleanup timed out or failed: $error',
+            );
             return false;
           }),
     );

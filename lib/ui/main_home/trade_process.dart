@@ -152,6 +152,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   final _blockService = NativeAppBlockService();
   final _prefs = AppBlockPreferencesService();
 
+  String? _iosPickerBroker;
   bool _permissionBusy = false;
   bool _hasOverlay = false;
   bool _hasUsage = false;
@@ -384,17 +385,16 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   Future<void> _refreshPermissions({bool showToastIfMissing = false}) async {
     if (Platform.isIOS) {
       try {
-        final storage = GetStorage();
         final authorized = await IosScreenTime.isAuthorized();
-        final overlay = authorized || storage.read('ios_overlay_granted') == true;
+        final overlay = authorized;
         final selected = authorized && await IosScreenTime.hasSelectedApps();
         if (!mounted) return;
         setState(() { _hasOverlay = overlay; _hasUsage = selected; });
       } catch (e) {
         debugPrint('[ScreenTime] status: $e');
-        final storage = GetStorage();
+        if (!mounted) return;
         setState(() {
-          _hasOverlay = storage.read('ios_overlay_granted') == true;
+          _hasOverlay = false;
           _hasUsage = false;
         });
       }
@@ -446,7 +446,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   }
 
   Future<void> _requestOverlayPermission() async {
-    final confirmed = await _showScreenTimePermissionDialog(context);
+    final confirmed = Platform.isIOS || await _showScreenTimePermissionDialog(context);
     if (!confirmed) {
       if (mounted) AppToast.showToast('Permission denied');
       return;
@@ -456,18 +456,14 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       if (_permissionBusy) return;
       setState(() => _permissionBusy = true);
       try {
-        final storage = GetStorage();
-        await storage.write('ios_overlay_granted', true);
-        try {
-          await IosScreenTime.requestPermission();
-        } catch (_) {}
+        final granted = await IosScreenTime.isAuthorized() ||
+            await IosScreenTime.requestPermission();
         await _refreshPermissions();
-        if (mounted && currentPage == 5) nextPage();
-      } catch (e) {
-        final storage = GetStorage();
-        await storage.write('ios_overlay_granted', true);
-        await _refreshPermissions();
-        if (mounted && currentPage == 5) nextPage();
+        if (!granted) {
+          AppToast.showToast('Allow Screen Time access to continue');
+          return;
+        }
+        if (mounted && currentPage == 5 && _hasOverlay) nextPage();
       } finally {
         if (mounted) setState(() => _permissionBusy = false);
       }
@@ -486,7 +482,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   }
 
   Future<void> _requestUsagePermission() async {
-    final confirmed = await _showScreenTimePermissionDialog(context);
+    final confirmed = Platform.isIOS || await _showScreenTimePermissionDialog(context);
     if (!confirmed) {
       if (mounted) AppToast.showToast('Permission denied');
       return;
@@ -511,6 +507,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
           );
           return;
         }
+        _iosPickerBroker = brokerage;
         await _refreshPermissions();
         if (mounted && currentPage == 6 && _hasUsage) nextPage();
       } catch (e) {
@@ -4300,11 +4297,18 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
     if (Platform.isIOS) {
       try {
         if (!await MindControlGuardConsent.ensureAccepted()) return;
-        if (!await IosScreenTime.isAuthorized()) {
-          AppToast.showToast('iOS Screen Time authorization is required');
+        if (!await IosScreenTime.isAuthorized() &&
+            !await IosScreenTime.requestPermission()) {
+          AppToast.showToast('Allow Screen Time access to protect your trading apps');
           return;
         }
-        if (!await IosScreenTime.ensureSelectedApps()) {
+        final previousBroker = GetStorage().read<String>(
+          'mct_brokerage_${widget.userId}',
+        );
+        final selected = _iosPickerBroker != brokerage && previousBroker != brokerage
+            ? await IosScreenTime.showAppPicker()
+            : await IosScreenTime.ensureSelectedApps();
+        if (!selected || !await IosScreenTime.hasSelectedApps()) {
           AppToast.showToast('Select your trading app in the iOS app picker');
           return;
         }

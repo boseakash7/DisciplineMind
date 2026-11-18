@@ -72,8 +72,16 @@ void _navigateToChatScreen() {
 }
 
 void _onAppResumed() async {
+  // Retry deferred registration when returning online or from Settings.
+  if (Firebase.apps.isNotEmpty) {
+    unawaited(NotificationHandler.instance.refreshFcmToken());
+  }
   if (Platform.isIOS) {
     await IosScreenTime.restoreRestrictionsAfterSkip();
+    if (Common.userData.value?.payload?.id != null &&
+        await IosScreenTime.isGuardReturnForResume()) {
+      // Preserve the current route and chat state on native guard return.
+    }
     return;
   }
   if (!Platform.isAndroid) return;
@@ -227,10 +235,10 @@ Future<void> main() async {
     if (Platform.isAndroid || Platform.isIOS) {
       try {
         final blockService = NativeAppBlockService();
-        final blocked = await blockService.getBlockedApps().timeout(
+        final blocked = Platform.isAndroid ? await blockService.getBlockedApps().timeout(
           const Duration(seconds: 2),
           onTimeout: () => [],
-        );
+        ) : <String>[];
         if (blocked.isNotEmpty) {
           await blockService.startBlockingService();
         }
@@ -272,8 +280,15 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      if (Platform.isIOS) IosScreenTime.beginResume();
       _onAppResumed();
-      _refreshChatOnAppResumed();
+      if (Platform.isIOS) {
+        IosScreenTime.isGuardReturnForResume().then((fromGuard) {
+          if (!fromGuard) _refreshChatOnAppResumed();
+        });
+      } else {
+        _refreshChatOnAppResumed();
+      }
     }
   }
 

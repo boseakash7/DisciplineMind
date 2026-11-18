@@ -344,7 +344,7 @@
 //         _logNotificationData(source: 'getInitialMessage', message: message);
 //         _maybeMarkDmtScoreAutoOpen(message.data);
 //         onNotificationReceived?.call();
-//       
+//
 //     });
 //   }
 
@@ -380,345 +380,287 @@
 //   }
 // }
 
-
 import 'dart:convert';
 import 'dart:io';
- 
+
 import 'package:discipline_mind/common/common.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
- 
+
 @pragma('vm:entry-point')
-Future<void> firebaseMessagingBackgroundHandler(
-  RemoteMessage message,
-) async {
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
   debugPrint('Background FCM: ${message.messageId}');
 }
- 
+
 class NotificationHandler {
   NotificationHandler._();
- 
-  static final NotificationHandler instance =
-      NotificationHandler._();
- 
-  final FirebaseMessaging _messaging =
-      FirebaseMessaging.instance;
- 
+
+  static final NotificationHandler instance = NotificationHandler._();
+
+  final FirebaseMessaging _messaging = FirebaseMessaging.instance;
+
   final FlutterLocalNotificationsPlugin _local =
       FlutterLocalNotificationsPlugin();
- 
+
   bool _localInited = false;
   bool _firebaseInited = false;
- 
+
   static void Function()? onNotificationReceived;
- 
+
   static bool _dmtScoreAutoOpenPending = false;
   static String? _dmtScoreAutoOpenScoreDate;
- 
-  static bool get dmtScoreAutoOpenPending =>
-      _dmtScoreAutoOpenPending;
- 
-  static String? get dmtScoreAutoOpenScoreDate =>
-      _dmtScoreAutoOpenScoreDate;
- 
+
+  static bool get dmtScoreAutoOpenPending => _dmtScoreAutoOpenPending;
+
+  static String? get dmtScoreAutoOpenScoreDate => _dmtScoreAutoOpenScoreDate;
+
   static void clearDmtScoreAutoOpen() {
     _dmtScoreAutoOpenPending = false;
     _dmtScoreAutoOpenScoreDate = null;
   }
- 
+
   static void _markDmtScore(Map<String, dynamic> data) {
-    final type = (data['type'] ??
-            data['notification_type'] ??
-            data['category'] ??
-            '')
-        .toString()
-        .toLowerCase();
- 
+    final type =
+        (data['type'] ?? data['notification_type'] ?? data['category'] ?? '')
+            .toString()
+            .toLowerCase();
+
     if (type != 'dmt_score') return;
- 
+
     _dmtScoreAutoOpenPending = true;
     _dmtScoreAutoOpenScoreDate =
-        data['score_date']?.toString() ??
-        data['scoreDate']?.toString();
+        data['score_date']?.toString() ?? data['scoreDate']?.toString();
   }
- 
+
   static const AndroidNotificationChannel _defaultChannel =
       AndroidNotificationChannel(
-    'zeno_ai_alerts',
-    'Price Alerts',
-    description: 'Notifications for price alerts',
-    importance: Importance.high,
-    playSound: true,
-  );
- 
-  static const AndroidNotificationChannel
-      _tradeOpportunityChannel =
+        'zeno_ai_alerts',
+        'Price Alerts',
+        description: 'Notifications for price alerts',
+        importance: Importance.high,
+        playSound: true,
+      );
+
+  static const AndroidNotificationChannel _tradeOpportunityChannel =
       AndroidNotificationChannel(
-    'zeno_ai_trade_opportunities',
-    'Trade Opportunities',
-    description: 'Notifications for new trade opportunities',
-    importance: Importance.high,
-    playSound: true,
-    sound: RawResourceAndroidNotificationSound(
-      'trade_opportunity',
-    ),
-  );
- 
+        'zeno_ai_trade_opportunities',
+        'Trade Opportunities',
+        description: 'Notifications for new trade opportunities',
+        importance: Importance.high,
+        playSound: true,
+        sound: RawResourceAndroidNotificationSound('trade_opportunity'),
+      );
+
   static const String tradeAlertsTopic = 'trade_alerts';
   static const String dmtScoreTopic = 'dmt_score';
- 
+
   static Future<void> initialize() async {
     final handler = instance;
- 
+
     await handler._initLocalNotifications();
     await handler._initFirebaseMessaging();
     await handler._requestPermissions();
   }
- 
+
   static Future<void> requestPermissions() async {
     final handler = instance;
     await handler._initLocalNotifications();
     await handler._initFirebaseMessaging();
     await handler._requestPermissions();
   }
- 
+
   Future<void> _initLocalNotifications() async {
     if (_localInited) return;
- 
-    const android = AndroidInitializationSettings(
-      '@mipmap/ic_launcher',
-    );
- 
+
+    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+
     const ios = DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
       requestSoundPermission: false,
     );
- 
+
     await _local.initialize(
-      const InitializationSettings(
-        android: android,
-        iOS: ios,
-      ),
-      onDidReceiveNotificationResponse:
-          _onLocalNotificationTapped,
+      const InitializationSettings(android: android, iOS: ios),
+      onDidReceiveNotificationResponse: _onLocalNotificationTapped,
     );
- 
+
     if (Platform.isAndroid) {
       final plugin = _local
           .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>();
- 
-      await plugin?.createNotificationChannel(
-        _defaultChannel,
-      );
- 
-      await plugin?.createNotificationChannel(
-        _tradeOpportunityChannel,
-      );
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+
+      await plugin?.createNotificationChannel(_defaultChannel);
+
+      await plugin?.createNotificationChannel(_tradeOpportunityChannel);
     }
- 
+
     _localInited = true;
   }
- 
-  static void _onLocalNotificationTapped(
-    NotificationResponse response,
-  ) {
+
+  static void _onLocalNotificationTapped(NotificationResponse response) {
     try {
       final payload = response.payload;
- 
+
       if (payload != null && payload.isNotEmpty) {
         final decoded = jsonDecode(payload);
- 
+
         if (decoded is Map) {
-          _markDmtScore(
-            Map<String, dynamic>.from(decoded),
-          );
+          _markDmtScore(Map<String, dynamic>.from(decoded));
         }
       }
     } catch (e) {
       debugPrint('Notification tap error: $e');
     }
- 
+
     onNotificationReceived?.call();
   }
- 
+
   Future<void> _initFirebaseMessaging() async {
     if (_firebaseInited) return;
- 
+
     if (Platform.isIOS) {
-      await _messaging
-          .setForegroundNotificationPresentationOptions(
+      await _messaging.setForegroundNotificationPresentationOptions(
         alert: true,
         badge: true,
         sound: true,
       );
     }
- 
-    FirebaseMessaging.onMessage.listen(
-      _handleForegroundMessage,
-    );
- 
+
+    FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
+
     FirebaseMessaging.onMessageOpenedApp.listen((message) {
-      debugPrint(
-        'Notification opened: ${message.data}',
-      );
- 
+      debugPrint('Notification opened: ${message.data}');
+
       _markDmtScore(message.data);
       onNotificationReceived?.call();
     });
- 
-    _messaging.onTokenRefresh.listen((token) async {
-      debugPrint('FCM token refreshed');
- 
-      await _syncFcmToken(token);
-    });
- 
+
+    _messaging.onTokenRefresh.listen(
+      (token) async {
+        debugPrint('FCM token refreshed');
+
+        await _syncFcmToken(token);
+        await subscribeToTradeAlerts();
+      },
+      onError: (Object error) {
+        debugPrint('FCM token refresh unavailable: $error');
+      },
+    );
+
     _firebaseInited = true;
   }
- 
+
   Future<void> _requestPermissions() async {
-    final settings = await _messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
- 
+    var settings = await _messaging.getNotificationSettings();
+    if (settings.authorizationStatus == AuthorizationStatus.notDetermined) {
+      settings = await _messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+    }
+
     debugPrint(
       'Notification permission: '
       '${settings.authorizationStatus}',
     );
- 
+
     if (Platform.isAndroid) {
       final plugin = _local
           .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>();
- 
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+
       await plugin?.requestNotificationsPermission();
- 
+
       await refreshFcmToken();
       return;
     }
- 
+
     if (Platform.isIOS) {
-      if (settings.authorizationStatus ==
-              AuthorizationStatus.authorized ||
-          settings.authorizationStatus ==
-              AuthorizationStatus.provisional) {
+      if (settings.authorizationStatus == AuthorizationStatus.authorized ||
+          settings.authorizationStatus == AuthorizationStatus.provisional) {
         await refreshFcmToken();
       }
     }
   }
- 
+
   Future<String?> _waitForApnsToken() async {
     if (!Platform.isIOS) return null;
- 
+
     for (int attempt = 0; attempt < 20; attempt++) {
       try {
         final token = await _messaging.getAPNSToken();
- 
+
         if (token != null && token.isNotEmpty) {
           debugPrint('APNs token available');
           return token;
         }
       } catch (e) {
-        debugPrint('APNs error: $e');
+        debugPrint('APNs registration unavailable: $e');
+        return null;
       }
- 
-      await Future.delayed(
-        const Duration(seconds: 1),
-      );
+
+      await Future.delayed(const Duration(seconds: 1));
     }
- 
+
     debugPrint('APNs token not available');
     return null;
   }
- 
+
   static Future<String?> requestAndGetApnsToken() async {
     return instance._waitForApnsToken();
   }
- 
+
   Future<void> refreshFcmToken() async {
-    try {
-      if (Platform.isIOS) {
-        final apns = await _waitForApnsToken();
- 
-        if (apns == null) {
-          debugPrint(
-            'iOS APNs missing. Check push capabilities.',
-          );
-          return;
-        }
-      }
- 
-      final token = await _messaging.getToken();
- 
-      if (token == null || token.isEmpty) {
-        debugPrint('FCM token unavailable');
-        return;
-      }
- 
-      debugPrint('FCM token available');
-      await _syncFcmToken(token);
-    } catch (e) {
-      debugPrint('FCM token error: $e');
-    }
+    await Common.getFcmToken();
   }
- 
+
   Future<void> _syncFcmToken(String token) async {
     try {
       Common.fcmToken = token;
       await Common.syncFcmTokenToServer(token);
- 
+
       debugPrint('FCM token sync method completed');
     } catch (e) {
       debugPrint('FCM token sync error: $e');
     }
   }
- 
-  Future<void> _handleForegroundMessage(
-    RemoteMessage message,
-  ) async {
-    debugPrint(
-      'Foreground notification: ${message.data}',
-    );
- 
+
+  Future<void> _handleForegroundMessage(RemoteMessage message) async {
+    debugPrint('Foreground notification: ${message.data}');
+
     onNotificationReceived?.call();
- 
+
     final notification = message.notification;
     final data = message.data;
- 
+
     // iOS automatically presents notification payloads
     // using the foreground presentation options.
     // Avoid duplicate local notifications.
     if (Platform.isIOS && notification != null) {
       return;
     }
- 
-    final title =
-        notification?.title ??
-        data['title']?.toString() ??
-        'Zeno AI';
- 
+
+    final title = notification?.title ?? data['title']?.toString() ?? 'Zeno AI';
+
     final body =
         notification?.body ??
         data['body']?.toString() ??
         data['message']?.toString() ??
         'You have a new alert';
- 
+
     final isTrade = _isTradeOpportunity(message);
- 
-    final channel = isTrade
-        ? _tradeOpportunityChannel
-        : _defaultChannel;
- 
+
+    final channel = isTrade ? _tradeOpportunityChannel : _defaultChannel;
+
     await _local.show(
-      DateTime.now()
-          .millisecondsSinceEpoch
-          .remainder(2147483647),
+      DateTime.now().millisecondsSinceEpoch.remainder(2147483647),
       title,
       body,
       NotificationDetails(
@@ -731,9 +673,7 @@ class NotificationHandler {
           icon: '@mipmap/ic_launcher',
           playSound: true,
           sound: isTrade
-              ? const RawResourceAndroidNotificationSound(
-                  'trade_opportunity',
-                )
+              ? const RawResourceAndroidNotificationSound('trade_opportunity')
               : null,
         ),
         iOS: const DarwinNotificationDetails(
@@ -745,59 +685,78 @@ class NotificationHandler {
       payload: jsonEncode(data),
     );
   }
- 
+
   bool _isTradeOpportunity(RemoteMessage message) {
     final data = message.data;
- 
-    final type = (data['type'] ??
-            data['notification_type'] ??
-            data['event'] ??
-            data['category'] ??
-            '')
-        .toString()
-        .toLowerCase();
- 
-    final flag = data['is_new_trade_opportunity']
-        ?.toString()
-        .toLowerCase();
- 
-    return type == 'new_trade_opportunity' ||
-        flag == 'true';
+
+    final type =
+        (data['type'] ??
+                data['notification_type'] ??
+                data['event'] ??
+                data['category'] ??
+                '')
+            .toString()
+            .toLowerCase();
+
+    final flag = data['is_new_trade_opportunity']?.toString().toLowerCase();
+
+    return type == 'new_trade_opportunity' || flag == 'true';
   }
- 
+
   static void onAppReady() {
-    FirebaseMessaging.instance
-        .getInitialMessage()
-        .then((message) {
+    FirebaseMessaging.instance.getInitialMessage().then((message) {
       if (message == null) return;
- 
+
       _markDmtScore(message.data);
       onNotificationReceived?.call();
     });
   }
- 
+
+  static Future<void>? _topicRequest;
+  static String? _subscribedToken;
+  static DateTime? _nextTopicAttempt;
+
   static Future<void> subscribeToTradeAlerts() async {
+    // A topic call can itself start registration. Never call it before a
+    // successful token fetch, or for a signed-out user.
+    final token = Common.fcmToken;
+    if (token.isEmpty || Common.userData.value?.payload?.id == null) return;
+    if (_subscribedToken == token) return;
+    if (_topicRequest != null) return _topicRequest!;
+    if (_nextTopicAttempt != null &&
+        DateTime.now().isBefore(_nextTopicAttempt!)) {
+      return;
+    }
+    _topicRequest = _subscribeTopics(token);
     try {
-      await FirebaseMessaging.instance
-          .subscribeToTopic(tradeAlertsTopic);
- 
-      await FirebaseMessaging.instance
-          .subscribeToTopic(dmtScoreTopic);
- 
-      debugPrint('FCM topics subscribed');
-    } catch (e) {
-      debugPrint('FCM topic subscription error: $e');
+      await _topicRequest;
+    } finally {
+      _topicRequest = null;
     }
   }
- 
-  static Future<void> unsubscribeFromTradeAlerts() async {
+
+  static Future<void> _subscribeTopics(String token) async {
     try {
-      await FirebaseMessaging.instance
-          .unsubscribeFromTopic(tradeAlertsTopic);
- 
-      await FirebaseMessaging.instance
-          .unsubscribeFromTopic(dmtScoreTopic);
- 
+      await FirebaseMessaging.instance.subscribeToTopic(tradeAlertsTopic);
+      await FirebaseMessaging.instance.subscribeToTopic(dmtScoreTopic);
+      _subscribedToken = token;
+      _nextTopicAttempt = null;
+    } catch (e) {
+      _nextTopicAttempt = DateTime.now().add(const Duration(minutes: 1));
+      debugPrint('FCM topic subscription deferred: $e');
+    }
+  }
+
+  static Future<void> unsubscribeFromTradeAlerts() async {
+    if (_topicRequest != null) await _topicRequest;
+    _subscribedToken = null;
+    _nextTopicAttempt = null;
+    if (Common.fcmToken.isEmpty) return;
+    try {
+      await FirebaseMessaging.instance.unsubscribeFromTopic(tradeAlertsTopic);
+
+      await FirebaseMessaging.instance.unsubscribeFromTopic(dmtScoreTopic);
+
       debugPrint('FCM topics unsubscribed');
     } catch (e) {
       debugPrint('FCM unsubscribe error: $e');

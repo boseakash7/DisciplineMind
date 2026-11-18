@@ -10,6 +10,7 @@ import UserNotifications
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
     if #available(iOS 16.0, *) {
+      MarketGuard.restoreSavedProtection()
       if let registrar = self.registrar(forPlugin: "ZenoScreenTimeBridge") {
         ScreenTimeBridge.register(with: registrar)
       }
@@ -19,6 +20,15 @@ import UserNotifications
     }
     application.registerForRemoteNotifications()
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  override func applicationDidEnterBackground(_ application: UIApplication) {
+    // Commit the saved shield before suspension, independently of Flutter's
+    // resume callback. apply() preserves an active temporary Skip exemption.
+    if #available(iOS 16.0, *) {
+      MarketGuard.restoreSavedProtection()
+    }
+    super.applicationDidEnterBackground(application)
   }
 
   override func application(

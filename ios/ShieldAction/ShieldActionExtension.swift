@@ -1,8 +1,7 @@
 import ManagedSettings
+import Foundation
 
 final class ShieldActionExtension: ShieldActionDelegate {
-  private let store = ManagedSettingsStore()
-
   override func handle(
     action: ShieldAction,
     for application: ApplicationToken,
@@ -26,24 +25,23 @@ final class ShieldActionExtension: ShieldActionDelegate {
   ) {
     switch action {
     case .primaryButtonPressed:
+      AppUsageTracker.record("iWillControl")
+      MarketGuard.defaults.set("iWillControl", forKey: "guardLastButtonAction")
       if #available(iOS 26.5, *) {
+        MarketGuard.defaults.set(true, forKey: "openGuardChat")
         completionHandler(.openParentalControlsApp)
       } else {
         completionHandler(.close)
       }
     case .secondaryButtonPressed:
-      if let application = application {
-        var shieldedApplications = store.shield.applications ?? []
-        shieldedApplications.remove(application)
-        // Keep an explicit (possibly empty) app set so Zeno can distinguish
-        // this one-session Skip from a guard that was turned off entirely.
-        store.shield.applications = shieldedApplications
+      if let application = application,
+         MarketGuard.performForceUnblock(application) {
+        AppUsageTracker.record("skipGranted")
+        completionHandler(.none)
       } else {
-        store.shield.applicationCategories = nil
+        AppUsageTracker.record("skipFailed")
+        completionHandler(.defer)
       }
-      // `.defer` redraws the shield and delays the decision. Since Skip has
-      // already removed this app from the shield, let iOS continue into it.
-      completionHandler(.none)
     default:
       completionHandler(.none)
     }
