@@ -36,6 +36,28 @@ class ApiUrl {
 
   static const String fcmSync = "fcm/sync";
 
+  // ----------------------------------------------------------------- coins
+  /// Public config incl. `razorpay_key_id` / `razorpay_mode` (GET, JSON).
+  static const String configKeys = "config/keys";
+
+  /// Active coin packages (GET, JSON).
+  static const String coinPackages = "coin-packages";
+
+  /// Coupon preview (POST JSON: user_id, package_id, coupon_code).
+  static const String coinCouponsApply = "coin-coupons/apply";
+
+  /// Create a Razorpay order (POST JSON: user_id, package_id, coupon_code?).
+  static const String coinOrdersCreate = "coin-orders/create";
+
+  /// Verify a Razorpay checkout success (POST JSON: user_id, razorpay_*).
+  static const String coinOrdersVerify = "coin-orders/verify";
+
+  /// Wallet balance + ledger (GET, JSON: ?user_id=).
+  static const String coinsWallet = "coins/wallet";
+
+  /// Coin order history (GET, JSON: ?user_id=).
+  static const String coinOrdersHistory = "coin-orders/history";
+
   static const String getMessagesByUser = "messages/get-by-user";
   static const String gttAlertCreate = "gtt/alert/create";
   static const String tradeLivePrice = "trade/live-price";

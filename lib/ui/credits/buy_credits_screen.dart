@@ -8,6 +8,8 @@ import 'widgets/coupon_input_section.dart';
 import 'widgets/credit_gradient_button.dart';
 import 'widgets/credit_package_card.dart';
 import 'widgets/credits_header_avatar.dart';
+import 'widgets/credits_state_views.dart';
+import 'widgets/payment_processing_dialog.dart';
 import 'widgets/payment_success_dialog.dart';
 import 'widgets/price_summary.dart';
 
@@ -51,13 +53,76 @@ class _BuyCreditsScreenState extends State<BuyCreditsScreen> {
     FocusScope.of(context).unfocus();
     final result = await _controller.purchaseSelected();
     if (!mounted) return;
-    if (!result.ok) {
-      Get.snackbar('Purchase failed', result.error ?? 'Something went wrong');
-      return;
+
+    switch (result.outcome) {
+      case PurchaseOutcome.success:
+        await showPaymentSuccessDialog(context: context, result: result);
+        if (!mounted) return;
+        Get.back();
+
+      case PurchaseOutcome.pending:
+        // Signature verified, capture webhook still pending. Not an error.
+        await showPaymentProcessingDialog(context: context, result: result);
+        if (!mounted) return;
+        Get.back();
+
+      case PurchaseOutcome.cancelled:
+        // User dismissed Razorpay. Stay put so they can retry, and keep the
+        // tone neutral - nothing went wrong and nothing was charged.
+        _showToast(
+          icon: Icons.info_outline_rounded,
+          background: CreditsColors.textPrimary,
+          message: 'Payment cancelled. You have not been charged.',
+        );
+
+      case PurchaseOutcome.failed:
+        _showToast(
+          icon: Icons.error_outline_rounded,
+          background: CreditsColors.danger,
+          message: result.error ?? 'Something went wrong. Please try again.',
+        );
     }
-    await showPaymentSuccessDialog(context: context, result: result);
-    if (!mounted) return;
-    Get.back();
+  }
+
+  /// Floating pill toast, so feedback matches the rounded card language of
+  /// the rest of this flow rather than a default square snackbar.
+  void _showToast({
+    required IconData icon,
+    required Color background,
+    required String message,
+  }) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: background,
+        elevation: 6,
+        duration: const Duration(seconds: 4),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+        content: Row(
+          children: [
+            Icon(icon, color: Colors.white, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13.5,
+                  height: 1.35,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -75,83 +140,83 @@ class _BuyCreditsScreenState extends State<BuyCreditsScreen> {
                   children: [
                     StaggeredEntrance(index: 0, child: _buildHero()),
                     const SizedBox(height: 20),
-                    Column(
-                      children: [
-                        for (var i = 0; i < _controller.packages.length; i++)
+                    Obx(() => _buildPackages()),
+                    // The rest of the sheet is meaningless without a package
+                    // to price, so it stays hidden until one is selectable.
+                    Obx(() {
+                      if (_controller.packages.isEmpty) {
+                        return const SizedBox.shrink();
+                      }
+                      return Column(
+                        children: [
+                          const SizedBox(height: 18),
                           StaggeredEntrance(
-                            key: ValueKey(_controller.packages[i].id),
-                            index: i + 1,
+                            index: 5,
                             child: Obx(
-                              () => CreditPackageCard(
-                                package: _controller.packages[i],
-                                selected:
-                                    _controller.selectedPackageId.value ==
-                                    _controller.packages[i].id,
-                                onTap: () => _controller.selectPackage(
-                                  _controller.packages[i].id,
-                                ),
+                              () => CouponInputSection(
+                                codeController: _couponController,
+                                appliedCoupon: _controller.appliedCoupon.value,
+                                errorText: _controller.couponError.value,
+                                discountAmount: _controller.discountAmount,
+                                isApplying: _controller.isApplyingCoupon.value,
+                                showCouponPicker:
+                                    _controller.coupons.isNotEmpty,
+                                onApply: () async {
+                                  FocusScope.of(context).unfocus();
+                                  await _controller.applyCouponCode(
+                                    _couponController.text,
+                                  );
+                                },
+                                onRemove: () {
+                                  _controller.removeCoupon();
+                                  _couponController.clear();
+                                },
+                                onSelectCoupon: _openCouponSheet,
                               ),
                             ),
                           ),
-                      ],
-                    ),
-                    const SizedBox(height: 18),
-                    StaggeredEntrance(
-                      index: 5,
-                      child: Obx(
-                        () => CouponInputSection(
-                          codeController: _couponController,
-                          appliedCoupon: _controller.appliedCoupon.value,
-                          errorText: _controller.couponError.value,
-                          discountAmount: _controller.discountAmount,
-                          onApply: () {
-                            FocusScope.of(context).unfocus();
-                            _controller.applyCouponCode(_couponController.text);
-                          },
-                          onRemove: () {
-                            _controller.removeCoupon();
-                            _couponController.clear();
-                          },
-                          onSelectCoupon: _openCouponSheet,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    StaggeredEntrance(
-                      index: 6,
-                      child: Obx(
-                        () => PriceSummary(
-                          subtotal: _controller.subtotal,
-                          discount: _controller.discountAmount,
-                          amountToPay: _controller.amountToPay,
-                          coupon: _controller.appliedCoupon.value,
-                          bonusCredits: _controller.bonusCredits,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    StaggeredEntrance(
-                      index: 7,
-                      child: Obx(() {
-                        final amount = _controller.amountToPay;
-                        final hasCoupon =
-                            _controller.appliedCoupon.value != null &&
-                            _controller.discountAmount > 0;
-                        final label = hasCoupon
-                            ? 'Buy Now | ₹$amount'
-                            : 'Buy Now';
-                        return CreditGradientButton(
-                          label: label,
-                          isLoading: _controller.isPurchasing.value,
-                          onPressed: _onBuyNow,
-                        );
-                      }),
-                    ),
-                    const SizedBox(height: 12),
-                    const StaggeredEntrance(
-                      index: 8,
-                      child: SecurePaymentFooter(),
-                    ),
+                          const SizedBox(height: 20),
+                          StaggeredEntrance(
+                            index: 6,
+                            child: Obx(
+                              () => PriceSummary(
+                                subtotal: _controller.subtotal,
+                                discount: _controller.discountAmount,
+                                amountToPay: _controller.amountToPay,
+                                coupon: _controller.appliedCoupon.value,
+                                bonusCredits: _controller.bonusCredits,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          StaggeredEntrance(
+                            index: 7,
+                            child: Obx(() {
+                              final busy = _controller.isPurchasing.value;
+                              final canBuy =
+                                  !busy &&
+                                  _controller.selectedApiPackage != null &&
+                                  !_controller.isApplyingCoupon.value;
+                              final statusText =
+                                  _controller.purchaseStatusText.value;
+                              final label = busy && statusText.isNotEmpty
+                                  ? statusText
+                                  : 'Buy Now | ₹${_controller.amountToPay}';
+                              return CreditGradientButton(
+                                label: label,
+                                isLoading: busy,
+                                onPressed: canBuy ? _onBuyNow : null,
+                              );
+                            }),
+                          ),
+                          const SizedBox(height: 12),
+                          const StaggeredEntrance(
+                            index: 8,
+                            child: SecurePaymentFooter(),
+                          ),
+                        ],
+                      );
+                    }),
                   ],
                 ),
               ),
@@ -193,6 +258,55 @@ class _BuyCreditsScreenState extends State<BuyCreditsScreen> {
       ),
     );
   }
+
+  /// Package list across its real states: loading, failed, empty, loaded.
+  Widget _buildPackages() {
+    if (_controller.isLoadingPackages.value && _controller.packages.isEmpty) {
+      return const CreditsPackageSkeleton();
+    }
+
+    final error = _controller.packagesError.value;
+    if (_controller.packages.isEmpty) {
+      final failed = error.isNotEmpty && !_isEmptyCatalogue(error);
+      return CreditsStateView(
+        icon: failed
+            ? Icons.wifi_tethering_off_rounded
+            : Icons.inventory_2_outlined,
+        tone: failed ? CreditsStateTone.error : CreditsStateTone.neutral,
+        title: failed ? "Couldn't load packages" : 'No packages available yet',
+        message: failed
+            ? '$error\n\nCheck your connection and try again.'
+            : 'New AI Credit packages are on the way. Please check back in a '
+                  'little while.',
+        primaryLabel: 'Try again',
+        onPrimary: _controller.loadPackages,
+        secondaryLabel: 'Go back',
+        onSecondary: () => Get.back(),
+      );
+    }
+
+    return Column(
+      children: [
+        for (var i = 0; i < _controller.packages.length; i++)
+          StaggeredEntrance(
+            key: ValueKey(_controller.packages[i].id),
+            index: i + 1,
+            child: CreditPackageCard(
+              package: _controller.packages[i],
+              selected:
+                  _controller.selectedPackageId.value ==
+                  _controller.packages[i].id,
+              onTap: () =>
+                  _controller.selectPackage(_controller.packages[i].id),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// The backend answered fine, there simply are no active packages.
+  bool _isEmptyCatalogue(String error) =>
+      error.toLowerCase().contains('no coin packages');
 
   Widget _buildHero() {
     return Column(

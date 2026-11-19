@@ -5,15 +5,12 @@ import '../../common/credits_colors.dart';
 import '../../controller/credits_controller.dart';
 import '../../model/credits_models.dart';
 import '../widgets/staggered_entrance.dart';
+import 'widgets/credits_state_views.dart';
 
 class CreditsHistoryScreen extends StatelessWidget {
   const CreditsHistoryScreen({super.key});
 
-  static const _filters = [
-    'All Transactions',
-    'Purchases',
-    'Deductions',
-  ];
+  static const _filters = ['All Transactions', 'Purchases', 'Deductions'];
 
   @override
   Widget build(BuildContext context) {
@@ -57,68 +54,101 @@ class CreditsHistoryScreen extends StatelessWidget {
           Expanded(
             child: Obx(() {
               final groups = controller.groupedHistory;
+
+              if (groups.isEmpty && controller.isLoadingWallet.value) {
+                return const CreditsHistorySkeleton();
+              }
+
+              final error = controller.walletError.value;
               if (groups.isEmpty) {
-                return const Center(
-                  child: Text(
-                    'No transactions found',
-                    style: TextStyle(color: CreditsColors.textSecondary),
+                final failed = error.isNotEmpty;
+                final filtered =
+                    controller.historyFilter.value != 'All Transactions';
+                return _HistoryPlaceholder(
+                  onRetry: controller.refreshWallet,
+                  child: CreditsStateView(
+                    icon: failed
+                        ? Icons.cloud_off_rounded
+                        : (filtered
+                              ? Icons.filter_alt_off_outlined
+                              : Icons.receipt_long_outlined),
+                    tone: failed
+                        ? CreditsStateTone.error
+                        : CreditsStateTone.neutral,
+                    title: failed
+                        ? "Couldn't load your history"
+                        : (filtered
+                              ? 'Nothing in this filter'
+                              : 'No transactions yet'),
+                    message: failed
+                        ? error
+                        : (filtered
+                              ? 'Try switching back to All Transactions to see '
+                                    'your full activity.'
+                              : 'Your credit purchases and usage will appear '
+                                    'here once you make your first '
+                                    'transaction.'),
+                    primaryLabel: 'Refresh',
+                    onPrimary: controller.refreshWallet,
                   ),
                 );
               }
 
-              return ListView.builder(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                itemCount: groups.length,
-                itemBuilder: (context, index) {
-                  final group = groups[index];
-                  // Deterministic stagger offset per group.
-                  var base = 1;
-                  for (var g = 0; g < index; g++) {
-                    base += 1 + groups[g].transactions.length;
-                  }
+              return RefreshIndicator(
+                onRefresh: controller.refreshWallet,
+                child: ListView.builder(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  itemCount: groups.length,
+                  itemBuilder: (context, index) {
+                    final group = groups[index];
+                    // Deterministic stagger offset per group.
+                    var base = 1;
+                    for (var g = 0; g < index; g++) {
+                      base += 1 + groups[g].transactions.length;
+                    }
 
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      StaggeredEntrance(
-                        index: base.clamp(0, 14),
-                        child: Padding(
-                          padding: EdgeInsets.only(
-                            top: index == 0 ? 0 : 16,
-                            bottom: 10,
-                          ),
-                          child: Text(
-                            group.label,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                              color: CreditsColors.blueText,
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        StaggeredEntrance(
+                          index: base.clamp(0, 14),
+                          child: Padding(
+                            padding: EdgeInsets.only(
+                              top: index == 0 ? 0 : 16,
+                              bottom: 10,
+                            ),
+                            child: Text(
+                              group.label,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: CreditsColors.blueText,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      ...List.generate(group.transactions.length, (txIndex) {
-                        final tx = group.transactions[txIndex];
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: StaggeredEntrance(
-                            index: (base + 1 + txIndex).clamp(0, 14),
-                            child: _HistoryItem(transaction: tx),
-                          ),
-                        );
-                      }),
-                    ],
-                  );
-                },
+                        ...List.generate(group.transactions.length, (txIndex) {
+                          final tx = group.transactions[txIndex];
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: StaggeredEntrance(
+                              index: (base + 1 + txIndex).clamp(0, 14),
+                              child: _HistoryItem(transaction: tx),
+                            ),
+                          );
+                        }),
+                      ],
+                    );
+                  },
+                ),
               );
             }),
           ),
           StaggeredEntrance(
             index: 1,
             child: Obx(
-              () => _LifetimeSummary(
-                net: controller.lifetimeNetCredits,
-              ),
+              () => _LifetimeSummary(net: controller.lifetimeNetCredits),
             ),
           ),
         ],
@@ -158,9 +188,7 @@ class _FilterDropdown extends StatelessWidget {
             color: CreditsColors.textPrimary,
           ),
           items: options
-              .map(
-                (o) => DropdownMenuItem(value: o, child: Text(o)),
-              )
+              .map((o) => DropdownMenuItem(value: o, child: Text(o)))
               .toList(),
           onChanged: (v) {
             if (v != null) onChanged(v);
@@ -185,10 +213,10 @@ class _HistoryItem extends StatelessWidget {
     final iconBg = isPurchase
         ? CreditsColors.blue.withValues(alpha: 0.12)
         : CreditsColors.lightPurple;
-    final iconColor =
-        isPurchase ? CreditsColors.blue : CreditsColors.purple;
-    final amountColor =
-        transaction.isCredit ? CreditsColors.success : CreditsColors.danger;
+    final iconColor = isPurchase ? CreditsColors.blue : CreditsColors.purple;
+    final amountColor = transaction.isCredit
+        ? CreditsColors.success
+        : CreditsColors.danger;
     final amountLabel =
         '${CreditsController.formatCredits(transaction.amount)} Credits';
 
@@ -204,10 +232,7 @@ class _HistoryItem extends StatelessWidget {
           Container(
             width: 42,
             height: 42,
-            decoration: BoxDecoration(
-              color: iconBg,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: iconBg, shape: BoxShape.circle),
             child: Icon(icon, color: iconColor, size: 20),
           ),
           const SizedBox(width: 12),
@@ -330,6 +355,26 @@ class _LifetimeSummary extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Centres a state view while keeping pull-to-refresh available.
+class _HistoryPlaceholder extends StatelessWidget {
+  const _HistoryPlaceholder({required this.onRetry, required this.child});
+
+  final Future<void> Function() onRetry;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: onRetry,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+        children: [child],
       ),
     );
   }

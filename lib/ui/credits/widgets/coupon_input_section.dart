@@ -12,6 +12,13 @@ class CouponInputSection extends StatelessWidget {
   final VoidCallback onRemove;
   final VoidCallback onSelectCoupon;
 
+  /// Hidden when no coupon list is available from the backend; codes are then
+  /// entered manually and validated server-side.
+  final bool showCouponPicker;
+
+  /// Applying runs through the API, so the field locks while it is in flight.
+  final bool isApplying;
+
   const CouponInputSection({
     super.key,
     required this.codeController,
@@ -21,6 +28,8 @@ class CouponInputSection extends StatelessWidget {
     required this.onApply,
     required this.onRemove,
     required this.onSelectCoupon,
+    this.showCouponPicker = true,
+    this.isApplying = false,
   });
 
   @override
@@ -123,6 +132,7 @@ class CouponInputSection extends StatelessWidget {
               ),
             ),
           ],
+          if (showCouponPicker) ...[
           const SizedBox(height: 14),
           Row(
             children: [
@@ -172,6 +182,7 @@ class CouponInputSection extends StatelessWidget {
               ),
             ),
           ),
+          ],
         ],
       ],
     );

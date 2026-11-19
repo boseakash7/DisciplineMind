@@ -4,17 +4,47 @@ import 'package:get/get.dart';
 import '../../common/credits_colors.dart';
 import '../../controller/credits_controller.dart';
 import '../widgets/staggered_entrance.dart';
+import 'widgets/credits_state_views.dart';
 import 'buy_credits_screen.dart';
 import 'credits_history_screen.dart';
 import 'widgets/credit_gradient_button.dart';
 
-class AiCreditsScreen extends StatelessWidget {
+class AiCreditsScreen extends StatefulWidget {
   const AiCreditsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final controller = CreditsController.to;
+  State<AiCreditsScreen> createState() => _AiCreditsScreenState();
+}
 
+class _AiCreditsScreenState extends State<AiCreditsScreen>
+    with WidgetsBindingObserver {
+  late final CreditsController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = CreditsController.to;
+    WidgetsBinding.instance.addObserver(this);
+    // Coins are credited by a server webhook, so the balance can change while
+    // the app is backgrounded. Refresh on open and on every resume.
+    WidgetsBinding.instance.addPostFrameCallback((_) => controller.loadAll());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      controller.refreshWallet();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: CreditsColors.scaffoldBg,
       appBar: AppBar(
@@ -52,68 +82,90 @@ class AiCreditsScreen extends StatelessWidget {
                 ),
               );
             },
-            icon: const Icon(Icons.info_outline, color: CreditsColors.textSecondary),
+            icon: const Icon(
+              Icons.info_outline,
+              color: CreditsColors.textSecondary,
+            ),
           ),
         ],
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              StaggeredEntrance(
-                index: 0,
-                child: Obx(
-                  () => _BalanceCard(
-                    balance: controller.balance.value,
-                    onTap: () => Get.to(() => const BuyCreditsScreen()),
+        child: RefreshIndicator(
+          onRefresh: controller.refreshWallet,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                StaggeredEntrance(
+                  index: 0,
+                  child: Obx(() {
+                    // First load has no number to show yet; a skeleton reads
+                    // better than a balance of 0 that is about to change.
+                    final loadingFirstTime =
+                        controller.isLoadingWallet.value &&
+                        controller.transactions.isEmpty &&
+                        controller.balance.value == 0;
+                    if (loadingFirstTime) return const _BalanceSkeleton();
+                    return _BalanceCard(
+                      balance: controller.balance.value,
+                      onTap: () => Get.to(() => const BuyCreditsScreen()),
+                    );
+                  }),
+                ),
+                Obx(() {
+                  final error = controller.walletError.value;
+                  if (error.isEmpty) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: _WalletErrorBanner(
+                      message: error,
+                      onRetry: controller.refreshWallet,
+                    ),
+                  );
+                }),
+                const SizedBox(height: 16),
+                StaggeredEntrance(
+                  index: 1,
+                  child: Obx(
+                    () => _StatsRow(
+                      used: controller.usedThisMonth.value,
+                      purchased: controller.purchasedThisMonth.value,
+                      total: controller.balance.value,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              StaggeredEntrance(
-                index: 1,
-                child: Obx(
-                  () => _StatsRow(
-                    used: controller.usedThisMonth.value,
-                    purchased: controller.purchasedThisMonth.value,
-                    total: controller.balance.value,
+                const SizedBox(height: 18),
+                StaggeredEntrance(
+                  index: 2,
+                  child: Obx(
+                    () => _BelieveModeCard(
+                      weeklyCredits: controller.believeModeWeeklyCredits,
+                      nextDeductionDays: controller.nextDeductionDays.value,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 18),
-              StaggeredEntrance(
-                index: 2,
-                child: Obx(
-                  () => _BelieveModeCard(
-                    weeklyCredits: controller.believeModeWeeklyCredits,
-                    nextDeductionDays: controller.nextDeductionDays.value,
+                const SizedBox(height: 18),
+                StaggeredEntrance(
+                  index: 3,
+                  child: CreditGradientButton(
+                    label: 'Buy Credits',
+                    icon: Icons.shopping_cart_outlined,
+                    onPressed: () => Get.to(() => const BuyCreditsScreen()),
                   ),
                 ),
-              ),
-              const SizedBox(height: 18),
-              StaggeredEntrance(
-                index: 3,
-                child: CreditGradientButton(
-                  label: 'Buy Credits',
-                  icon: Icons.shopping_cart_outlined,
-                  onPressed: () => Get.to(() => const BuyCreditsScreen()),
+                const SizedBox(height: 14),
+                StaggeredEntrance(
+                  index: 4,
+                  child: _HistoryTile(
+                    onTap: () => Get.to(() => const CreditsHistoryScreen()),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 14),
-              StaggeredEntrance(
-                index: 4,
-                child: _HistoryTile(
-                  onTap: () => Get.to(() => const CreditsHistoryScreen()),
-                ),
-              ),
-              const SizedBox(height: 14),
-              const StaggeredEntrance(
-                index: 5,
-                child: _WelcomeBanner(),
-              ),
-            ],
+                const SizedBox(height: 14),
+                const StaggeredEntrance(index: 5, child: _WelcomeBanner()),
+              ],
+            ),
           ),
         ),
       ),
@@ -510,6 +562,88 @@ class _WelcomeBanner extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Balance card placeholder for the very first wallet load.
+class _BalanceSkeleton extends StatelessWidget {
+  const _BalanceSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return CreditsShimmer(
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 22, 20, 22),
+        decoration: BoxDecoration(
+          color: CreditsColors.cardBg,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: CreditsColors.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            CreditsSkeletonBox(width: 104, height: 12),
+            SizedBox(height: 16),
+            CreditsSkeletonBox(width: 168, height: 34, radius: 10),
+            SizedBox(height: 18),
+            CreditsSkeletonBox(width: double.infinity, height: 44, radius: 12),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Non-blocking banner: the cached balance stays visible while the retry
+/// option sits alongside it.
+class _WalletErrorBanner extends StatelessWidget {
+  const _WalletErrorBanner({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF2F2),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFFECACA)),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.cloud_off_rounded,
+            size: 18,
+            color: CreditsColors.danger,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                fontSize: 12.5,
+                height: 1.35,
+                color: Color(0xFF991B1B),
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: onRetry,
+            style: TextButton.styleFrom(
+              minimumSize: const Size(0, 32),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              foregroundColor: CreditsColors.danger,
+            ),
+            child: const Text(
+              'Retry',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
             ),
           ),
         ],
