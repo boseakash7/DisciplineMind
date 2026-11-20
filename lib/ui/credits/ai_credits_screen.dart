@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import '../../common/credits_colors.dart';
 import '../../controller/credits_controller.dart';
 import '../widgets/staggered_entrance.dart';
+import 'widgets/credits_info_dialog.dart';
 import 'widgets/credits_state_views.dart';
 import 'buy_credits_screen.dart';
 import 'credits_history_screen.dart';
@@ -66,22 +67,11 @@ class _AiCreditsScreenState extends State<AiCreditsScreen>
         ),
         actions: [
           IconButton(
-            onPressed: () {
-              Get.dialog(
-                AlertDialog(
-                  title: const Text('About AI Credits'),
-                  content: const Text(
-                    'AI Credits are used for Zeno AI features including Believe Mode and chat insights. Purchase more anytime to keep trading with discipline.',
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Get.back(),
-                      child: const Text('Got it'),
-                    ),
-                  ],
-                ),
-              );
-            },
+            onPressed: () => showCreditsInfoDialog(
+              context: context,
+              weeklyBelieveModeCredits: controller.believeModeWeeklyCredits,
+              onBuyCredits: () => Get.to(() => const BuyCreditsScreen()),
+            ),
             icon: const Icon(
               Icons.info_outline,
               color: CreditsColors.textSecondary,

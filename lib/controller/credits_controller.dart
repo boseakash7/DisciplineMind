@@ -540,6 +540,18 @@ class CreditsController extends GetxController {
       'retry': {'enabled': true, 'max_count': 1},
     };
 
+    // Key id is public, but log only the prefix so the mode is obvious in
+    // logcat without pasting a full credential into a bug report.
+    final keyPrefix = order.razorpayKeyId.length > 12
+        ? '${order.razorpayKeyId.substring(0, 12)}…'
+        : order.razorpayKeyId;
+    debugPrint(
+      '[Credits] opening checkout '
+      'key=$keyPrefix mode=${order.razorpayMode} '
+      'order=${order.razorpayOrderId} '
+      'amount_paise=${order.amountPaise} ${order.currency}',
+    );
+
     _setStage(CoinPurchaseStage.awaitingCheckout, 'Opening secure checkout…');
     try {
       _razorpay!.open(options);
@@ -582,6 +594,12 @@ class CreditsController extends GetxController {
 
   void _onCheckoutError(PaymentFailureResponse response) {
     final completer = _checkoutCompleter;
+    // Logged before the early return: a late callback still tells us why
+    // checkout failed.
+    debugPrint(
+      '[Credits] checkout error code=${response.code} '
+      'message=${response.message}',
+    );
     if (completer == null || completer.isCompleted) return;
 
     final cancelled = response.code == Razorpay.PAYMENT_CANCELLED;

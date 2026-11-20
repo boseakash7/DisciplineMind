@@ -1,3 +1,4 @@
+import 'package:discipline_mind/ui/widgets/broker_catalog.dart';
 import 'package:discipline_mind/constants/blocked_apps.dart';
 import 'package:discipline_mind/model/trading_app_model.dart';
 import 'package:discipline_mind/services/api/api_config.dart';
@@ -30,6 +31,25 @@ class TradingAppsService extends GetxService {
     final app = byPackageName(packageName);
     if (app != null) return app.requiresExtendedGttForm;
     return extendedGttInputPackages.contains(packageName);
+  }
+
+  /// The bundled broker catalogue as [TradingApp] rows.
+  ///
+  /// GTT flags are unknown offline, so they stay false and the short GTT
+  /// dialog is used until the API answers.
+  List<TradingApp> _bundledApps() {
+    var id = 0;
+    return kBrokerCatalog.map((b) {
+      id += 1;
+      return TradingApp(
+        id: id.toString(),
+        name: b.name,
+        packageName: b.packageName,
+        isTarget: false,
+        isStoploss: false,
+        isGtt: false,
+      );
+    }).toList();
   }
 
   Future<bool> refresh() async {
@@ -65,68 +85,26 @@ class TradingAppsService extends GetxService {
 
       // If network fails or empty, populate with default supported apps
       if (list.isEmpty) {
-        list.addAll([
-          TradingApp(
-            id: '1',
-            name: 'Zerodha Kite',
-            packageName: 'com.zerodha.kite3',
-            isTarget: false,
-            isStoploss: false,
-            isGtt: true,
-          ),
-          TradingApp(
-            id: '2',
-            name: 'Upstox',
-            packageName: 'in.upstox.app',
-            isTarget: false,
-            isStoploss: false,
-            isGtt: true,
-          ),
-          TradingApp(
-            id: '3',
-            name: 'Groww',
-            packageName: 'com.nextbillion.groww',
-            isTarget: true,
-            isStoploss: true,
-            isGtt: true,
-          ),
-        ]);
+        // Offline fallback: the full bundled catalogue, so every broker
+        // the picker offers is still selectable without the API.
+        list.addAll(_bundledApps());
       }
 
       apps.assignAll(list.where((a) => a.packageName.isNotEmpty).toList());
-      await _blockService.setMonitoredTradingApps(
-        apps.map((e) => e.packageName).toList(),
-      );
+      // Union with the bundled catalogue. A short API response must not shrink
+      // the native monitored set below the brokers setup can still offer.
+      final monitored = <String>{
+        ...blockedTradingAppPackages,
+        ...apps.map((e) => e.packageName),
+      };
+      await _blockService.setMonitoredTradingApps(monitored.toList());
       return apps.isNotEmpty;
     } catch (e) {
       lastError.value = e.toString();
       if (apps.isEmpty) {
-        apps.assignAll([
-          TradingApp(
-            id: '1',
-            name: 'Zerodha Kite',
-            packageName: 'com.zerodha.kite3',
-            isTarget: false,
-            isStoploss: false,
-            isGtt: true,
-          ),
-          TradingApp(
-            id: '2',
-            name: 'Upstox',
-            packageName: 'in.upstox.app',
-            isTarget: false,
-            isStoploss: false,
-            isGtt: true,
-          ),
-          TradingApp(
-            id: '3',
-            name: 'Groww',
-            packageName: 'com.nextbillion.groww',
-            isTarget: true,
-            isStoploss: true,
-            isGtt: true,
-          ),
-        ]);
+        // Offline fallback: the full bundled catalogue, so every broker
+        // the picker offers is still selectable without the API.
+        apps.assignAll(_bundledApps());
       }
       return apps.isNotEmpty;
     } finally {

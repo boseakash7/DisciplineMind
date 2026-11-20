@@ -23,6 +23,11 @@ class BuyCreditsScreen extends StatefulWidget {
 class _BuyCreditsScreenState extends State<BuyCreditsScreen> {
   late final CreditsController _controller;
   late final TextEditingController _couponController;
+  final ScrollController _packagesScrollController = ScrollController();
+
+  /// Whether the package list actually overflows. Drives the scrollbar, so a
+  /// short catalogue does not show a full-height thumb that cannot move.
+  bool _packagesScrollable = false;
 
   @override
   void initState() {
@@ -35,7 +40,18 @@ class _BuyCreditsScreenState extends State<BuyCreditsScreen> {
   @override
   void dispose() {
     _couponController.dispose();
+    _packagesScrollController.dispose();
     super.dispose();
+  }
+
+  /// Scroll metrics arrive during layout, so the rebuild is deferred to the
+  /// next frame rather than called mid-build.
+  void _updatePackagesScrollable(bool scrollable) {
+    if (scrollable == _packagesScrollable) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || scrollable == _packagesScrollable) return;
+      setState(() => _packagesScrollable = scrollable);
+    });
   }
 
   Future<void> _openCouponSheet() async {
@@ -101,9 +117,7 @@ class _BuyCreditsScreenState extends State<BuyCreditsScreen> {
         duration: const Duration(seconds: 4),
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 20),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         content: Row(
           children: [
             Icon(icon, color: Colors.white, size: 20),
@@ -133,94 +147,119 @@ class _BuyCreditsScreenState extends State<BuyCreditsScreen> {
         child: Column(
           children: [
             _buildHeader(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: StaggeredEntrance(index: 0, child: _buildHero()),
+            ),
+            const SizedBox(height: 20),
+
+            // Only the package list scrolls. The coupon field, price summary
+            // and Buy button stay pinned so the amount is always in view.
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                child: Column(
-                  children: [
-                    StaggeredEntrance(index: 0, child: _buildHero()),
-                    const SizedBox(height: 20),
-                    Obx(() => _buildPackages()),
-                    // The rest of the sheet is meaningless without a package
-                    // to price, so it stays hidden until one is selectable.
-                    Obx(() {
-                      if (_controller.packages.isEmpty) {
-                        return const SizedBox.shrink();
-                      }
-                      return Column(
-                        children: [
-                          const SizedBox(height: 18),
-                          StaggeredEntrance(
-                            index: 5,
-                            child: Obx(
-                              () => CouponInputSection(
-                                codeController: _couponController,
-                                appliedCoupon: _controller.appliedCoupon.value,
-                                errorText: _controller.couponError.value,
-                                discountAmount: _controller.discountAmount,
-                                isApplying: _controller.isApplyingCoupon.value,
-                                showCouponPicker:
-                                    _controller.coupons.isNotEmpty,
-                                onApply: () async {
-                                  FocusScope.of(context).unfocus();
-                                  await _controller.applyCouponCode(
-                                    _couponController.text,
-                                  );
-                                },
-                                onRemove: () {
-                                  _controller.removeCoupon();
-                                  _couponController.clear();
-                                },
-                                onSelectCoupon: _openCouponSheet,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          StaggeredEntrance(
-                            index: 6,
-                            child: Obx(
-                              () => PriceSummary(
-                                subtotal: _controller.subtotal,
-                                discount: _controller.discountAmount,
-                                amountToPay: _controller.amountToPay,
-                                coupon: _controller.appliedCoupon.value,
-                                bonusCredits: _controller.bonusCredits,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          StaggeredEntrance(
-                            index: 7,
-                            child: Obx(() {
-                              final busy = _controller.isPurchasing.value;
-                              final canBuy =
-                                  !busy &&
-                                  _controller.selectedApiPackage != null &&
-                                  !_controller.isApplyingCoupon.value;
-                              final statusText =
-                                  _controller.purchaseStatusText.value;
-                              final label = busy && statusText.isNotEmpty
-                                  ? statusText
-                                  : 'Buy Now | ₹${_controller.amountToPay}';
-                              return CreditGradientButton(
-                                label: label,
-                                isLoading: busy,
-                                onPressed: canBuy ? _onBuyNow : null,
-                              );
-                            }),
-                          ),
-                          const SizedBox(height: 12),
-                          const StaggeredEntrance(
-                            index: 8,
-                            child: SecurePaymentFooter(),
-                          ),
-                        ],
-                      );
-                    }),
-                  ],
+              child: NotificationListener<ScrollMetricsNotification>(
+                onNotification: (notification) {
+                  _updatePackagesScrollable(
+                    notification.metrics.maxScrollExtent > 0,
+                  );
+                  return false;
+                },
+                child: Scrollbar(
+                  controller: _packagesScrollController,
+                  thumbVisibility: _packagesScrollable,
+                  radius: const Radius.circular(8),
+                  thickness: 4,
+                  child: SingleChildScrollView(
+                    controller: _packagesScrollController,
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      0,
+                      _packagesScrollable ? 10 : 16,
+                      8,
+                    ),
+                    child: Obx(() => _buildPackages()),
+                  ),
                 ),
               ),
             ),
+
+            // Pinned footer. Meaningless without a package to price, so it
+            // stays hidden until one is selectable.
+            Obx(() {
+              if (_controller.packages.isEmpty) {
+                return const SizedBox.shrink();
+              }
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(height: 18),
+                    StaggeredEntrance(
+                      index: 5,
+                      child: Obx(
+                        () => CouponInputSection(
+                          codeController: _couponController,
+                          appliedCoupon: _controller.appliedCoupon.value,
+                          errorText: _controller.couponError.value,
+                          discountAmount: _controller.discountAmount,
+                          isApplying: _controller.isApplyingCoupon.value,
+                          showCouponPicker: _controller.coupons.isNotEmpty,
+                          onApply: () async {
+                            FocusScope.of(context).unfocus();
+                            await _controller.applyCouponCode(
+                              _couponController.text,
+                            );
+                          },
+                          onRemove: () {
+                            _controller.removeCoupon();
+                            _couponController.clear();
+                          },
+                          onSelectCoupon: _openCouponSheet,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    StaggeredEntrance(
+                      index: 6,
+                      child: Obx(
+                        () => PriceSummary(
+                          subtotal: _controller.subtotal,
+                          discount: _controller.discountAmount,
+                          amountToPay: _controller.amountToPay,
+                          coupon: _controller.appliedCoupon.value,
+                          bonusCredits: _controller.bonusCredits,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    StaggeredEntrance(
+                      index: 7,
+                      child: Obx(() {
+                        final busy = _controller.isPurchasing.value;
+                        final canBuy =
+                            !busy &&
+                            _controller.selectedApiPackage != null &&
+                            !_controller.isApplyingCoupon.value;
+                        final statusText = _controller.purchaseStatusText.value;
+                        final label = busy && statusText.isNotEmpty
+                            ? statusText
+                            : 'Buy Now | ₹${_controller.amountToPay}';
+                        return CreditGradientButton(
+                          label: label,
+                          isLoading: busy,
+                          onPressed: canBuy ? _onBuyNow : null,
+                        );
+                      }),
+                    ),
+                    const SizedBox(height: 10),
+                    const StaggeredEntrance(
+                      index: 8,
+                      child: SecurePaymentFooter(),
+                    ),
+                  ],
+                ),
+              );
+            }),
           ],
         ),
       ),

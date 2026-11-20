@@ -1,3 +1,4 @@
+import 'package:discipline_mind/ui/widgets/broker_catalog.dart';
 import 'dart:io';
 
 import 'package:discipline_mind/common/common.dart';
@@ -20,16 +21,16 @@ Future<bool> hasAndroidTradingBlockPermissions() async {
       p['hasUsageStatsPermission'] == true;
 }
 
+/// Package id for a stored broker name or `broking_app` key.
+///
+/// Returns an empty string when the broker is unknown. It must never guess:
+/// defaulting to Zerodha used to mean a user who picked another broker had
+/// the wrong app blocked after a reinstall.
 String resolveBrokerPackageName(String? name) {
-  if (name == null || name.isEmpty) return 'com.zerodha.kite3';
-  final lower = name.toLowerCase().trim();
-  if (lower.contains('zerodha') || lower.contains('kite'))
-    return 'com.zerodha.kite3';
-  if (lower.contains('upstox')) return 'in.upstox.app';
-  if (lower.contains('groww')) return 'com.nextbillion.groww';
-  if (lower.contains('angel')) return 'com.msf.angelmobile';
-  if (lower.contains('dhan')) return 'co.dhan';
-  return 'com.zerodha.kite3';
+  if (name == null || name.trim().isEmpty) return '';
+  final byKey = brokerForBrokingAppKey(name)?.packageName ?? '';
+  if (byKey.isNotEmpty) return byKey;
+  return brokerPackageForName(name);
 }
 
 /// Returns the broker saved in the user's existing process, if any. This is
@@ -125,9 +126,11 @@ Future<void> applyAndroidTradingAppBlock({String? explicitUserId}) async {
     final processBroker = await _fetchProcessBroker(userId);
     if (processBroker != null) {
       final pkg = resolveBrokerPackageName(processBroker);
-      await prefs.saveSelectedPackage(userId: userId, packageName: pkg);
-      await GetStorage().write('mct_brokerage_$userId', processBroker);
-      packages = [pkg];
+      if (pkg.isNotEmpty) {
+        await prefs.saveSelectedPackage(userId: userId, packageName: pkg);
+        await GetStorage().write('mct_brokerage_$userId', processBroker);
+        packages = [pkg];
+      }
     }
   }
 

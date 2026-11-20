@@ -1,3 +1,4 @@
+import 'package:discipline_mind/ui/widgets/broker_catalog.dart';
 import 'dart:async';
 
 import 'package:discipline_mind/common/common.dart';
@@ -189,18 +190,19 @@ class TradingProcessController extends GetxController {
   Future<bool> updateBrokingApp(String brokingApp) async {
     final effectiveUserId = Common.userData.value?.payload?.id?.toString();
     final requestedApp = brokingApp.trim().toLowerCase();
+    // Resolve through the shared catalogue so all 20 brokers are accepted,
+    // legacy aliases (zerodha_kite, kite) still normalise to zerodha, and a
+    // broker the backend adds later is not rejected by a stale allow-list.
     final normalizedApp =
-        requestedApp == 'zerodha_kite' || requestedApp == 'kite'
-        ? 'zerodha'
-        : requestedApp;
-    const supportedApps = {'zerodha', 'upstox', 'groww'};
+        brokerForBrokingAppKey(requestedApp)?.brokingAppKey ??
+        brokingAppKeyForName(requestedApp);
 
     if (effectiveUserId == null || effectiveUserId.isEmpty) {
       AppToast.showToast('User not authenticated');
       return false;
     }
-    if (!supportedApps.contains(normalizedApp)) {
-      AppToast.showToast('Unsupported trading app');
+    if (normalizedApp.isEmpty) {
+      AppToast.showToast('Please select a trading app');
       return false;
     }
 

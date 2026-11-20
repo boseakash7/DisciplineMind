@@ -73,10 +73,7 @@ class _PaymentProcessingDialog extends StatelessWidget {
             // The one fact that resolves the user's anxiety.
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 14,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: BoxDecoration(
                 color: CreditsColors.lightPurple,
                 borderRadius: BorderRadius.circular(14),

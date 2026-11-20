@@ -39,8 +39,11 @@ class CouponInputSection extends StatelessWidget {
       children: [
         const Row(
           children: [
-            Icon(Icons.local_offer_outlined,
-                size: 18, color: CreditsColors.purple),
+            Icon(
+              Icons.local_offer_outlined,
+              size: 18,
+              color: CreditsColors.purple,
+            ),
             SizedBox(width: 6),
             Text(
               'Apply Coupon',
@@ -126,62 +129,68 @@ class CouponInputSection extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               errorText!,
-              style: const TextStyle(
-                color: CreditsColors.danger,
-                fontSize: 12,
-              ),
+              style: const TextStyle(color: CreditsColors.danger, fontSize: 12),
             ),
           ],
           if (showCouponPicker) ...[
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(child: Divider(color: Colors.grey.shade300)),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Text(
-                  'or',
-                  style: TextStyle(
-                    color: Colors.grey.shade500,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-              Expanded(child: Divider(color: Colors.grey.shade300)),
-            ],
-          ),
-          const SizedBox(height: 14),
-          InkWell(
-            onTap: onSelectCoupon,
-            borderRadius: BorderRadius.circular(12),
-            child: Ink(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: CreditsColors.border),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.confirmation_number_outlined,
-                      color: CreditsColors.purple, size: 20),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Select a Coupon',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                        color: CreditsColors.textPrimary,
-                      ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(child: Divider(color: Colors.grey.shade300)),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Text(
+                    'or',
+                    style: TextStyle(
+                      color: Colors.grey.shade500,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
-                  Icon(Icons.chevron_right, color: CreditsColors.textSecondary),
-                ],
+                ),
+                Expanded(child: Divider(color: Colors.grey.shade300)),
+              ],
+            ),
+            const SizedBox(height: 14),
+            InkWell(
+              onTap: onSelectCoupon,
+              borderRadius: BorderRadius.circular(12),
+              child: Ink(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 14,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: CreditsColors.border),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(
+                      Icons.confirmation_number_outlined,
+                      color: CreditsColors.purple,
+                      size: 20,
+                    ),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Select a Coupon',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                          color: CreditsColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      Icons.chevron_right,
+                      color: CreditsColors.textSecondary,
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
           ],
         ],
       ],

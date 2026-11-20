@@ -51,11 +51,7 @@ class PriceSummary extends StatelessWidget {
           const Divider(height: 1, color: CreditsColors.border),
           const SizedBox(height: 10),
         ],
-        _row(
-          'Amount to Pay',
-          '₹$amountToPay',
-          isBold: true,
-        ),
+        _row('Amount to Pay', '₹$amountToPay', isBold: true),
       ],
     );
   }

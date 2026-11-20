@@ -12,6 +12,8 @@ import 'package:discipline_mind/services/app_block_preferences_service.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
 import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:discipline_mind/controller/trading_process_controller.dart';
+import 'package:discipline_mind/services/trading_apps_service.dart';
+import 'package:discipline_mind/ui/widgets/broker_catalog.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
@@ -19,46 +21,6 @@ import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'mct_lessons_screen.dart';
-
-class _TradingAppOption {
-  const _TradingAppOption({
-    required this.value,
-    required this.label,
-    required this.packageName,
-    required this.logo,
-    required this.logoColor,
-  });
-
-  final String value;
-  final String label;
-  final String packageName;
-  final String logo;
-  final Color logoColor;
-}
-
-const _supportedTradingApps = [
-  _TradingAppOption(
-    value: 'zerodha',
-    label: 'Zerodha Kite',
-    packageName: 'com.zerodha.kite3',
-    logo: 'K',
-    logoColor: Color(0xFFF15B35),
-  ),
-  _TradingAppOption(
-    value: 'upstox',
-    label: 'Upstox',
-    packageName: 'in.upstox.app',
-    logo: 'U',
-    logoColor: Color(0xFF5B35A5),
-  ),
-  _TradingAppOption(
-    value: 'groww',
-    label: 'Groww',
-    packageName: 'com.nextbillion.groww',
-    logo: 'G',
-    logoColor: Color(0xFF28B9A7),
-  ),
-];
 
 class MoreScreen extends StatelessWidget {
   const MoreScreen({super.key});
@@ -83,15 +45,19 @@ class MoreScreen extends StatelessWidget {
   }
 
   String _tradingAppLabel(String raw) {
-    final normalized = raw.trim().toLowerCase();
-    if (normalized == 'zerodha' ||
-        normalized == 'kite' ||
-        normalized == 'zerodha_kite') {
-      return 'Zerodha Kite';
-    }
-    if (normalized == 'upstox') return 'Upstox';
-    if (normalized == 'groww') return 'Groww';
+    final match = brokerForBrokingAppKey(raw);
+    if (match != null) return match.name;
     return raw.trim().isEmpty ? 'Not selected' : raw;
+  }
+
+  /// Bundled brokers plus anything the trading-apps API added.
+  List<BrokerItem> _brokerList() {
+    final apiApps = Get.isRegistered<TradingAppsService>()
+        ? Get.find<TradingAppsService>().apps.map(
+            (a) => (name: a.name, packageName: a.packageName),
+          )
+        : const <({String name, String packageName})>[];
+    return effectiveBrokerList(apiApps);
   }
 
   Future<void> _showTradingAppPicker(
@@ -164,61 +130,19 @@ class MoreScreen extends StatelessWidget {
                   style: TextStyle(color: secondaryText, fontSize: 13),
                 ),
                 const SizedBox(height: 12),
-                ..._supportedTradingApps.map((app) {
-                  final selected = app.value == currentValue;
-                  return GestureDetector(
-                    onTap: () => Navigator.pop(sheetContext, app.value),
-                    child: Container(
-                      width: double.infinity,
-                      height: 48,
-                      margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      decoration: BoxDecoration(
-                        color: selected
-                            ? (isDark
-                                  ? AppColors.primary.withValues(alpha: 0.14)
-                                  : const Color(0xFFFBF8FF))
-                            : surface,
-                        borderRadius: BorderRadius.circular(9),
-                        border: Border.all(
-                          color: selected
-                              ? AppColors.primary
-                              : (isDark
-                                    ? AppColors.darkBorder
-                                    : const Color(0xFFE2E0E9)),
-                          width: selected ? 1.2 : 1,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          _buildTradingAppLogo(app),
-                          const SizedBox(width: 11),
-                          Expanded(
-                            child: Text(
-                              app.label,
-                              style: TextStyle(
-                                color: primaryText,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          Icon(
-                            selected
-                                ? Icons.radio_button_checked
-                                : Icons.radio_button_unchecked,
-                            color: selected
-                                ? AppColors.primary
-                                : (isDark
-                                      ? Colors.white38
-                                      : const Color(0xFF85838F)),
-                            size: 18,
-                          ),
-                        ],
-                      ),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: BrokerGrid(
+                      brokers: _brokerList(),
+                      selectedPackageName: brokerForBrokingAppKey(
+                        currentValue,
+                      )?.packageName,
+                      onSelected: (item) =>
+                          Navigator.pop(sheetContext, item.brokingAppKey),
                     ),
-                  );
-                }),
+                  ),
+                ),
+                const SizedBox(height: 4),
               ],
             ),
           ),
@@ -228,9 +152,8 @@ class MoreScreen extends StatelessWidget {
 
     if (selectedValue == null || selectedValue == currentValue) return;
     if (!context.mounted) return;
-    final selectedApp = _supportedTradingApps.firstWhere(
-      (app) => app.value == selectedValue,
-    );
+    final selectedApp = brokerForBrokingAppKey(selectedValue);
+    if (selectedApp == null) return;
     final userId = Common.userData.value?.payload?.id?.toString();
     if (userId == null || userId.isEmpty) return;
 
@@ -256,7 +179,9 @@ class MoreScreen extends StatelessWidget {
     try {
       // Keep the loader visible for both the API request and the native
       // app-blocking changes that follow it.
-      final updated = await controller.updateBrokingApp(selectedApp.value);
+      final updated = await controller.updateBrokingApp(
+        selectedApp.brokingAppKey,
+      );
       if (!updated) return;
 
       final preferences = AppBlockPreferencesService();
@@ -265,7 +190,10 @@ class MoreScreen extends StatelessWidget {
         userId: userId,
         packageName: selectedApp.packageName,
       );
-      await GetStorage().write('mct_brokerage_$userId', selectedApp.value);
+      await GetStorage().write(
+        'mct_brokerage_$userId',
+        selectedApp.brokingAppKey,
+      );
 
       if (Platform.isAndroid) {
         final blockService = NativeAppBlockService();
@@ -282,26 +210,6 @@ class MoreScreen extends StatelessWidget {
     } finally {
       if (rootNavigator.canPop()) rootNavigator.pop();
     }
-  }
-
-  Widget _buildTradingAppLogo(_TradingAppOption app) {
-    return Container(
-      width: 27,
-      height: 27,
-      decoration: BoxDecoration(
-        color: app.logoColor.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        app.logo,
-        style: TextStyle(
-          color: app.logoColor,
-          fontSize: 14,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
-    );
   }
 
   Widget _buildTradingAppTile(BuildContext context) {

@@ -2,6 +2,8 @@ import 'package:discipline_mind/common/app_colors.dart';
 import 'package:discipline_mind/controller/trading_process_controller.dart';
 import 'package:discipline_mind/model/trading_process_model.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
+import 'package:discipline_mind/services/trading_apps_service.dart';
+import 'package:discipline_mind/ui/widgets/broker_catalog.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -13,8 +15,9 @@ class ProcessDetailScreen extends StatefulWidget {
 }
 
 class _ProcessDetailScreenState extends State<ProcessDetailScreen> {
-  final TradingProcessController _controller =
-      Get.put(TradingProcessController());
+  final TradingProcessController _controller = Get.put(
+    TradingProcessController(),
+  );
 
   @override
   void initState() {
@@ -51,15 +54,14 @@ class _ProcessDetailScreenState extends State<ProcessDetailScreen> {
     return '₹ $result';
   }
 
+  /// Display name for a stored `broking_app` key, via the shared catalogue so
+  /// all 20 brokers render properly rather than only the original three.
   static String _formatBrokerName(String raw) {
-    if (raw.trim().isEmpty) return 'Upstox';
-    final lower = raw.trim().toLowerCase();
-    if (lower == 'upstox' || lower == 'upsocks') return 'Upstox';
-    if (lower == 'zerodha' || lower == 'kite' || lower == 'zerodha_kite') {
-      return 'Zerodha Kite';
-    }
-    if (lower == 'groww') return 'Groww';
-    return raw[0].toUpperCase() + raw.substring(1);
+    if (raw.trim().isEmpty) return '--';
+    final match = brokerForBrokingAppKey(raw);
+    if (match != null) return match.name;
+    final trimmed = raw.trim();
+    return trimmed[0].toUpperCase() + trimmed.substring(1);
   }
 
   String _formatTime(String raw) {
@@ -84,12 +86,18 @@ class _ProcessDetailScreenState extends State<ProcessDetailScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primaryTextColor = isDark ? Colors.white : const Color(0xFF10122D);
-    final secondaryTextColor = isDark ? Colors.white60 : const Color(0xFF70717F);
+    final secondaryTextColor = isDark
+        ? Colors.white60
+        : const Color(0xFF70717F);
     final cardBg = isDark ? const Color(0xFF1E222A) : Colors.white;
-    final borderColor = isDark ? const Color(0xFF2C3240) : const Color(0xFFE2E0E9);
+    final borderColor = isDark
+        ? const Color(0xFF2C3240)
+        : const Color(0xFFE2E0E9);
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF121418) : const Color(0xFFF7F8FA),
+      backgroundColor: isDark
+          ? const Color(0xFF121418)
+          : const Color(0xFFF7F8FA),
       appBar: AppBar(
         backgroundColor: cardBg,
         elevation: 0,
@@ -153,7 +161,10 @@ class _ProcessDetailScreenState extends State<ProcessDetailScreen> {
                     label: const Text('Try Again'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppColors.primary,
-                      side: const BorderSide(color: AppColors.primary, width: 1.5),
+                      side: const BorderSide(
+                        color: AppColors.primary,
+                        width: 1.5,
+                      ),
                     ),
                   ),
                 ),
@@ -220,7 +231,9 @@ class _ProcessDetailScreenState extends State<ProcessDetailScreen> {
                                   vertical: 4,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF208052).withOpacity(0.12),
+                                  color: const Color(
+                                    0xFF208052,
+                                  ).withOpacity(0.12),
                                   borderRadius: BorderRadius.circular(20),
                                 ),
                                 child: Row(
@@ -299,7 +312,10 @@ class _ProcessDetailScreenState extends State<ProcessDetailScreen> {
                     ),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppColors.primary,
-                      side: const BorderSide(color: Color(0xFF2B4BF2), width: 1.8),
+                      side: const BorderSide(
+                        color: Color(0xFF2B4BF2),
+                        width: 1.8,
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -442,7 +458,8 @@ class _ProcessDetailScreenState extends State<ProcessDetailScreen> {
 
                 _buildProtectionTile(
                   title: 'Usage Stats Guard',
-                  subtitle: 'Monitors disciplined adherence during market hours',
+                  subtitle:
+                      'Monitors disciplined adherence during market hours',
                   enabled: process.permissionUsageStatsEnabled == '1',
                   cardBg: cardBg,
                   borderColor: borderColor,
@@ -556,10 +573,7 @@ class _ProcessDetailScreenState extends State<ProcessDetailScreen> {
                 const SizedBox(height: 2),
                 Text(
                   subtitle,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: secondaryTextColor,
-                  ),
+                  style: TextStyle(fontSize: 12, color: secondaryTextColor),
                 ),
               ],
             ),
@@ -569,18 +583,13 @@ class _ProcessDetailScreenState extends State<ProcessDetailScreen> {
     );
   }
 
-  void _openEditProcessSheet(
-    BuildContext context,
-    TradingProcessData process,
-  ) {
+  void _openEditProcessSheet(BuildContext context, TradingProcessData process) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _EditProcessModal(
-        process: process,
-        controller: _controller,
-      ),
+      builder: (ctx) =>
+          _EditProcessModal(process: process, controller: _controller),
     );
   }
 }
@@ -589,10 +598,7 @@ class _EditProcessModal extends StatefulWidget {
   final TradingProcessData process;
   final TradingProcessController controller;
 
-  const _EditProcessModal({
-    required this.process,
-    required this.controller,
-  });
+  const _EditProcessModal({required this.process, required this.controller});
 
   @override
   State<_EditProcessModal> createState() => _EditProcessModalState();
@@ -611,7 +617,16 @@ class _EditProcessModalState extends State<_EditProcessModal> {
   final List<String> _setupTypes = ['Zeno AI Signals', 'Own Setup'];
   final List<String> _instruments = ['Nifty 50', 'BankNifty', 'Sensex'];
   final List<String> _tradesOptions = ['1', '2'];
-  final List<String> _brokerOptions = ['Upstox', 'Zerodha Kite', 'Groww'];
+
+  /// Bundled brokers plus anything the trading-apps API added.
+  List<BrokerItem> _brokerList() {
+    final apiApps = Get.isRegistered<TradingAppsService>()
+        ? Get.find<TradingAppsService>().apps.map(
+            (a) => (name: a.name, packageName: a.packageName),
+          )
+        : const <({String name, String packageName})>[];
+    return effectiveBrokerList(apiApps);
+  }
 
   @override
   void initState() {
@@ -645,14 +660,9 @@ class _EditProcessModalState extends State<_EditProcessModal> {
     _entryTime = p.marketEntryTime.isNotEmpty ? p.marketEntryTime : '09:15:00';
 
     // Broking App
-    final pBroker = p.brokingApp.toLowerCase();
-    if (pBroker.contains('zerodha') || pBroker.contains('kite')) {
-      _brokingApp = 'Zerodha Kite';
-    } else if (pBroker.contains('groww')) {
-      _brokingApp = 'Groww';
-    } else {
-      _brokingApp = 'Upstox';
-    }
+    // Resolve against the shared catalogue so all 20 brokers round-trip.
+    _brokingApp =
+        brokerForBrokingAppKey(p.brokingApp)?.name ?? p.brokingApp.trim();
   }
 
   @override
@@ -693,10 +703,7 @@ class _EditProcessModalState extends State<_EditProcessModal> {
       }
     } catch (_) {}
 
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: initial,
-    );
+    final picked = await showTimePicker(context: context, initialTime: initial);
 
     if (picked != null) {
       final hourStr = picked.hour.toString().padLeft(2, '0');
@@ -714,13 +721,11 @@ class _EditProcessModalState extends State<_EditProcessModal> {
       return;
     }
 
-    final apiBroker = _brokingApp == 'Zerodha Kite'
-        ? 'zerodha'
-        : _brokingApp == 'Groww'
-            ? 'groww'
-            : 'upstox';
+    final apiBroker = brokingAppKeyForName(_brokingApp);
 
-    final apiSetupType = _setupType == 'Own Setup' ? 'own_setup' : 'zeno_ai_signals';
+    final apiSetupType = _setupType == 'Own Setup'
+        ? 'own_setup'
+        : 'zeno_ai_signals';
 
     final success = await widget.controller.editProcess(
       processId: widget.process.id,
@@ -747,9 +752,13 @@ class _EditProcessModalState extends State<_EditProcessModal> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF1E222A) : Colors.white;
     final primaryTextColor = isDark ? Colors.white : const Color(0xFF10122D);
-    final secondaryTextColor = isDark ? Colors.white60 : const Color(0xFF70717F);
+    final secondaryTextColor = isDark
+        ? Colors.white60
+        : const Color(0xFF70717F);
     final fieldBg = isDark ? const Color(0xFF14171D) : const Color(0xFFF7F8FA);
-    final borderColor = isDark ? const Color(0xFF2C3240) : const Color(0xFFE2E0E9);
+    final borderColor = isDark
+        ? const Color(0xFF2C3240)
+        : const Color(0xFFE2E0E9);
 
     return ConstrainedBox(
       constraints: BoxConstraints(
@@ -764,7 +773,8 @@ class _EditProcessModalState extends State<_EditProcessModal> {
           top: 20,
           left: 20,
           right: 20,
-          bottom: MediaQuery.of(context).viewInsets.bottom +
+          bottom:
+              MediaQuery.of(context).viewInsets.bottom +
               MediaQuery.of(context).padding.bottom +
               20,
         ),
@@ -824,23 +834,17 @@ class _EditProcessModalState extends State<_EditProcessModal> {
                           height: 44,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: selected
-                                ? AppColors.primary
-                                : fieldBg,
+                            color: selected ? AppColors.primary : fieldBg,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                              color: selected
-                                  ? AppColors.primary
-                                  : borderColor,
+                              color: selected ? AppColors.primary : borderColor,
                               width: 1.2,
                             ),
                           ),
                           child: Text(
                             seg,
                             style: TextStyle(
-                              color: selected
-                                  ? Colors.white
-                                  : primaryTextColor,
+                              color: selected ? Colors.white : primaryTextColor,
                               fontWeight: FontWeight.bold,
                               fontSize: 13,
                             ),
@@ -870,23 +874,17 @@ class _EditProcessModalState extends State<_EditProcessModal> {
                           height: 44,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: selected
-                                ? AppColors.primary
-                                : fieldBg,
+                            color: selected ? AppColors.primary : fieldBg,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                              color: selected
-                                  ? AppColors.primary
-                                  : borderColor,
+                              color: selected ? AppColors.primary : borderColor,
                               width: 1.2,
                             ),
                           ),
                           child: Text(
                             setup,
                             style: TextStyle(
-                              color: selected
-                                  ? Colors.white
-                                  : primaryTextColor,
+                              color: selected ? Colors.white : primaryTextColor,
                               fontWeight: FontWeight.bold,
                               fontSize: 13,
                             ),
@@ -915,14 +913,10 @@ class _EditProcessModalState extends State<_EditProcessModal> {
                           height: 44,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: selected
-                                ? AppColors.primary
-                                : fieldBg,
+                            color: selected ? AppColors.primary : fieldBg,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                              color: selected
-                                  ? AppColors.primary
-                                  : borderColor,
+                              color: selected ? AppColors.primary : borderColor,
                               width: 1.2,
                             ),
                           ),
@@ -930,9 +924,7 @@ class _EditProcessModalState extends State<_EditProcessModal> {
                             inst,
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: selected
-                                  ? Colors.white
-                                  : primaryTextColor,
+                              color: selected ? Colors.white : primaryTextColor,
                               fontWeight: FontWeight.bold,
                               fontSize: 12,
                             ),
@@ -1060,23 +1052,17 @@ class _EditProcessModalState extends State<_EditProcessModal> {
                           height: 44,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: selected
-                                ? AppColors.primary
-                                : fieldBg,
+                            color: selected ? AppColors.primary : fieldBg,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                              color: selected
-                                  ? AppColors.primary
-                                  : borderColor,
+                              color: selected ? AppColors.primary : borderColor,
                               width: 1.2,
                             ),
                           ),
                           child: Text(
                             '$t Trade${t == '1' ? '' : 's'} / Day',
                             style: TextStyle(
-                              color: selected
-                                  ? Colors.white
-                                  : primaryTextColor,
+                              color: selected ? Colors.white : primaryTextColor,
                               fontWeight: FontWeight.bold,
                               fontSize: 13,
                             ),
@@ -1089,49 +1075,13 @@ class _EditProcessModalState extends State<_EditProcessModal> {
               ),
               const SizedBox(height: 16),
 
-              // 5. Broking App (Upstox, Zerodha Kite, Groww)
+              // 5. Broking App - same picker as process setup.
               _buildLabel('Broking App', secondaryTextColor),
               const SizedBox(height: 8),
-              Row(
-                children: _brokerOptions.map((b) {
-                  final selected = _brokingApp == b;
-                  return Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: InkWell(
-                        onTap: () => setState(() => _brokingApp = b),
-                        borderRadius: BorderRadius.circular(10),
-                        child: Container(
-                          height: 44,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: selected
-                                ? AppColors.primary
-                                : fieldBg,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: selected
-                                  ? AppColors.primary
-                                  : borderColor,
-                              width: 1.2,
-                            ),
-                          ),
-                          child: Text(
-                            b,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: selected
-                                  ? Colors.white
-                                  : primaryTextColor,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
+              BrokerGrid(
+                brokers: _brokerList(),
+                selectedPackageName: brokerPackageForName(_brokingApp),
+                onSelected: (item) => setState(() => _brokingApp = item.name),
               ),
               const SizedBox(height: 16),
 

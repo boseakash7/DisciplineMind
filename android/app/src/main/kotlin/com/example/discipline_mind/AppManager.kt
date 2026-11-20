@@ -103,13 +103,36 @@ object AppManager {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val stored = prefs.getStringSet(MONITORED_APPS_KEY, null)
         if (stored != null && stored.isNotEmpty()) return stored
-        // Safe fallback until API list is synced from Flutter.
-        return setOf(
-            "com.zerodha.kite3",
-            "in.upstox.app",
-            "com.nextbillion.groww"
-        )
+        // Safe fallback until the API list is synced from Flutter. Must stay
+        // in step with blockedTradingAppPackages in lib/constants/blocked_apps.dart,
+        // otherwise a freshly installed app silently stops tracking opens for
+        // brokers the user can already select during setup.
+        return DEFAULT_MONITORED_APPS
     }
+
+    /** All brokers offered in the setup flow. */
+    private val DEFAULT_MONITORED_APPS: Set<String> = setOf(
+        "com.nextbillion.groww",
+        "com.zerodha.kite3",
+        "com.msf.angelmobile",
+        "com.icicidirect.idirectsuper",
+        "in.upstox.app",
+        "com.kotak.neo",
+        "com.hsl.investright",
+        "com.msf.sbicap.securities",
+        "com.dhan.live",
+        "com.mosl.mobile",
+        "com.paytmmoney",
+        "in.indwealth",
+        "com.sharekhan.androidsharemobile",
+        "com.axisdirect.invest",
+        "com.indiainfoline",
+        "com.fivepaisa.trade",
+        "com.choiceequitybroking.jiffy",
+        "com.geojit.flip_mobile",
+        "com.rs.mirae",
+        "com.aaritya.sahi_trade_app"
+    )
 
     fun hasConsentAccepted(context: Context): Boolean {
         val flutterPrefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)

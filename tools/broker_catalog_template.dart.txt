@@ -1,0 +1,237 @@
+import 'package:flutter/material.dart';
+
+/// Single source of truth for the broker apps the user can pick.
+///
+/// Both the setup flow and the app-block settings screen render this list
+/// through [BrokerGrid], so the two pickers cannot drift apart.
+library;
+
+const Color _purple = Color(0xFF4A22F4);
+const Color _ink = Color(0xFF10122D);
+const Color _unselectedBorder = Color(0xFFE2E0E9);
+
+/// One broker the user can select.
+class BrokerItem {
+  const BrokerItem({
+    required this.name,
+    required this.packageName,
+    this.assetPath,
+    this.brandColor = _purple,
+    this.logoBuilder,
+  });
+
+  final String name;
+
+  /// Android package id. Used for blocking and for matching API rows.
+  final String packageName;
+  final String? assetPath;
+  final Color brandColor;
+  final Widget Function()? logoBuilder;
+}
+
+/// The brokers bundled with the app. Package names must stay in step with
+/// `lib/constants/blocked_apps.dart` and with `GET /api/trading-apps`.
+const List<BrokerItem> kBrokerCatalog = <BrokerItem>[
+/*CATALOG*/
+];
+
+/// Collapses broker names to a stable key, so "Zerodha Kite" and "Zerodha"
+/// resolve to the same broker.
+String normalizeBrokerName(String name) {
+  final lower = name.toLowerCase().trim();
+  if (lower.contains('zerodha') || lower.contains('kite')) return 'zerodha';
+  if (lower.contains('upstox')) return 'upstox';
+  if (lower.contains('groww')) return 'groww';
+  if (lower.contains('angel')) return 'angel_one';
+  if (lower.contains('dhan')) return 'dhan';
+  if (lower.contains('icici')) return 'icici_direct';
+  if (lower.contains('kotak')) return 'kotak_neo';
+  if (lower.contains('hdfc')) return 'hdfc_securities';
+  if (lower.contains('sbi')) return 'sbi_securities';
+  if (lower.contains('motilal')) return 'motilal_oswal';
+  if (lower.contains('paytm')) return 'paytm_money';
+  if (lower.contains('ind')) return 'ind_money';
+  if (lower.contains('sharekhan')) return 'sharekhan';
+  if (lower.contains('axis')) return 'axis_securities';
+  if (lower.contains('iifl')) return 'iifl_securities';
+  if (lower.contains('5paisa')) return '5paisa';
+  if (lower.contains('choice')) return 'choice';
+  if (lower.contains('geojit')) return 'geojit';
+  if (lower.contains('mirae')) return 'mirae_asset';
+  if (lower.contains('sahi')) return 'sahi';
+  return lower;
+}
+
+bool isSameBroker(String? a, String? b) {
+  if (a == null || b == null) return false;
+  return normalizeBrokerName(a) == normalizeBrokerName(b);
+}
+
+/// Package id for a display name, or an empty string when unknown.
+String brokerPackageForName(String? name) {
+  if (name == null || name.trim().isEmpty) return '';
+  final key = normalizeBrokerName(name);
+  for (final item in kBrokerCatalog) {
+    if (normalizeBrokerName(item.name) == key) return item.packageName;
+  }
+  return '';
+}
+
+/// Catalogue entry for a package id, when the app knows that broker.
+BrokerItem? brokerForPackage(String packageName) {
+  for (final item in kBrokerCatalog) {
+    if (item.packageName == packageName) return item;
+  }
+  return null;
+}
+
+/// The bundled catalogue plus any broker the backend returned that is not
+/// bundled yet, so new brokers appear without an app release.
+List<BrokerItem> effectiveBrokerList(
+  Iterable<({String name, String packageName})> apiApps,
+) {
+  final list = List<BrokerItem>.from(kBrokerCatalog);
+  for (final app in apiApps) {
+    if (app.name.trim().isEmpty) continue;
+    final exists = list.any(
+      (item) =>
+          item.packageName == app.packageName ||
+          isSameBroker(item.name, app.name),
+    );
+    if (!exists) {
+      list.add(BrokerItem(name: app.name, packageName: app.packageName));
+    }
+  }
+  return list;
+}
+
+/// Logo for a broker: bundled asset, then hand-built logo, then an initial.
+Widget brokerLogoWidget(BrokerItem item) {
+  final asset = item.assetPath;
+  if (asset != null && asset.isNotEmpty) {
+    return Image.asset(
+      asset,
+      fit: BoxFit.contain,
+      errorBuilder: (context, error, stackTrace) =>
+          item.logoBuilder?.call() ??
+          defaultBrokerLogo(item.name, item.brandColor),
+    );
+  }
+  if (item.logoBuilder != null) return item.logoBuilder!();
+  return defaultBrokerLogo(item.name, item.brandColor);
+}
+
+/// Four-across broker picker, shared by setup and settings.
+class BrokerGrid extends StatelessWidget {
+  const BrokerGrid({
+    super.key,
+    required this.brokers,
+    required this.selectedPackageName,
+    required this.onSelected,
+    this.columns = 4,
+  });
+
+  final List<BrokerItem> brokers;
+  final String? selectedPackageName;
+  final ValueChanged<BrokerItem> onSelected;
+  final int columns;
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = <Widget>[];
+    for (var i = 0; i < brokers.length; i += columns) {
+      final end = (i + columns) > brokers.length ? brokers.length : i + columns;
+      final chunk = brokers.sublist(i, end);
+      rows.add(
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (var j = 0; j < columns; j++) ...[
+              if (j > 0) const SizedBox(width: 8),
+              Expanded(
+                child: j < chunk.length
+                    ? BrokerGridTile(
+                        item: chunk[j],
+                        selected: chunk[j].packageName == selectedPackageName,
+                        onTap: () => onSelected(chunk[j]),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+            ],
+          ],
+        ),
+      );
+      if (end < brokers.length) rows.add(const SizedBox(height: 10));
+    }
+
+    return Column(mainAxisSize: MainAxisSize.min, children: rows);
+  }
+}
+
+/// One tile in [BrokerGrid].
+class BrokerGridTile extends StatelessWidget {
+  const BrokerGridTile({
+    super.key,
+    required this.item,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final BrokerItem item;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? const Color(0xFFFAF7FE) : Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? _purple : _unselectedBorder,
+              width: selected ? 1.8 : 1.0,
+            ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: _purple.withValues(alpha: 0.12),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(width: 40, height: 40, child: brokerLogoWidget(item)),
+              const SizedBox(height: 6),
+              Text(
+                item.name,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                  color: selected ? _purple : _ink,
+                  height: 1.15,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/*DEFAULT_LOGO*/
+
+/*LOGOS*/

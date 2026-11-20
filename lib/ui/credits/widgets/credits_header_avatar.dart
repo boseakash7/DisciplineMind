@@ -48,10 +48,7 @@ class CreditsHeaderAvatar extends StatelessWidget {
 class SecurePaymentFooter extends StatelessWidget {
   final String text;
 
-  const SecurePaymentFooter({
-    super.key,
-    this.text = '100% Secure Payments',
-  });
+  const SecurePaymentFooter({super.key, this.text = '100% Secure Payments'});
 
   @override
   Widget build(BuildContext context) {

@@ -7,9 +7,11 @@ import 'package:discipline_mind/services/api/api_url.dart';
 import 'package:discipline_mind/services/app_block_preferences_service.dart';
 import 'package:discipline_mind/services/app_diagnostic_logger.dart';
 import 'package:discipline_mind/services/native_app_block_service.dart';
+import 'package:discipline_mind/services/trading_apps_service.dart';
 import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:discipline_mind/services/app_url_launcher.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
+import 'package:discipline_mind/ui/widgets/broker_catalog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
@@ -1689,10 +1691,10 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   Widget _step4Screen() {
     return _normalStep(
       step: 5,
-      title: 'Select Your Broking App',
+      title: 'Select Your Broker App',
       subtitle:
-          'Choose the app you will use\n'
-          'exclusively for Mind Control Trading.',
+          'Choose the trading app you use. Zeno AI will monitor '
+          'only this app to help you stay focused and disciplined.',
       onNext: () {
         if (brokerage == null) {
           AppToast.showToast('Please select your trading broker app');
@@ -1701,142 +1703,10 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
         nextPage();
       },
       content: [
-        _brokerCard(
-          title: 'Zerodha Kite',
-          logo: 'K',
-          logoColor: const Color(0xFFF15B35),
-        ),
-        _brokerCard(
-          title: 'Upstox',
-          logo: 'U',
-          logoColor: const Color(0xFF5B35A5),
-        ),
-        _brokerCard(
-          title: 'Groww',
-          logo: 'G',
-          logoColor: const Color(0xFF28B9A7),
-        ),
-        const SizedBox(height: 3),
-        _brokerInfoCard(),
+        _brokerGrid(),
+        const SizedBox(height: 14),
+        _buildMyBrokerNotListedButton(),
       ],
-    );
-  }
-
-  Widget _brokerCard({
-    required String title,
-    required String logo,
-    required Color logoColor,
-  }) {
-    final selected = brokerage == title;
-
-    return GestureDetector(
-      onTap: () async {
-        setState(() => brokerage = title);
-        final pkg = _getBrokerPackageName(title);
-        await _prefs.saveSelectedPackage(
-          userId: widget.userId,
-          packageName: pkg,
-        );
-        if (Platform.isAndroid) {
-          await _blockService.saveUserIdForOverlay(widget.userId);
-          await _blockService.blockApp(pkg);
-        }
-      },
-      child: Container(
-        width: double.infinity,
-        height: 44,
-        margin: const EdgeInsets.only(bottom: 7),
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          color: selected ? const Color(0xFFFBF8FF) : Colors.white,
-          borderRadius: BorderRadius.circular(9),
-          border: Border.all(
-            color: selected ? purple : border,
-            width: selected ? 1.2 : 1,
-          ),
-        ),
-        child: Row(
-          children: [
-            _brokerLogo(logo, logoColor),
-            const SizedBox(width: 11),
-            Expanded(
-              child: Text(
-                title,
-                style: const TextStyle(
-                  fontSize: _Type.label,
-                  fontWeight: FontWeight.w700,
-                  color: ink,
-                ),
-              ),
-            ),
-            Icon(
-              selected
-                  ? Icons.radio_button_checked
-                  : Icons.radio_button_unchecked,
-              color: selected ? purple : const Color(0xFF85838F),
-              size: 18,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _brokerLogo(String text, Color color) {
-    return Container(
-      width: 27,
-      height: 27,
-      decoration: BoxDecoration(
-        color: color.withOpacity(.12),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        text,
-        style: TextStyle(
-          color: color,
-          fontSize: _Type.body,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
-    );
-  }
-
-  Widget _brokerInfoCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8F4FF),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 29,
-            height: 29,
-            decoration: BoxDecoration(
-              color: const Color(0xFFEAE3FF),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.shield_outlined, color: purple, size: 18),
-          ),
-          const SizedBox(width: 9),
-          const Expanded(
-            child: Text(
-              'Use only this selected app for\n'
-              'Mind Control Trading to unlock\n'
-              'its full power over time.',
-              style: TextStyle(
-                fontSize: _Type.caption,
-                height: 1.35,
-                fontWeight: FontWeight.w600,
-                color: ink,
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -2866,27 +2736,170 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   // SAVE SETUP
   // ============================================================
 
-  String _getBrokingAppKey(String? name) {
-    if (name == null) return 'zerodha';
-    final lower = name.toLowerCase().trim();
-    if (lower.contains('zerodha') || lower.contains('kite')) return 'zerodha';
-    if (lower.contains('upstox')) return 'upstox';
-    if (lower.contains('groww')) return 'groww';
-    if (lower.contains('angel')) return 'angel_one';
-    if (lower.contains('dhan')) return 'dhan';
-    return lower.replaceAll(RegExp(r'\s+'), '_');
+  // ------------------------------------------------- broker grid (Karannn)
+
+  Widget _brokerGrid() {
+    final apiApps = Get.isRegistered<TradingAppsService>()
+        ? Get.find<TradingAppsService>().apps.map(
+            (a) => (name: a.name, packageName: a.packageName),
+          )
+        : const <({String name, String packageName})>[];
+
+    return BrokerGrid(
+      brokers: effectiveBrokerList(apiApps),
+      selectedPackageName: brokerPackageForName(brokerage),
+      onSelected: _onBrokerSelected,
+    );
   }
 
-  String _getBrokerPackageName(String? name) {
-    if (name == null) return 'com.zerodha.kite3';
-    final lower = name.toLowerCase().trim();
-    if (lower.contains('zerodha') || lower.contains('kite'))
-      return 'com.zerodha.kite3';
-    if (lower.contains('upstox')) return 'in.upstox.app';
-    if (lower.contains('groww')) return 'com.nextbillion.groww';
-    if (lower.contains('angel')) return 'com.msf.angelmobile';
-    if (lower.contains('dhan')) return 'co.dhan';
-    return 'com.zerodha.kite3';
+  /// Selection side effects are unchanged from the previous picker.
+  Future<void> _onBrokerSelected(BrokerItem item) async {
+    setState(() => brokerage = item.name);
+    await _prefs.saveSelectedPackage(
+      userId: widget.userId,
+      packageName: item.packageName,
+    );
+    if (Platform.isAndroid) {
+      await _blockService.saveUserIdForOverlay(widget.userId);
+      await _blockService.blockApp(item.packageName);
+    }
+  }
+
+  Widget _buildMyBrokerNotListedButton() {
+    return InkWell(
+      onTap: () => _showUnsupportedBrokerDialog(context),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF5F3FF),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 32,
+              height: 26,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(7),
+                border: Border.all(color: const Color(0xFF1E1B4B), width: 1.5),
+              ),
+              child: const Center(
+                child: Icon(
+                  Icons.more_horiz,
+                  color: Color(0xFF1E1B4B),
+                  size: 18,
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            const Expanded(
+              child: Text(
+                'My broker is not listed',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF1E1B4B),
+                ),
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: Color(0xFF1E1B4B),
+              size: 22,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showUnsupportedBrokerDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 26,
+            vertical: 24,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 76,
+                  height: 76,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFEDE8FF),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.account_balance_rounded,
+                    color: Color(0xFF6338F1),
+                    size: 36,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'Currently we support\nonly selected brokers',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 18.5,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF111827),
+                    height: 1.25,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'You can create your trading account\non one of these apps and then come\nback on Zeno AI to start\nMind Control Trading.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    height: 1.45,
+                    fontWeight: FontWeight.w400,
+                    color: Color(0xFF6B7280),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF6338F1),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Got It',
+                      style: TextStyle(
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _completeSetup() async {
@@ -2904,7 +2917,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
 
     final formattedEntryTime = marketEntryTimeOfDay!.format(context);
     final storage = GetStorage();
-    final brokerPkg = _getBrokerPackageName(brokerage);
+    final brokerPkg = brokerPackageForName(brokerage);
 
     if (Platform.isAndroid && (_hasOverlay || _hasUsage)) {
       await _prefs.saveSelectedPackage(
@@ -2953,7 +2966,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
       'trades_per_day': (_effectiveTradesPerDay ?? 1).toString(),
       'max_risk_percent': '2',
       'market_entry_time': formattedEntryTime,
-      'broking_app': _getBrokingAppKey(brokerage),
+      'broking_app': brokingAppKeyForName(brokerage),
       'permission_overlay_enabled': _hasOverlay ? '1' : '0',
       'permission_usage_stats_enabled': _hasUsage ? '1' : '0',
       'terms_accepted': termsAccepted ? '1' : '0',

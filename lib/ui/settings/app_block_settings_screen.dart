@@ -7,6 +7,7 @@ import 'package:discipline_mind/services/trading_block_bootstrap.dart';
 import 'package:discipline_mind/ui/main_home/main_home.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
+import 'package:discipline_mind/ui/widgets/broker_catalog.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 
@@ -61,8 +62,7 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
     final userId = _userId;
     if (userId == null) return;
     final saved = _prefs.getSelectedPackage(userId: userId);
-    if (saved != null &&
-        _tradingApps.apps.any((a) => a.packageName == saved)) {
+    if (saved != null && _tradingApps.apps.any((a) => a.packageName == saved)) {
       setState(() => _selectedPackage = saved);
     } else if (_selectedPackage != null &&
         _tradingApps.apps.every((a) => a.packageName != _selectedPackage)) {
@@ -119,48 +119,16 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
 
   /// Brand color + logo asset per broker, matched by package name / app name.
   /// Falls back to [AppColors.primary] + a generic icon if unmatched.
-  ({Color color, String asset}) _brandFor(String packageName, String appName) {
-    final key = packageName.toLowerCase();
-    final name = appName.toLowerCase();
-
-    if (key.contains('zerodha') || name.contains('zerodha') || name.contains('kite')) {
-      return (color: const Color(0xFFF6461A), asset: 'assets/ZerodhaKite.png');
-    }
-    if (key.contains('upstox') || name.contains('upstox')) {
-      return (color: const Color(0xFF5B298C), asset: 'assets/upsocks.png');
-    }
-    if (key.contains('groww') || name.contains('groww')) {
-      return (color: const Color(0xFF5367FF), asset: 'assets/groww.png');
-    }
-    return (color: AppColors.primary, asset: '');
-  }
-
-  Widget _buildAppLogo(String asset, Color brandColor) {
-    return Container(
-      width: 42,
-      height: 42,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(11),
-      ),
-      padding: const EdgeInsets.all(7),
-      child: asset.isNotEmpty
-          ? Image.asset(asset, fit: BoxFit.contain)
-          : Icon(Icons.show_chart, color: brandColor),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    final scaffoldBg = isDark ? const Color(0xFF000000) : const Color(0xFFF5F6FA);
-    final cardBg = isDark ? const Color(0xFF121212) : Colors.white;
-    final unselectedBorder = isDark ? Colors.white : Colors.grey.shade300;
+    final scaffoldBg = isDark
+        ? const Color(0xFF000000)
+        : const Color(0xFFF5F6FA);
     final titleColor = isDark ? Colors.white : Colors.black87;
     final subtitleColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
-    final packageTextColor = isDark ? Colors.grey.shade500 : Colors.grey.shade600;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle(
@@ -168,8 +136,9 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
         statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
         statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
         systemNavigationBarColor: scaffoldBg,
-        systemNavigationBarIconBrightness:
-            isDark ? Brightness.light : Brightness.dark,
+        systemNavigationBarIconBrightness: isDark
+            ? Brightness.light
+            : Brightness.dark,
         systemNavigationBarDividerColor: Colors.transparent,
       ),
       child: WillPopScope(
@@ -252,78 +221,26 @@ class _AppBlockSettingsScreenState extends State<AppBlockSettingsScreen> {
                           ),
                         );
                       }
-                      return ListView.separated(
-                        itemCount: svc.apps.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 12),
-                        itemBuilder: (context, index) {
-                          final app = svc.apps[index];
-                          final selected = _selectedPackage == app.packageName;
-                          final brand = _brandFor(app.packageName, app.name);
-
-                          return InkWell(
-                            borderRadius: BorderRadius.circular(14),
-                            onTap: () => _onSelectApp(app.packageName),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: cardBg,
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: selected ? brand.color : unselectedBorder,
-                                  width: selected ? 1.4 : 1,
-                                ),
-                              ),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 10,
-                              ),
-                              child: Row(
-                                children: [
-                                  _buildAppLogo(brand.asset, brand.color),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          app.name,
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 14,
-                                            color: titleColor,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          app.packageName,
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: packageTextColor,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Radio<String>(
-                                    value: app.packageName,
-                                    groupValue: _selectedPackage,
-                                    activeColor: brand.color,
-                                    onChanged: (v) {
-                                      if (v != null) _onSelectApp(v);
-                                    },
-                                  ),
-                                ],
-                              ),
+                      // Same picker as the setup flow, from the shared
+                      // broker catalogue.
+                      return SingleChildScrollView(
+                        child: BrokerGrid(
+                          brokers: effectiveBrokerList(
+                            svc.apps.map(
+                              (a) => (name: a.name, packageName: a.packageName),
                             ),
-                          );
-                        },
+                          ),
+                          selectedPackageName: _selectedPackage,
+                          onSelected: (item) => _onSelectApp(item.packageName),
+                        ),
                       );
                     }),
                   ),
                   const SizedBox(height: 8),
                   Center(
                     child: SizedBox(
-                      width: MediaQuery.sizeOf(context).width*.8,height: 45,
+                      width: MediaQuery.sizeOf(context).width * .8,
+                      height: 45,
                       child: FilledButton(
                         onPressed: _isSaving ? null : _onSave,
                         style: FilledButton.styleFrom(
