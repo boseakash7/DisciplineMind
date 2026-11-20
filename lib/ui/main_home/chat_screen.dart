@@ -63,6 +63,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _awaitingFirstNewScroll = false;
   int _lastMessageCount = 0;
   final Set<String> _revealedUnreadMessageIds = <String>{};
+
+  /// One timer for a whole burst of unread messages, so the feed shows a
+  /// single typing indicator rather than one per message.
+  Timer? _unreadBurstTimer;
   bool _isLoadingOlder = false;
   bool _suppressAutoBottomScroll = false;
   bool _skipNextAutoBottomScroll = false;
@@ -715,6 +719,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _jumpToLatestTimer?.cancel();
     _scrollStabilizationTimer?.cancel();
     _firstNewMessageTimer?.cancel();
+    _unreadBurstTimer?.cancel();
     _disposeRecorder();
     _scrollController.removeListener(_onChatScroll);
     _textController.dispose();
@@ -927,6 +932,35 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _jumpToLatestTimer = Timer(const Duration(milliseconds: 280), () {
         if (mounted) _scheduleScrollToBottom();
       });
+    });
+  }
+
+  /// Starts the shared reveal timer for a burst of unread messages.
+  ///
+  /// Called from build, so it never calls setState synchronously. The ids are
+  /// recomputed when the timer fires rather than captured here, so messages
+  /// that arrive mid-window are revealed with the rest instead of being
+  /// stranded behind an already-running timer.
+  void _ensureUnreadBurstReveal(bool hasPending, ChatController controller) {
+    if (!hasPending) {
+      _unreadBurstTimer?.cancel();
+      _unreadBurstTimer = null;
+      return;
+    }
+    if (_unreadBurstTimer?.isActive ?? false) return;
+
+    _unreadBurstTimer = Timer(const Duration(milliseconds: 900), () {
+      if (!mounted) return;
+      final ids = <String>[];
+      for (final message in controller.displayMessages) {
+        final id = message.messageId.trim();
+        if (message.isUnread && !message.isFromUser && id.isNotEmpty) {
+          ids.add(id);
+        }
+      }
+      if (ids.isEmpty) return;
+      setState(() => _revealedUnreadMessageIds.addAll(ids));
+      _scheduleScrollAfterUnreadReveal(ids.last, controller);
     });
   }
 
@@ -1858,6 +1892,24 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 final firstNewMessageIndex = _latestUnreadBurstStartIndex(
                   displayMessages,
                 );
+
+                // Only the first still-hidden unread row draws the indicator;
+                // the rest render nothing until the burst reveals together.
+                var firstPendingUnreadId = '';
+                for (final message in displayMessages) {
+                  final id = message.messageId.trim();
+                  if (message.isUnread &&
+                      !message.isFromUser &&
+                      id.isNotEmpty &&
+                      !_revealedUnreadMessageIds.contains(id)) {
+                    firstPendingUnreadId = id;
+                    break;
+                  }
+                }
+                _ensureUnreadBurstReveal(
+                  firstPendingUnreadId.isNotEmpty,
+                  controller,
+                );
                 return Stack(
                   children: [
                     displayMessages.isEmpty
@@ -1949,21 +2001,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                                 } else {
                                   childWidget = KeyedSubtree(
                                     key: rowKey,
-                                    child: _UnreadRevealGate(
-                                      messageId: id,
-                                      onRevealed: (messageId) {
-                                        if (!mounted) return;
-                                        setState(() {
-                                          _revealedUnreadMessageIds.add(
-                                            messageId,
-                                          );
-                                        });
-                                        _scheduleScrollAfterUnreadReveal(
-                                          messageId,
-                                          controller,
-                                        );
-                                      },
-                                    ),
+                                    child: id == firstPendingUnreadId
+                                        ? const _UnreadRevealIndicator()
+                                        : const SizedBox.shrink(),
                                   );
                                 }
                               }
@@ -2028,96 +2068,100 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildNotificationPermissionBadge(BuildContext context, bool isDark) {
+    // Full-bleed strip: no side or top border, just a hairline separating it
+    // from the feed. A boxed card here reads as an error state rather than a
+    // dismissible nudge.
     final backgroundColor = isDark
-        ? const Color(0xFF3A3020)
-        : const Color(0xFFFFF8E1);
-    final borderColor = isDark
-        ? const Color(0xFF8B6B2D)
-        : const Color(0xFFE8C45A);
-    final warningColor = isDark
-        ? const Color(0xFFFFD166)
-        : const Color(0xFF9A6B00);
-    final titleColor = isDark ? Colors.white : const Color(0xFF4A3800);
-    final bodyColor = isDark ? Colors.white70 : const Color(0xFF6B5B2A);
+        ? const Color(0xFF2A2416)
+        : const Color(0xFFFFFBEB);
+    final accent = isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706);
+    final titleColor = isDark ? Colors.white : const Color(0xFF78350F);
+    final bodyColor = isDark ? Colors.white70 : const Color(0xFF92400E);
 
     return ValueListenableBuilder<bool>(
       valueListenable: NotificationHandler.notificationPermissionRequesting,
       builder: (context, requesting, _) {
-        return Padding(
-          // Leave a small horizontal inset so the badge border is visible.
-          padding: const EdgeInsets.fromLTRB(4, 0, 4, 2),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
-            decoration: BoxDecoration(
-              color: backgroundColor,
-              borderRadius: const BorderRadius.vertical(
-                bottom: Radius.circular(14),
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(16, 11, 12, 11),
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            border: Border(
+              bottom: BorderSide(
+                color: accent.withValues(alpha: isDark ? 0.28 : 0.22),
               ),
-              border: Border.all(color: borderColor),
             ),
-            child: Row(
-              children: [
-                Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: warningColor.withValues(alpha: 0.16),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.warning_amber_rounded,
-                    size: 19,
-                    color: warningColor,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Notifications are disabled',
-                        style: TextStyle(
-                          color: titleColor,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
-                        ),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.notifications_off_rounded, size: 19, color: accent),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Notifications are off',
+                      style: TextStyle(
+                        color: titleColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        height: 1.25,
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'You may experience issues in chat and miss important updates.',
-                        style: TextStyle(color: bodyColor, fontSize: 11.5),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      'You may miss trade alerts and updates.',
+                      style: TextStyle(
+                        color: bodyColor,
+                        fontSize: 11.5,
+                        height: 1.3,
                       ),
-                    ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              PressableScale(
+                enabled: !requesting,
+                child: Material(
+                  color: requesting ? accent.withValues(alpha: 0.4) : accent,
+                  borderRadius: BorderRadius.circular(8),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: requesting
+                        ? null
+                        : () => NotificationHandler.requestPermissions(
+                            openSettingsIfStillDenied: true,
+                          ),
+                    child: Container(
+                      height: 32,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      alignment: Alignment.center,
+                      child: requesting
+                          ? const SizedBox(
+                              width: 15,
+                              height: 15,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white,
+                                ),
+                              ),
+                            )
+                          : const Text(
+                              'Enable',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                TextButton(
-                  onPressed: requesting
-                      ? null
-                      : () => NotificationHandler.requestPermissions(
-                          openSettingsIfStillDenied: true,
-                        ),
-                  style: TextButton.styleFrom(
-                    foregroundColor: warningColor,
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    minimumSize: const Size(0, 34),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: requesting
-                      ? const SizedBox(
-                          width: 17,
-                          height: 17,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text(
-                          'Enable',
-                          style: TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         );
       },
@@ -2669,20 +2713,86 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   /// Unlocked-padlock banner above the watchlist instruction.
-  Widget _watchlistGuardBanner(bool isDark) {
+  /// "Trade Signal" label that sits directly above a trade card.
+  Widget _tradeSignalHeader(bool isDark) {
     final accent = isDark ? AppColors.primaryViolet : AppColors.primary;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.trending_up_rounded, size: 20, color: accent),
+        const SizedBox(width: 7),
+        Text(
+          'Trade Signal',
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+            color: accent,
+            letterSpacing: 0.1,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The alert text as a card with a rising-trend mark.
+  ///
+  /// Formatting is left entirely to the backend: [_buildRichMessageContent]
+  /// already renders <b>, <strong>, **bold**, <i>, <u> and <br>, so whatever
+  /// the server marks up is what gets emphasised. No word is bolded here by
+  /// pattern-matching the copy.
+  Widget _entryLevelHitCard(String rawText, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 18, 14),
+      decoration: BoxDecoration(
+        // Flat lavender panel, no border or shadow.
+        color: isDark
+            ? AppColors.primary.withValues(alpha: 0.16)
+            : const Color(0xFFF4F2FE),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        // Centre the mark against the whole text block; `start` left it
+        // pinned to the first line and reading as misaligned.
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const Icon(
+            Icons.trending_up_rounded,
+            size: 34,
+            color: AppColors.primaryBlue,
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: _buildRichMessageContent(
+              rawText.trim(),
+              isDark,
+              fontSize: 16,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Unlocked-padlock line. No background: it sits directly on the bubble.
+  Widget _watchlistGuardBanner(bool isDark) {
+    final foreground = isDark ? Colors.white : const Color(0xFF1E1B4B);
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Icon(Icons.lock_open_rounded, size: 20, color: accent),
-        const SizedBox(width: 8),
+        const Icon(
+          Icons.lock_open_rounded,
+          size: 19,
+          color: AppColors.primaryBlue,
+        ),
+        const SizedBox(width: 9),
         Expanded(
           child: Text(
             'Mind Control Guard is De-Activated.',
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 13.5,
               fontWeight: FontWeight.w700,
-              color: accent,
+              color: foreground,
             ),
           ),
         ),
@@ -4117,7 +4227,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
-  List<InlineSpan> _parseFormattedSpans(String text, Color textColor) {
+  List<InlineSpan> _parseFormattedSpans(
+    String text,
+    Color textColor, {
+    double fontSize = 14,
+  }) {
     final List<InlineSpan> spans = [];
     final tagRegex = RegExp(
       r'(?:<b\b[^>]*>(.*?)<\/b>|<strong>(.*?)<\/strong>|\*\*(.*?)\*\*|<i\b[^>]*>(.*?)<\/i>|<em>(.*?)<\/em>|\*(.*?)\*|<u\b[^>]*>(.*?)<\/u>|<[^>]+>)',
@@ -4134,7 +4248,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             TextSpan(
               text: plain,
               style: TextStyle(
-                fontSize: 14,
+                fontSize: fontSize,
                 color: textColor,
                 fontWeight: FontWeight.normal,
                 height: 1.4,
@@ -4153,7 +4267,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           TextSpan(
             text: bold.replaceAll(RegExp(r'<[^>]+>'), ''),
             style: TextStyle(
-              fontSize: 14,
+              fontSize: fontSize,
               color: textColor,
               fontWeight: FontWeight.w800,
               height: 1.4,
@@ -4165,7 +4279,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           TextSpan(
             text: italic.replaceAll(RegExp(r'<[^>]+>'), ''),
             style: TextStyle(
-              fontSize: 14,
+              fontSize: fontSize,
               color: textColor,
               fontStyle: FontStyle.italic,
               height: 1.4,
@@ -4177,7 +4291,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           TextSpan(
             text: underline.replaceAll(RegExp(r'<[^>]+>'), ''),
             style: TextStyle(
-              fontSize: 14,
+              fontSize: fontSize,
               color: textColor,
               decoration: TextDecoration.underline,
               height: 1.4,
@@ -4197,7 +4311,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           TextSpan(
             text: trailing,
             style: TextStyle(
-              fontSize: 14,
+              fontSize: fontSize,
               color: textColor,
               fontWeight: FontWeight.normal,
               height: 1.4,
@@ -4210,7 +4324,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return spans;
   }
 
-  Widget _buildRichMessageContent(String rawText, bool isDark) {
+  Widget _buildRichMessageContent(
+    String rawText,
+    bool isDark, {
+    double fontSize = 14,
+  }) {
     final primaryTextColor = isDark ? Colors.white : const Color(0xFF10122D);
     final normalized = rawText
         .replaceAll('&nbsp;', ' ')
@@ -4247,7 +4365,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 Text(
                   '•  ',
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: fontSize,
                     fontWeight: FontWeight.bold,
                     color: primaryTextColor,
                   ),
@@ -4258,6 +4376,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       children: _parseFormattedSpans(
                         bulletText,
                         primaryTextColor,
+                        fontSize: fontSize,
                       ),
                     ),
                   ),
@@ -4272,7 +4391,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             padding: const EdgeInsets.symmetric(vertical: 2),
             child: RichText(
               text: TextSpan(
-                children: _parseFormattedSpans(line, primaryTextColor),
+                children: _parseFormattedSpans(
+                  line,
+                  primaryTextColor,
+                  fontSize: fontSize,
+                ),
               ),
             ),
           ),
@@ -4786,13 +4909,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildRichMessageContent(
-            msg.apiMessage.isNotEmpty
-                ? msg.apiMessage
-                : 'New Trade Opportunity is spotted for you',
-            isDark,
-          ),
-          const SizedBox(height: 8),
           _buildTradeOpportunityCard(
             context,
             msg,
@@ -5029,25 +5145,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final inner = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (msg.analystInfo.trim().isNotEmpty) ...[
-          SizedBox(
-            width: double.infinity,
-            child: Text(
-              msg.analystInfo,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 11,
-                color: isDark ? Colors.white60 : Colors.grey.shade600,
-                height: 1.25,
-              ),
-            ),
-          ),
-          Divider(
-            height: 18,
-            color: isDark ? Colors.white12 : Colors.grey.shade300,
-            thickness: 1,
-          ),
-        ],
+        _tradeSignalHeader(isDark),
+        Divider(
+          height: 18,
+          color: isDark ? Colors.white12 : Colors.grey.shade300,
+          thickness: 1,
+        ),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -5087,6 +5190,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 ],
               ),
             ),
+            if (msg.directionLabel.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              _signalBadge(msg),
+            ],
           ],
         ),
         const SizedBox(height: 16),
@@ -5142,6 +5249,28 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               ],
             )
           : inner,
+    );
+  }
+
+  /// BUY / SELL pill shown at the top-right of a trade card.
+  Widget _signalBadge(NewTradeOpportunityMessage msg) {
+    final isSell = msg.isSellSignal;
+    final color = isSell ? const Color(0xFFDC2626) : const Color(0xFF16A34A);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Text(
+        msg.directionLabel,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 13,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.4,
+        ),
+      ),
     );
   }
 
@@ -6579,10 +6708,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Same banner the watchlist trade message uses.
-          _watchlistGuardBanner(isDark),
+          _entryLevelHitCard(msg.text, isDark),
           const SizedBox(height: 12),
-          _buildRichMessageContent(msg.text, isDark),
+          // Below the card for this message only; the watchlist trade message
+          // still leads with it.
+          _watchlistGuardBanner(isDark),
           const SizedBox(height: 14),
           _tradePromptPrimaryButton(
             label: hitPrice.isEmpty
@@ -7428,33 +7558,12 @@ Future<T?> showChatFadeDialog<T>({
   );
 }
 
-class _UnreadRevealGate extends StatefulWidget {
-  const _UnreadRevealGate({required this.messageId, required this.onRevealed});
-
-  final String messageId;
-  final ValueChanged<String> onRevealed;
-
-  @override
-  State<_UnreadRevealGate> createState() => _UnreadRevealGateState();
-}
-
-class _UnreadRevealGateState extends State<_UnreadRevealGate> {
-  Timer? _revealTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _revealTimer = Timer(const Duration(milliseconds: 900), () {
-      if (!mounted) return;
-      widget.onRevealed(widget.messageId);
-    });
-  }
-
-  @override
-  void dispose() {
-    _revealTimer?.cancel();
-    super.dispose();
-  }
+/// Typing indicator shown once while a burst of unread messages is pending.
+///
+/// Stateless on purpose: the reveal timer belongs to the screen, so a burst of
+/// any size shows exactly one of these.
+class _UnreadRevealIndicator extends StatelessWidget {
+  const _UnreadRevealIndicator();
 
   @override
   Widget build(BuildContext context) {
@@ -7652,21 +7761,36 @@ class _BlinkingCurrentPriceBadgeState extends State<_BlinkingCurrentPriceBadge>
     return FadeTransition(
       opacity: _controller,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: Colors.red.shade50,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.red.shade300),
+          color: const Color(0xFFFEF2F2),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFFECACA)),
         ),
-        child: Text(
-          widget.isFetching
-              ? 'Getting live price'
-              : 'Current Market Price: ${widget.price}',
-          style: TextStyle(
-            color: Colors.red.shade700,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-          ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Current Market Price',
+              style: TextStyle(
+                color: Colors.red.shade400,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
+                height: 1.2,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              widget.isFetching ? 'Getting live price' : widget.price,
+              style: TextStyle(
+                color: Colors.red.shade600,
+                fontSize: widget.isFetching ? 13 : 20,
+                fontWeight: FontWeight.w800,
+                height: 1.15,
+              ),
+            ),
+          ],
         ),
       ),
     );

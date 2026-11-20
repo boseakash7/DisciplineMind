@@ -167,6 +167,16 @@ class NewTradeOpportunityMessage extends ChatMessage {
   /// Epoch/ISO timestamp for [userLivePrice].
   final String userLivePriceFetchedAt;
 
+  /// Payload `direction`: `buy` or `sell`. Drives the signal badge.
+  final String direction;
+
+  /// True unless the payload explicitly says sell.
+  bool get isSellSignal => direction.trim().toLowerCase() == 'sell';
+
+  /// Short label for the signal badge, e.g. BUY / SELL.
+  String get directionLabel =>
+      direction.trim().isEmpty ? '' : direction.trim().toUpperCase();
+
   /// Outer API `is_watchlist_flow`.
   ///
   /// When true this trade shows the "add to watchlist" prompt instead of the
@@ -209,6 +219,7 @@ class NewTradeOpportunityMessage extends ChatMessage {
     this.formattedSymbol = '',
     this.userLivePrice = '',
     this.userLivePriceFetchedAt = '',
+    this.direction = '',
     this.isWatchlistFlow = false,
     this.watchlistButtonLabel = 'ADD TO WATCHLIST',
     super.messageId,
@@ -248,6 +259,7 @@ class NewTradeOpportunityMessage extends ChatMessage {
     String? formattedSymbol,
     String? userLivePrice,
     String? userLivePriceFetchedAt,
+    String? direction,
     bool? isWatchlistFlow,
     String? watchlistButtonLabel,
     String? messageId,
@@ -282,6 +294,7 @@ class NewTradeOpportunityMessage extends ChatMessage {
       userLivePrice: userLivePrice ?? this.userLivePrice,
       userLivePriceFetchedAt:
           userLivePriceFetchedAt ?? this.userLivePriceFetchedAt,
+      direction: direction ?? this.direction,
       isWatchlistFlow: isWatchlistFlow ?? this.isWatchlistFlow,
       watchlistButtonLabel: watchlistButtonLabel ?? this.watchlistButtonLabel,
       messageId: messageId ?? this.messageId,
@@ -960,6 +973,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
         formattedSymbol: formattedSymbol.trim(),
         userLivePrice: livePrice.price,
         userLivePriceFetchedAt: livePrice.fetchedAt,
+        direction: (tp['direction'] ?? '').toString(),
         messageId: messageId,
         isUnread: isUnread,
         actionTaken: actionTaken,
@@ -1039,6 +1053,7 @@ List<ChatMessage> chatMessagesFromJson(Map<String, dynamic> json) {
       formattedSymbol: formattedSymbol.trim(),
       userLivePrice: livePrice.price,
       userLivePriceFetchedAt: livePrice.fetchedAt,
+      direction: (p['direction'] ?? '').toString(),
       isWatchlistFlow: isWatchlistFlow,
       messageId: messageId,
       isUnread: isUnread,
