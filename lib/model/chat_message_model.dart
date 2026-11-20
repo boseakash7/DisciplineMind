@@ -217,41 +217,87 @@ class NewTradeOpportunityMessage extends ChatMessage {
     super.timestamp,
   }) : super(type: ChatMessageType.newTradeOpportunity);
 
+  /// Copies the message, changing only the named fields.
+  ///
+  /// Always prefer this over hand-building a new instance: every field is
+  /// listed once here, so adding a field cannot be silently forgotten by a
+  /// rebuild elsewhere. Dropping `isWatchlistFlow` this way is exactly how the
+  /// ADD TO WATCHLIST button used to vanish after a live-price refresh.
+  NewTradeOpportunityMessage copyWith({
+    String? analystInfo,
+    String? instrument,
+    String? contract,
+    String? stopLoss,
+    String? entryRange,
+    String? frr,
+    String? rtt,
+    String? frrRatio,
+    String? rttRatio,
+    List<int>? lotNumbers,
+    String? action,
+    String? exchange,
+    String? tradeId,
+    String? oldStopLoss,
+    String? oldTakeProfit,
+    bool? slChanged,
+    bool? tpChanged,
+    String? apiMessage,
+    String? buttonType,
+    String? tradeName,
+    String? tradeSymbol,
+    String? formattedSymbol,
+    String? userLivePrice,
+    String? userLivePriceFetchedAt,
+    bool? isWatchlistFlow,
+    String? watchlistButtonLabel,
+    String? messageId,
+    bool? isUnread,
+    Object? actionTaken,
+    bool clearActionTaken = false,
+    String? timestamp,
+  }) {
+    return NewTradeOpportunityMessage(
+      analystInfo: analystInfo ?? this.analystInfo,
+      instrument: instrument ?? this.instrument,
+      contract: contract ?? this.contract,
+      stopLoss: stopLoss ?? this.stopLoss,
+      entryRange: entryRange ?? this.entryRange,
+      frr: frr ?? this.frr,
+      rtt: rtt ?? this.rtt,
+      frrRatio: frrRatio ?? this.frrRatio,
+      rttRatio: rttRatio ?? this.rttRatio,
+      lotNumbers: lotNumbers ?? this.lotNumbers,
+      action: action ?? this.action,
+      exchange: exchange ?? this.exchange,
+      tradeId: tradeId ?? this.tradeId,
+      oldStopLoss: oldStopLoss ?? this.oldStopLoss,
+      oldTakeProfit: oldTakeProfit ?? this.oldTakeProfit,
+      slChanged: slChanged ?? this.slChanged,
+      tpChanged: tpChanged ?? this.tpChanged,
+      apiMessage: apiMessage ?? this.apiMessage,
+      buttonType: buttonType ?? this.buttonType,
+      tradeName: tradeName ?? this.tradeName,
+      tradeSymbol: tradeSymbol ?? this.tradeSymbol,
+      formattedSymbol: formattedSymbol ?? this.formattedSymbol,
+      userLivePrice: userLivePrice ?? this.userLivePrice,
+      userLivePriceFetchedAt:
+          userLivePriceFetchedAt ?? this.userLivePriceFetchedAt,
+      isWatchlistFlow: isWatchlistFlow ?? this.isWatchlistFlow,
+      watchlistButtonLabel: watchlistButtonLabel ?? this.watchlistButtonLabel,
+      messageId: messageId ?? this.messageId,
+      isUnread: isUnread ?? this.isUnread,
+      actionTaken: clearActionTaken ? null : (actionTaken ?? this.actionTaken),
+      timestamp: timestamp ?? this.timestamp,
+    );
+  }
+
   NewTradeOpportunityMessage withLivePrice({
     required String price,
     required String fetchedAt,
   }) {
-    return NewTradeOpportunityMessage(
-      analystInfo: analystInfo,
-      instrument: instrument,
-      contract: contract,
-      stopLoss: stopLoss,
-      entryRange: entryRange,
-      frr: frr,
-      rtt: rtt,
-      frrRatio: frrRatio,
-      rttRatio: rttRatio,
-      lotNumbers: lotNumbers,
-      action: action,
-      exchange: exchange,
-      tradeId: tradeId,
-      oldStopLoss: oldStopLoss,
-      oldTakeProfit: oldTakeProfit,
-      slChanged: slChanged,
-      tpChanged: tpChanged,
-      apiMessage: apiMessage,
-      buttonType: buttonType,
-      tradeName: tradeName,
-      tradeSymbol: tradeSymbol,
-      formattedSymbol: formattedSymbol,
-      userLivePrice: price,
-      userLivePriceFetchedAt: fetchedAt,
-      messageId: messageId,
-      isUnread: isUnread,
-      actionTaken: actionTaken,
-      timestamp: timestamp,
-    );
+    return copyWith(userLivePrice: price, userLivePriceFetchedAt: fetchedAt);
   }
+
 }
 
 /// Trade Executed - unlocks trading apps, button is display-only
@@ -451,6 +497,47 @@ class AlertHitWithButtonMessage extends ChatMessage {
     super.actionTaken,
     super.timestamp,
   }) : super(type: ChatMessageType.alertHitWithButton);
+
+  /// Copies the alert, changing only the named fields. See the note on
+  /// [NewTradeOpportunityMessage.copyWith].
+  AlertHitWithButtonMessage copyWith({
+    String? text,
+    String? buttonLabel,
+    String? buttonType,
+    String? tradeId,
+    bool? isGttHit,
+    bool? isSlHit,
+    bool? isTargetHit,
+    String? status,
+    String? targetHitPrice,
+    String? formattedSymbol,
+    NewTradeOpportunityMessage? tradeData,
+    bool? isWatchlistFlow,
+    String? messageId,
+    bool? isUnread,
+    Object? actionTaken,
+    bool clearActionTaken = false,
+    String? timestamp,
+  }) {
+    return AlertHitWithButtonMessage(
+      text: text ?? this.text,
+      buttonLabel: buttonLabel ?? this.buttonLabel,
+      buttonType: buttonType ?? this.buttonType,
+      tradeId: tradeId ?? this.tradeId,
+      isGttHit: isGttHit ?? this.isGttHit,
+      isSlHit: isSlHit ?? this.isSlHit,
+      isTargetHit: isTargetHit ?? this.isTargetHit,
+      status: status ?? this.status,
+      targetHitPrice: targetHitPrice ?? this.targetHitPrice,
+      formattedSymbol: formattedSymbol ?? this.formattedSymbol,
+      tradeData: tradeData ?? this.tradeData,
+      isWatchlistFlow: isWatchlistFlow ?? this.isWatchlistFlow,
+      messageId: messageId ?? this.messageId,
+      isUnread: isUnread ?? this.isUnread,
+      actionTaken: clearActionTaken ? null : (actionTaken ?? this.actionTaken),
+      timestamp: timestamp ?? this.timestamp,
+    );
+  }
 }
 
 String _targetHitPriceFromPayload(

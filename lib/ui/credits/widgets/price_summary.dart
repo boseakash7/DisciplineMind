@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:discipline_mind/ui/widgets/app_motion.dart';
 
 import '../../../common/credits_colors.dart';
 import '../../../controller/credits_controller.dart';
@@ -92,7 +93,7 @@ Future<CreditCoupon?> showSelectCouponBottomSheet({
   required BuildContext context,
   required CreditsController controller,
 }) {
-  return showModalBottomSheet<CreditCoupon>(
+  return showAppModalSheet<CreditCoupon>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,

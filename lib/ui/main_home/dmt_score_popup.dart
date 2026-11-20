@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:discipline_mind/ui/widgets/app_motion.dart';
 import 'package:discipline_mind/common/app_colors.dart';
 
 class _DmtColors {
   static Color dialogBg(bool isDark) =>
       isDark ? const Color(0xFF1E222A) : Colors.white;
 
-  static Color textPrimary(bool isDark) => isDark ? Colors.white : Colors.black87;
+  static Color textPrimary(bool isDark) =>
+      isDark ? Colors.white : Colors.black87;
 
   static Color textSecondary(bool isDark) =>
       isDark ? Colors.white70 : Colors.grey.shade700;
@@ -40,7 +42,7 @@ Future<void> showDmtScorePopup(
   required int dmtMaxScore,
   bool animateReveal = false,
 }) {
-  return showDialog<void>(
+  return showAppDialog<void>(
     context: context,
     barrierDismissible: false,
     builder: (ctx) => _DmtScorePopup(
@@ -93,7 +95,10 @@ class _DmtScorePopupState extends State<_DmtScorePopup>
       vsync: this,
       duration: Duration(milliseconds: widget.animateReveal ? 1200 : 1),
     );
-    _animation = CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
+    _animation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+    );
     _controller.forward();
   }
 
@@ -148,8 +153,9 @@ class _DmtScorePopupState extends State<_DmtScorePopup>
       ),
     ];
 
-    final approxCategoryMax =
-        widget.dmtMaxScore > 0 ? widget.dmtMaxScore / categories.length : 1.0;
+    final approxCategoryMax = widget.dmtMaxScore > 0
+        ? widget.dmtMaxScore / categories.length
+        : 1.0;
 
     return Dialog(
       backgroundColor: _DmtColors.dialogBg(isDark),
@@ -160,7 +166,8 @@ class _DmtScorePopupState extends State<_DmtScorePopup>
           animation: _animation,
           builder: (context, child) {
             final animatedPercent = _percent * _animation.value;
-            final animatedTotal = (widget.dmtTotalScore * _animation.value).round();
+            final animatedTotal = (widget.dmtTotalScore * _animation.value)
+                .round();
             return Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -194,7 +201,9 @@ class _DmtScorePopupState extends State<_DmtScorePopup>
                           value: animatedPercent.clamp(0, 1),
                           strokeWidth: 10,
                           backgroundColor: _DmtColors.trackBg(isDark),
-                          valueColor: AlwaysStoppedAnimation<Color>(_verdictColor()),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            _verdictColor(),
+                          ),
                         ),
                       ),
                       Column(
@@ -222,7 +231,10 @@ class _DmtScorePopupState extends State<_DmtScorePopup>
                 ),
                 const SizedBox(height: 16),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: _verdictColor().withOpacity(isDark ? 0.22 : 0.12),
                     borderRadius: BorderRadius.circular(20),
@@ -277,7 +289,9 @@ class _DmtScorePopupState extends State<_DmtScorePopup>
                             value: animatedRatio,
                             minHeight: 6,
                             backgroundColor: _DmtColors.trackBg(isDark),
-                            valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              AppColors.primary,
+                            ),
                           ),
                         ),
                       ],
@@ -292,11 +306,16 @@ class _DmtScorePopupState extends State<_DmtScorePopup>
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
                     child: const Text(
                       'OK',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ),

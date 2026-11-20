@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:discipline_mind/ui/widgets/app_motion.dart';
 import 'dart:io';
 
 import 'package:discipline_mind/common/ThemeService.dart';
@@ -79,9 +80,11 @@ class MoreScreen extends StatelessWidget {
     final currentValue = savedBroker == 'zerodha_kite' || savedBroker == 'kite'
         ? 'zerodha'
         : savedBroker;
-    final selectedValue = await showModalBottomSheet<String>(
+    final selectedValue = await showAppModalSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
+      // 20 brokers in a grid need more than the default half-screen cap.
+      isScrollControlled: true,
       builder: (sheetContext) {
         final isDark = Theme.of(sheetContext).brightness == Brightness.dark;
         final surface = isDark ? AppColors.darkSurface : Colors.white;

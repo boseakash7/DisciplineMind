@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:discipline_mind/ui/widgets/app_motion.dart';
 
 import '../../../common/credits_colors.dart';
 import '../../../controller/credits_controller.dart';
@@ -13,7 +14,7 @@ Future<void> showCreditsInfoDialog({
   required int weeklyBelieveModeCredits,
   VoidCallback? onBuyCredits,
 }) {
-  return showDialog<void>(
+  return showAppDialog<void>(
     context: context,
     barrierColor: Colors.black.withValues(alpha: 0.45),
     builder: (ctx) => _CreditsInfoDialog(

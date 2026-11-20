@@ -1,4 +1,5 @@
 // import 'package:discipline_mind/ui/onboarding/trading_profile_flow.dart'
+import 'package:discipline_mind/ui/widgets/app_motion.dart';
 //     show MctVideoPlayerPage;
 // import 'package:flutter/material.dart';
 // import 'package:get_storage/get_storage.dart';
@@ -1486,7 +1487,7 @@ class _MctProtocolsScreenState extends State<MctLessonsScreen> {
     required Color badgeBgColor,
     required bool isDark,
   }) {
-    showDialog(
+    showAppDialog<void>(
       context: context,
       barrierDismissible: true,
       builder: (BuildContext context) {

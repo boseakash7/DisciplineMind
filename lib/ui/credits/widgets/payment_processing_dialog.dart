@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:discipline_mind/ui/widgets/app_motion.dart';
 
 import '../../../common/credits_colors.dart';
 import '../../../controller/credits_controller.dart';
@@ -12,7 +13,7 @@ Future<void> showPaymentProcessingDialog({
   required BuildContext context,
   required PurchaseResult result,
 }) {
-  return showDialog<void>(
+  return showAppDialog<void>(
     context: context,
     barrierDismissible: false,
     barrierColor: Colors.black.withValues(alpha: 0.45),
@@ -184,10 +185,16 @@ class _ProcessingBadge extends StatefulWidget {
 
 class _ProcessingBadgeState extends State<_ProcessingBadge>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1800),
-  )..repeat();
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat();
+  }
 
   @override
   void dispose() {

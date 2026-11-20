@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:discipline_mind/ui/widgets/app_motion.dart';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -2816,7 +2817,7 @@ class _TradingProcessScreenState extends State<TradingProcessScreen>
   }
 
   void _showUnsupportedBrokerDialog(BuildContext context) {
-    showDialog(
+    showAppDialog<void>(
       context: context,
       builder: (context) {
         return Dialog(

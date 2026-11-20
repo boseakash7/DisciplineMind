@@ -12,6 +12,7 @@ import 'package:discipline_mind/services/notification/notification_handler.dart'
 import 'package:discipline_mind/ui/main_home/trade_process.dart';
 import 'package:discipline_mind/ui/main_home/dmt_score_screen.dart';
 import 'package:discipline_mind/ui/widgets/ai_waiting_status_bubble.dart';
+import 'package:discipline_mind/ui/widgets/app_motion.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
 import 'package:discipline_mind/ui/widgets/audio_wave_visualizer.dart';
 import 'package:flutter/material.dart';
@@ -52,7 +53,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   final _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  final GlobalKey _firstNewMessageKey = GlobalKey();
+
+  /// True only while a scroll-to-first-unread is pending.
+  ///
+  /// The target row scrolls itself into view via [_ScrollIntoViewOnce]. A
+  /// GlobalKey must not be used here: this list is lazy and reorderable, so
+  /// the key would briefly belong to two elements and trip
+  /// "Duplicate GlobalKey" / "_elements.contains(element)" assertions.
+  bool _awaitingFirstNewScroll = false;
   int _lastMessageCount = 0;
   final Set<String> _revealedUnreadMessageIds = <String>{};
   bool _isLoadingOlder = false;
@@ -83,6 +91,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       'I have enabled ADD TO WATCHLIST button.\n\n'
       'Follow the suggested steps to experience the real Power of Mind '
       'Control Trading.';
+
+  /// Buttons with an action in flight. Keyed per button so two rows in the
+  /// feed never share a spinner.
+  final Set<String> _busyButtonKeys = <String>{};
 
   /// Watchlist-flow trades whose confirmation panel is currently open.
   /// Collapsing is local-only: NO just returns to the single button.
@@ -889,34 +901,40 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   /// Bring the first newly received message to the top of the viewport.
-  /// The latest-message arrow still uses [_scheduleScrollToBottom].
+  ///
+  /// The row itself performs the scroll once it builds; see
+  /// [_ScrollIntoViewOnce]. If it never builds - it can be outside the
+  /// list's cacheExtent - the fallback below scrolls to the bottom, which is
+  /// where new messages arrive anyway.
   void _scheduleScrollToFirstNewMessage({int attempt = 0}) {
-    const maxAttempts = 18;
+    if (_awaitingFirstNewScroll) return;
+
+    // Called from inside build on one path, so never setState synchronously.
+    _awaitingFirstNewScroll = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients) return;
-
-      final targetContext = _firstNewMessageKey.currentContext;
-      if (targetContext != null) {
-        Scrollable.ensureVisible(
-          targetContext,
-          alignment: 0.0,
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOut,
-        );
-        return;
-      }
-
-      if (attempt >= maxAttempts) return;
-      _firstNewMessageTimer?.cancel();
-      _firstNewMessageTimer = Timer(
-        Duration(milliseconds: 40 + attempt * 25),
-        () {
-          if (mounted) {
-            _scheduleScrollToFirstNewMessage(attempt: attempt + 1);
-          }
-        },
-      );
+      if (mounted) setState(() {});
     });
+
+    _firstNewMessageTimer?.cancel();
+    _firstNewMessageTimer = Timer(const Duration(milliseconds: 700), () {
+      if (!mounted || !_awaitingFirstNewScroll) return;
+      _releaseFirstNewScroll();
+      // Animate first, then let the stabilisation loop correct for any late
+      // layout. Jumping straight to the bottom here reads as a glitch, since
+      // this path only runs after the user has already been waiting.
+      _scrollToBottom(animated: true);
+      _jumpToLatestTimer?.cancel();
+      _jumpToLatestTimer = Timer(const Duration(milliseconds: 280), () {
+        if (mounted) _scheduleScrollToBottom();
+      });
+    });
+  }
+
+  /// Clears the pending flag once the target row has scrolled itself in.
+  void _releaseFirstNewScroll() {
+    _firstNewMessageTimer?.cancel();
+    if (!mounted || !_awaitingFirstNewScroll) return;
+    setState(() => _awaitingFirstNewScroll = false);
   }
 
   void _scheduleScrollAfterUnreadReveal(
@@ -1950,8 +1968,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                                 }
                               }
                               if (isFirstNewMessage) {
-                                childWidget = KeyedSubtree(
-                                  key: _firstNewMessageKey,
+                                childWidget = _ScrollIntoViewOnce(
+                                  enabled: _awaitingFirstNewScroll,
+                                  onDone: _releaseFirstNewScroll,
                                   child: childWidget,
                                 );
                               }
@@ -2106,7 +2125,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   void _showMindControlInfoBottomSheet(BuildContext context, bool isDark) {
-    showModalBottomSheet(
+    showAppModalSheet<void>(
       context: context,
       backgroundColor: _dialogBg(isDark),
       shape: const RoundedRectangleBorder(
@@ -2568,14 +2587,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           const SizedBox(height: 16),
           _watchlistGuardBanner(isDark),
           const SizedBox(height: 12),
-          Text(
-            _declinedWatchlistKeys.contains(key)
-                ? _watchlistDeclinedPrompt
-                : _watchlistPrompt,
-            style: TextStyle(
-              fontSize: 14,
-              height: 1.4,
-              color: _headlineText(isDark),
+          // The copy swaps after NO, so cross-fade and resize rather than
+          // letting the paragraph jump.
+          AppSwitcher(
+            alignment: Alignment.topLeft,
+            child: Text(
+              _declinedWatchlistKeys.contains(key)
+                  ? _watchlistDeclinedPrompt
+                  : _watchlistPrompt,
+              key: ValueKey(_declinedWatchlistKeys.contains(key)),
+              style: TextStyle(
+                fontSize: 14,
+                height: 1.4,
+                color: _headlineText(isDark),
+              ),
             ),
           ),
           const SizedBox(height: 14),
@@ -2587,47 +2612,57 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           // The label tracks action_taken only. An expired-but-unanswered
           // trade is also disabled, and must not claim it was added.
           _tradePromptPrimaryButton(
-            label: isAdded
-                ? _watchlistAddedLabel
-                : msg.watchlistButtonLabel,
+            label: isAdded ? _watchlistAddedLabel : msg.watchlistButtonLabel,
             icon: isAdded
                 ? Icons.check_circle_outline_rounded
                 : Icons.open_in_new_rounded,
             isCompleted: isAdded,
             enabled: !isDone && !askingConfirmation,
+            busyKey: 'watchlist-open-$key',
             onTap: () => _openWatchlistApp(msg, controller),
           ),
 
-          if (askingConfirmation) ...[
-            const SizedBox(height: 18),
-            Text(
-              'Have you added this Trade to your Watchlist ?',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                height: 1.4,
-                color: _headlineText(isDark),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _watchlistChoiceButton(
-                    label: 'YES',
-                    onTap: () => _confirmWatchlistAdded(msg, controller),
+          // Expands and collapses instead of appearing in one frame.
+          AppSwitcher(
+            child: !askingConfirmation
+                ? const SizedBox(width: double.infinity)
+                : Column(
+                    key: const ValueKey('watchlist-confirm'),
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SizedBox(height: 18),
+                      Text(
+                        'Have you added this Trade to your Watchlist ?',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          height: 1.4,
+                          color: _headlineText(isDark),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _watchlistChoiceButton(
+                              label: 'YES',
+                              busyKey: 'watchlist-yes-$key',
+                              onTap: () =>
+                                  _confirmWatchlistAdded(msg, controller),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _watchlistChoiceButton(
+                              label: 'NO',
+                              onTap: () => _declineWatchlistAdd(msg),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _watchlistChoiceButton(
-                    label: 'NO',
-                    onTap: () => _declineWatchlistAdd(msg),
-                  ),
-                ),
-              ],
-            ),
-          ],
+          ),
         ],
       ),
     );
@@ -2663,6 +2698,28 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     setState(() => _expandedWatchlistKeys.add(_watchlistKey(msg)));
     _markTradingAppOpened(msg);
     await _openTradingApp(msg, controller);
+  }
+
+  /// Runs a button's action with immediate visual feedback.
+  ///
+  /// The button disables and shows a spinner for the whole round trip, and
+  /// repeat taps while it is in flight are dropped. Without this the button
+  /// looks untouched until the API answers.
+  Future<void> _runButtonAction(
+    String key,
+    FutureOr<void> Function() action,
+  ) async {
+    if (key.isEmpty) {
+      await action();
+      return;
+    }
+    if (_busyButtonKeys.contains(key)) return;
+    setState(() => _busyButtonKeys.add(key));
+    try {
+      await action();
+    } finally {
+      if (mounted) setState(() => _busyButtonKeys.remove(key));
+    }
   }
 
   /// Stable identity for a watchlist row, so the panel stays open across the
@@ -2705,35 +2762,51 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Widget _watchlistChoiceButton({
     required String label,
-    required VoidCallback onTap,
+    required FutureOr<void> Function() onTap,
+    String busyKey = '',
   }) {
     final isDark = _isDark(context);
     const primaryColor = Color(0xFF2B4BF2);
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
+    final isBusy = busyKey.isNotEmpty && _busyButtonKeys.contains(busyKey);
+    return PressableScale(
+      enabled: !isBusy,
+      child: Material(
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(8),
-        onTap: () {
-          if (_enforceMindControlOnClick()) return;
-          onTap();
-        },
-        child: Container(
-          height: 44,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1E222A) : Colors.white,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: primaryColor, width: 1.8),
-          ),
-          child: Text(
-            label,
-            style: const TextStyle(
-              color: primaryColor,
-              fontWeight: FontWeight.w800,
-              fontSize: 14,
-              letterSpacing: 0.6,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: isBusy
+              ? null
+              : () {
+                  if (_enforceMindControlOnClick()) return;
+                  _runButtonAction(busyKey, onTap);
+                },
+          child: Container(
+            height: 44,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E222A) : Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: primaryColor, width: 1.8),
             ),
+            child: isBusy
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                    ),
+                  )
+                : Text(
+                    label,
+                    style: const TextStyle(
+                      color: primaryColor,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                      letterSpacing: 0.6,
+                    ),
+                  ),
           ),
         ),
       ),
@@ -5445,12 +5518,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Widget _tradePromptPrimaryButton({
     required String label,
     IconData? icon,
-    VoidCallback? onTap,
+    FutureOr<void> Function()? onTap,
     bool enabled = true,
     bool interactive = true,
     bool isCompleted = false,
+
+    /// Pass a per-message key to get a spinner and double-tap protection
+    /// while [onTap] is awaiting. Omit it to keep the old behaviour.
+    String? busyKey,
   }) {
     final isDark = _isDark(context);
+    final isBusy = busyKey != null && _busyButtonKeys.contains(busyKey);
     const primaryColor = Color(0xFF2B4BF2);
     final isEffectivelyActive = enabled && !isCompleted;
     final borderColor = isEffectivelyActive
@@ -5499,7 +5577,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         mainAxisAlignment: MainAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(effectiveIcon, size: 19, color: iconColor),
+          if (isBusy)
+            SizedBox(
+              width: 17,
+              height: 17,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(iconColor),
+              ),
+            )
+          else
+            Icon(effectiveIcon, size: 19, color: iconColor),
           const SizedBox(width: 8),
           Text(
             label,
@@ -5515,22 +5603,29 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ),
     );
 
-    final canTap = interactive && isEffectivelyActive && onTap != null;
+    final canTap =
+        interactive && isEffectivelyActive && onTap != null && !isBusy;
     return SizedBox(
       width: double.infinity,
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
-        child: canTap
-            ? InkWell(
-                onTap: () {
-                  if (_enforceMindControlOnClick()) return;
-                  onTap?.call();
-                },
-                borderRadius: BorderRadius.circular(8),
-                child: child,
-              )
-            : child,
+      // Listener-based, so the InkWell below keeps its ripple and its tap.
+      child: PressableScale(
+        enabled: canTap,
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          child: canTap
+              ? InkWell(
+                  onTap: () {
+                    if (_enforceMindControlOnClick()) return;
+                    final action = onTap;
+                    if (action == null) return;
+                    _runButtonAction(busyKey ?? '', action);
+                  },
+                  borderRadius: BorderRadius.circular(8),
+                  child: child,
+                )
+              : child,
+        ),
       ),
     );
   }
@@ -6389,6 +6484,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             enabled:
                 _showButtons(msg) &&
                 (!msg.isGttHit || _hasOpenedTradingApp(msg)),
+            busyKey: 'alert-confirm-${msg.messageId}-${msg.tradeId}',
+            // Returns the future for branches that hit the network, so the
+            // button can show a spinner for the whole round trip. The branches
+            // that only open a dialog return nothing on purpose: there is no
+            // request in flight yet, so a spinner would be a lie.
             onTap: () {
               final setupType =
                   ApiConfig.activeSetupType ??
@@ -6401,19 +6501,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 // payload price, with no "at what price" popup. Every
                 // non-watchlist alert still asks.
                 if (msg.isWatchlistFlow) {
-                  _acknowledgeHitWithoutPopup(msg, controller);
-                } else {
-                  _showTargetHitConfirmDialog(context, msg, controller);
+                  return _acknowledgeHitWithoutPopup(msg, controller);
                 }
+                _showTargetHitConfirmDialog(context, msg, controller);
+                return null;
               } else if (msg.isGttHit) {
                 if (isZenoAi && msg.tradeData != null) {
                   _showTradeParamsPopup(context, msg.tradeData!, controller);
                 } else {
                   _showTargetHitConfirmDialog(context, msg, controller);
                 }
-              } else {
-                controller.onTradeExecuted();
+                return null;
               }
+              return controller.onTradeExecuted();
             },
           ),
           if (msg.isGttHit &&
@@ -6426,6 +6526,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             _tradePromptPrimaryButton(
               label: 'GTT Missed',
               enabled: _showButtons(msg) && _hasOpenedTradingApp(msg),
+              busyKey: 'gtt-missed-${msg.messageId}-${msg.tradeId}',
               onTap: () => controller.acknowledgeGttMissed(msg),
             ),
           ],
@@ -6494,6 +6595,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             // No "Open Trading APP" step here, so the button must not wait on
             // one the way the standard GTT-hit button does.
             enabled: !isDone,
+            busyKey: 'entry-hit-${msg.messageId}-${msg.tradeId}',
             onTap: () => _submitWatchlistEntryHit(context, msg, controller),
           ),
         ],
@@ -7310,30 +7412,19 @@ class _TargetHitConfirmDialogState extends State<_TargetHitConfirmDialog> {
 }
 
 /// Fade-in open animation for chat dialogs (GTT, trail SL, trade details).
+/// Every chat dialog goes through here, so they all share one motion.
+///
+/// Kept as a named helper rather than inlining [showAppDialog] at each call
+/// site: there are a dozen of them and they must not drift apart.
 Future<T?> showChatFadeDialog<T>({
   required BuildContext context,
   required WidgetBuilder builder,
   bool barrierDismissible = true,
 }) {
-  return showGeneralDialog<T>(
+  return showAppDialog<T>(
     context: context,
+    builder: builder,
     barrierDismissible: barrierDismissible,
-    barrierLabel: 'Dismiss',
-    barrierColor: Colors.black54,
-    transitionDuration: const Duration(milliseconds: 260),
-    pageBuilder: (dialogContext, animation, secondaryAnimation) {
-      return builder(dialogContext);
-    },
-    transitionBuilder: (context, animation, secondaryAnimation, child) {
-      return FadeTransition(
-        opacity: CurvedAnimation(
-          parent: animation,
-          curve: Curves.easeOut,
-          reverseCurve: Curves.easeIn,
-        ),
-        child: child,
-      );
-    },
   );
 }
 
@@ -7599,4 +7690,65 @@ class _ChatFeedMessage extends _ChatFeedItem {
   const _ChatFeedMessage({required this.index, required this.message});
   final int index;
   final ChatMessage message;
+}
+
+/// Scrolls itself into view once, on the first frame after it mounts.
+///
+/// Used instead of a GlobalKey + `Scrollable.ensureVisible` so nothing holds a
+/// reference to a row that the ListView may recycle. The context used here is
+/// this widget's own, so it is guaranteed to be mounted at the moment of the
+/// call.
+class _ScrollIntoViewOnce extends StatefulWidget {
+  const _ScrollIntoViewOnce({
+    required this.enabled,
+    required this.onDone,
+    required this.child,
+  });
+
+  /// Only scrolls while true. The wrapper stays mounted either way so that
+  /// clearing the flag does not change the tree shape under this row.
+  final bool enabled;
+  final VoidCallback onDone;
+  final Widget child;
+
+  @override
+  State<_ScrollIntoViewOnce> createState() => _ScrollIntoViewOnceState();
+}
+
+class _ScrollIntoViewOnceState extends State<_ScrollIntoViewOnce> {
+  bool _done = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.enabled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollIntoView());
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _ScrollIntoViewOnce oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.enabled && !oldWidget.enabled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollIntoView());
+    }
+  }
+
+  void _scrollIntoView() {
+    if (_done || !mounted || !widget.enabled) return;
+    _done = true;
+    final scrollable = Scrollable.maybeOf(context);
+    if (scrollable != null) {
+      Scrollable.ensureVisible(
+        context,
+        alignment: 0.0,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    }
+    widget.onDone();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

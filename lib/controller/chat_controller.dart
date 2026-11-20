@@ -711,35 +711,11 @@ class ChatController extends GetxController {
           timestamp: x.timestamp,
         );
       case ChatMessageType.newTradeOpportunity:
-        final x = m as NewTradeOpportunityMessage;
-        return NewTradeOpportunityMessage(
-          analystInfo: x.analystInfo,
-          instrument: x.instrument,
-          contract: x.contract,
-          stopLoss: x.stopLoss,
-          entryRange: x.entryRange,
-          frr: x.frr,
-          rtt: x.rtt,
-          frrRatio: x.frrRatio,
-          rttRatio: x.rttRatio,
-          lotNumbers: x.lotNumbers,
-          action: x.action,
-          exchange: x.exchange,
-          tradeId: x.tradeId,
-          oldStopLoss: x.oldStopLoss,
-          apiMessage: x.apiMessage,
-          buttonType: x.buttonType,
-          tradeName: x.tradeName,
-          tradeSymbol: x.tradeSymbol,
-          formattedSymbol: x.formattedSymbol,
-          userLivePrice: x.userLivePrice,
-          userLivePriceFetchedAt: x.userLivePriceFetchedAt,
-          isWatchlistFlow: x.isWatchlistFlow,
-          watchlistButtonLabel: x.watchlistButtonLabel,
-          messageId: x.messageId,
-          isUnread: x.isUnread,
+        // copyWith rather than a hand-built copy: the previous version
+        // silently dropped oldTakeProfit, slChanged and tpChanged.
+        return (m as NewTradeOpportunityMessage).copyWith(
           actionTaken: actionTaken,
-          timestamp: x.timestamp,
+          clearActionTaken: actionTaken == null,
         );
       case ChatMessageType.tradeExecutionPrompt:
         final x = m as TradeExecutionPromptMessage;
@@ -762,24 +738,9 @@ class ChatController extends GetxController {
           timestamp: x.timestamp,
         );
       case ChatMessageType.alertHitWithButton:
-        final x = m as AlertHitWithButtonMessage;
-        return AlertHitWithButtonMessage(
-          text: x.text,
-          buttonLabel: x.buttonLabel,
-          buttonType: x.buttonType,
-          tradeId: x.tradeId,
-          isGttHit: x.isGttHit,
-          isSlHit: x.isSlHit,
-          isTargetHit: x.isTargetHit,
-          status: x.status,
-          targetHitPrice: x.targetHitPrice,
-          formattedSymbol: x.formattedSymbol,
-          tradeData: x.tradeData,
-          isWatchlistFlow: x.isWatchlistFlow,
-          messageId: x.messageId,
-          isUnread: x.isUnread,
+        return (m as AlertHitWithButtonMessage).copyWith(
           actionTaken: actionTaken,
-          timestamp: x.timestamp,
+          clearActionTaken: actionTaken == null,
         );
       case ChatMessageType.mctPlan:
         final x = m as MctPlanMessage;
@@ -1866,24 +1827,13 @@ class ChatController extends GetxController {
           message.tradeData != null &&
           (message.tradeData!.tradeId == tradeId ||
               (messageId.isNotEmpty && message.messageId == messageId))) {
-        messages[i] = AlertHitWithButtonMessage(
-          text: message.text,
-          buttonLabel: message.buttonLabel,
-          buttonType: message.buttonType,
-          tradeId: message.tradeId,
-          isGttHit: message.isGttHit,
-          isSlHit: message.isSlHit,
-          isTargetHit: message.isTargetHit,
-          status: message.status,
-          targetHitPrice: message.targetHitPrice,
+        // copyWith, so fields like formattedSymbol and isWatchlistFlow are
+        // not dropped every time a live price arrives.
+        messages[i] = message.copyWith(
           tradeData: message.tradeData!.withLivePrice(
             price: price,
             fetchedAt: fetchedAt,
           ),
-          messageId: message.messageId,
-          isUnread: message.isUnread,
-          actionTaken: message.actionTaken,
-          timestamp: message.timestamp,
         );
       }
     }

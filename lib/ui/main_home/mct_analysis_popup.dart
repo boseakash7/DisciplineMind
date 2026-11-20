@@ -1,4 +1,5 @@
 import 'package:discipline_mind/common/app_colors.dart';
+import 'package:discipline_mind/ui/widgets/app_motion.dart';
 import 'package:discipline_mind/model/mct_plan_notification_model.dart';
 import 'package:flutter/material.dart';
 
@@ -6,7 +7,7 @@ Future<void> showMctAnalysisPopup(
   BuildContext context, {
   required MctPlanNotification notification,
 }) {
-  return showDialog<void>(
+  return showAppDialog<void>(
     context: context,
     barrierDismissible: true,
     builder: (dialogContext) {

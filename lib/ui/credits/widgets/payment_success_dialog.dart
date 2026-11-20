@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:discipline_mind/ui/widgets/app_motion.dart';
 
 import 'package:flutter/material.dart';
 
@@ -8,7 +9,7 @@ Future<void> showPaymentSuccessDialog({
   required BuildContext context,
   required PurchaseResult result,
 }) {
-  return showDialog(
+  return showAppDialog<void>(
     context: context,
     barrierDismissible: false,
     barrierColor: const Color(0xCC2A2A2A),

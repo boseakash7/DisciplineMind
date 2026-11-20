@@ -22,10 +22,18 @@ class CreditsShimmer extends StatefulWidget {
 
 class _CreditsShimmerState extends State<CreditsShimmer>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1400),
-  )..repeat();
+  // Eager: build returns early when disabled, so a lazy field would first be
+  // read inside dispose().
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat();
+  }
 
   @override
   void dispose() {

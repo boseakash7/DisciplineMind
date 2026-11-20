@@ -1,4 +1,5 @@
 import 'package:discipline_mind/common/app_colors.dart';
+import 'package:discipline_mind/ui/widgets/app_motion.dart';
 import 'package:discipline_mind/controller/trading_process_controller.dart';
 import 'package:discipline_mind/model/trading_process_model.dart';
 import 'package:discipline_mind/ui/widgets/app_toast.dart';
@@ -584,7 +585,7 @@ class _ProcessDetailScreenState extends State<ProcessDetailScreen> {
   }
 
   void _openEditProcessSheet(BuildContext context, TradingProcessData process) {
-    showModalBottomSheet(
+    showAppModalSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,

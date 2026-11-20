@@ -1,4 +1,5 @@
 import 'package:discipline_mind/common/ThemeService.dart';
+import 'package:discipline_mind/ui/widgets/app_motion.dart';
 import 'package:discipline_mind/common/app_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -556,7 +557,7 @@ class _MctProtocolsScreenState extends State<MctProtocolsScreen> {
     required Color badgeBgColor,
     required bool isDark,
   }) {
-    showDialog(
+    showAppDialog<void>(
       context: context,
       barrierDismissible: true,
       builder: (BuildContext context) {

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:discipline_mind/ui/widgets/app_motion.dart';
 import 'package:flutter/services.dart';
 
 import '../../common/app_colors.dart';
@@ -10,7 +11,7 @@ class CustomTextField extends StatelessWidget {
   final bool isPassword;
   Widget? prefixIcon;
   Widget? prefix;
-  BorderSide ?borderSide;
+  BorderSide? borderSide;
   final TextEditingController? controller;
   final String? Function(String?)? validator;
   final TextInputType keyboardType;
@@ -54,18 +55,20 @@ class CustomTextField extends StatelessWidget {
         prefixIcon: prefixIcon,
         prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
         filled: true,
-        fillColor: isDark ? const Color(0xFF3C3C3A) : AppColors.backgroundGray, // Darker gray like screenshot
+        fillColor: isDark
+            ? const Color(0xFF3C3C3A)
+            : AppColors.backgroundGray, // Darker gray like screenshot
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12), // Slightly more rounded
-          borderSide:borderSide?? BorderSide.none, // Clean look like image
+          borderSide: borderSide ?? BorderSide.none, // Clean look like image
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide:borderSide?? BorderSide.none,
+          borderSide: borderSide ?? BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: borderSide?? BorderSide(color: Colors.blue, width: 1.5),
+          borderSide: borderSide ?? BorderSide(color: Colors.blue, width: 1.5),
         ),
         errorStyle: const TextStyle(color: Colors.red, fontSize: 12),
         contentPadding:
@@ -209,13 +212,14 @@ class PrimaryButton extends StatelessWidget {
   final String text;
   final Color color;
   final Gradient? gradient;
-  final VoidCallback? onPressed;BorderSide? side;
+  final VoidCallback? onPressed;
+  BorderSide? side;
   final double borderRadius;
   final double? textsize;
   final bool isLoading; // Added loading state
-double? height;
-double? width;
-   PrimaryButton({
+  double? height;
+  double? width;
+  PrimaryButton({
     super.key,
     required this.text,
     this.textsize,
@@ -273,12 +277,13 @@ double? width;
     }
 
     return SizedBox(
-      width:width?? double.infinity,
-      height:height?? 55,
+      width: width ?? double.infinity,
+      height: height ?? 55,
       child: ElevatedButton(
         style: ElevatedButton.styleFrom(
           backgroundColor: color,
-          shape: RoundedRectangleBorder(side: side??BorderSide.none,
+          shape: RoundedRectangleBorder(
+            side: side ?? BorderSide.none,
             borderRadius: BorderRadius.circular(borderRadius),
           ),
           elevation: 0,
@@ -301,7 +306,7 @@ Future<void> showGenericPopup({
 }) async {
   bool isLoading = false;
 
-  await showDialog(
+  await showAppDialog<void>(
     barrierDismissible: false,
     context: context,
     builder: (BuildContext dialogContext) {
